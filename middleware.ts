@@ -13,7 +13,7 @@ const PUBLIC_PATHS = ["/login", "/auth/callback", "/auth/error"];
 export async function middleware(request: NextRequest) {
   const { response, user } = await updateSession(request);
   const { pathname } = request.nextUrl;
-  const isPublic = PUBLIC_PATHS.some((path) => pathname.startsWith(path));
+  const isPublic = pathname === "/" || PUBLIC_PATHS.some((path) => pathname.startsWith(path));
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();
