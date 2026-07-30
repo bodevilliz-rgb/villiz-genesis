@@ -1,0 +1,166 @@
+@import "tailwindcss";
+
+/* ===========================================================================
+   Project Genesis design system
+
+   Dark first, and dark only for v1. Villiz operators live in this tool all day;
+   a single, carefully tuned surface is better than two half-tuned ones. Every
+   colour is a token, so a light theme is a token swap rather than a rewrite.
+
+   The palette is built on a cool near-black (Linear) with a single warm
+   accent. Orange is used sparingly: it marks the active surface and the primary
+   action, and nothing else. That restraint is what makes it read as premium
+   rather than as a highlighter.
+   =========================================================================== */
+
+:root {
+  --background: #08090a;
+  --surface: #0c0e0f;
+  --card: #101314;
+  --card-hover: #14181a;
+  --overlay: rgba(4, 5, 6, 0.72);
+
+  --foreground: #eceef0;
+  --muted: #171b1d;
+  --muted-foreground: #8b939c;
+  --subtle-foreground: #626b73;
+
+  --border: #1e2325;
+  --border-strong: #2b3235;
+  --input: #14181a;
+
+  --primary: #ff6a1f;
+  --primary-hover: #ff7d3d;
+  --primary-foreground: #0a0503;
+  --primary-soft: rgba(255, 106, 31, 0.12);
+  --primary-ring: rgba(255, 106, 31, 0.4);
+
+  --positive: #3ecf8e;
+  --positive-soft: rgba(62, 207, 142, 0.12);
+  --warning: #f5b544;
+  --warning-soft: rgba(245, 181, 68, 0.12);
+  --danger: #f2585b;
+  --danger-soft: rgba(242, 88, 91, 0.12);
+
+  --radius: 0.625rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-card: var(--card);
+  --color-card-hover: var(--card-hover);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-soft: var(--primary-soft);
+  --color-positive: var(--positive);
+  --color-positive-soft: var(--positive-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Operators navigate this tool by keyboard. Focus is never invisible. */
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  ::selection {
+    background: var(--primary-soft);
+    color: var(--foreground);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 999px;
+    border: 3px solid var(--background);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--subtle-foreground);
+  }
+}
+
+@layer components {
+  /* Search result highlighting produced by ts_headline. */
+  .membrain-headline mark {
+    background: var(--primary-soft);
+    color: var(--primary);
+    border-radius: 3px;
+    padding: 0 2px;
+  }
+
+  /* Long-form knowledge rendered as plain text with preserved structure. */
+  .knowledge-body {
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.7;
+  }
+}
+
+/* Motion is used only to confirm that something appeared. Nothing decorative. */
+@keyframes genesis-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-in-fast {
+  animation: genesis-fade-in 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

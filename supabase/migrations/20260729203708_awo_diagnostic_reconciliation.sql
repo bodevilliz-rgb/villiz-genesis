@@ -1,0 +1,22 @@
+-- Reconciliation-only migration. No executable SQL below.
+--
+-- This migration version (20260729203708) already exists in the remote
+-- migration ledger of this shared Supabase project (supabase_migrations
+-- .schema_migrations), applied there directly during an earlier Awo
+-- Chief-of-Staff debugging session.
+--
+-- It originated as temporary, ad-hoc diagnostic SQL used to isolate a
+-- Postgres "generation expression is not immutable" (42P17) error in an
+-- unrelated migration. It was never a real, permanent part of the Awo
+-- schema.
+--
+-- No persistent objects (tables, functions, types, policies, or any other
+-- schema object) remain from this diagnostic step — everything it created
+-- was dropped again in a later cleanup step before Awo's real migrations
+-- were finalized.
+--
+-- This file exists solely so that this Genesis repository's local
+-- migration history lines up with the remote ledger entry that already
+-- exists for this version — running `supabase migration list` needs a
+-- local file at this version to report "in sync" rather than "remote-only".
+-- It intentionally contains no executable SQL, so applying it does nothing.
