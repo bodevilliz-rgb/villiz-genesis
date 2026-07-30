@@ -14,26 +14,26 @@
    =========================================================================== */
 
 :root {
-  --background: #08090a;
-  --surface: #0c0e0f;
-  --card: #101314;
-  --card-hover: #14181a;
-  --overlay: rgba(4, 5, 6, 0.72);
+  --background: #080808;
+  --surface: #131313;
+  --card: #131313;
+  --card-hover: #1b1b1b;
+  --overlay: rgba(8, 8, 8, 0.75);
 
-  --foreground: #eceef0;
-  --muted: #171b1d;
-  --muted-foreground: #8b939c;
-  --subtle-foreground: #626b73;
+  --foreground: #ffffff;
+  --muted: #1b1b1b;
+  --muted-foreground: #b8b8b8;
+  --subtle-foreground: #7a7a7a;
 
-  --border: #1e2325;
-  --border-strong: #2b3235;
-  --input: #14181a;
+  --border: #2e2e2e;
+  --border-strong: #2e2e2e;
+  --input: #131313;
 
-  --primary: #ff6a1f;
-  --primary-hover: #ff7d3d;
-  --primary-foreground: #0a0503;
-  --primary-soft: rgba(255, 106, 31, 0.12);
-  --primary-ring: rgba(255, 106, 31, 0.4);
+  --primary: #ff6a00;
+  --primary-hover: #ff7d1a;
+  --primary-foreground: #ffffff;
+  --primary-soft: rgba(255, 106, 0, 0.12);
+  --primary-ring: rgba(255, 106, 0, 0.4);
 
   --positive: #3ecf8e;
   --positive-soft: rgba(62, 207, 142, 0.12);
@@ -42,7 +42,7 @@
   --danger: #f2585b;
   --danger-soft: rgba(242, 88, 91, 0.12);
 
-  --radius: 0.625rem;
+  --radius: 0.5rem;
 }
 
 @theme inline {

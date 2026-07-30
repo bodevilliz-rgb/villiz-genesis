@@ -18,18 +18,27 @@ import { routes } from "@/lib/routes";
  * `SidebarNav` as a prop, so it must stay plain data. `SidebarNav` resolves
  * the actual lucide-react icon component itself via its own `iconMap`.
  */
-const PRIMARY_NAV: NavItem[] = [
-  { href: routes.dashboard, label: "Dashboard", icon: "dashboard" },
-  { href: routes.organisations.index, label: "Clients", icon: "building", prefix: true },
-  { href: routes.review, label: "Review queue", icon: "check-circle" },
+const MISSION_NAV: NavItem[] = [
+  { href: routes.dashboard, label: "Mission Control", icon: "dashboard" },
+  { href: "#inbox", label: "Inbox", icon: "inbox", disabled: true, note: "Soon" },
+  { href: "#notifications", label: "Notifications", icon: "bell", disabled: true, note: "Soon" },
 ];
 
-// Content Studio (Sprint 3) and Campaigns (Sprint 3.2) both shipped and live
-// in the per-organisation nav (see organisations/[orgId]/layout.tsx) — they
-// no longer belong here.
-const PLANNED_NAV: NavItem[] = [
-  { href: "#queue", label: "Publishing queue", icon: "calendar-clock", disabled: true, note: "S3" },
-  { href: "#media", label: "Media library", icon: "images", disabled: true, note: "S3" },
+const OPERATIONS_NAV: NavItem[] = [
+  { href: routes.organisations.index, label: "Clients", icon: "building", prefix: true },
+  { href: "#projects", label: "Projects", icon: "folders", disabled: true, note: "Soon" },
+  { href: "#creative", label: "Creative", icon: "pen-line", disabled: true, note: "Soon" },
+  { href: routes.review, label: "Reviews", icon: "check-circle" },
+  { href: "#publishing", label: "Publishing", icon: "calendar-clock", disabled: true, note: "Soon" },
+];
+
+const BUSINESS_NAV: NavItem[] = [
+  { href: "#reports", label: "Reports", icon: "bar-chart", disabled: true, note: "Soon" },
+  { href: "#finance", label: "Finance", icon: "wallet", disabled: true, note: "Soon" },
+];
+
+const INTELLIGENCE_NAV: NavItem[] = [
+  { href: "#awo", label: "Awo", icon: "sparkles", disabled: true, note: "Soon" },
 ];
 
 export default async function WorkspaceLayout({ children }: { children: React.ReactNode }) {
@@ -52,13 +61,15 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
 
         <OrganisationSwitcher organisations={organisations} canCreate={context.actor.isPlatformAdmin} />
 
-        <div className="mt-3 flex-1 overflow-y-auto">
-          <SidebarNav items={PRIMARY_NAV} />
-          <SidebarNav items={PLANNED_NAV} label="Coming next" />
+        <div className="mt-3 flex-1 overflow-y-auto space-y-4">
+          <SidebarNav items={MISSION_NAV} label="Mission" />
+          <SidebarNav items={OPERATIONS_NAV} label="Operations" />
+          <SidebarNav items={BUSINESS_NAV} label="Business" />
+          <SidebarNav items={INTELLIGENCE_NAV} label="Intelligence" />
         </div>
 
         <div className="border-t border-border pt-2">
-          <SidebarNav items={[{ href: routes.settings, label: "Settings", icon: "settings" }]} />
+          <SidebarNav items={[{ href: routes.settings, label: "Settings", icon: "settings" }]} label="System" />
           <UserMenu actor={context.actor} />
         </div>
       </aside>
@@ -77,8 +88,9 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
         </header>
 
         <div className="lg:hidden">
-          <div className="border-b border-border px-4 py-2">
-            <SidebarNav items={PRIMARY_NAV} />
+          <div className="border-b border-border px-4 py-2 space-y-2">
+            <SidebarNav items={MISSION_NAV} label="Mission" />
+            <SidebarNav items={OPERATIONS_NAV} label="Operations" />
           </div>
         </div>
 

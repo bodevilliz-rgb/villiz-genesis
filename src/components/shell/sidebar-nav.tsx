@@ -13,16 +13,16 @@ import {
   PenLine,
   Settings2,
   Users,
+  Inbox,
+  Bell,
+  Folders,
+  BarChart3,
+  Wallet,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-/**
- * String keys only — never a component/function reference — so `NavItem[]`
- * built in a Server Component (see the workspace and organisation layouts)
- * stays a plain, serializable data structure. The actual icon component is
- * resolved from `iconMap` below, entirely inside this Client Component.
- */
 export type IconName =
   | "dashboard"
   | "building"
@@ -34,7 +34,13 @@ export type IconName =
   | "layout-list"
   | "brain"
   | "users"
-  | "check-circle";
+  | "check-circle"
+  | "inbox"
+  | "bell"
+  | "folders"
+  | "bar-chart"
+  | "wallet"
+  | "sparkles";
 
 const iconMap: Record<IconName, LucideIcon> = {
   dashboard: LayoutDashboard,
@@ -48,6 +54,12 @@ const iconMap: Record<IconName, LucideIcon> = {
   brain: Brain,
   users: Users,
   "check-circle": CheckCircle2,
+  inbox: Inbox,
+  bell: Bell,
+  folders: Folders,
+  "bar-chart": BarChart3,
+  wallet: Wallet,
+  sparkles: Sparkles,
 } as const;
 
 export interface NavItem {
