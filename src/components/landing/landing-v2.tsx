@@ -28,14 +28,13 @@ export function PublicHeader() {
         <span className="font-mono text-sm font-bold uppercase tracking-[0.25em] text-white">Villiz Pixels</span>
       </Link>
 
-      {/* Desktop Navigation */}
       <nav className="hidden md:flex items-center gap-8 text-[12px] text-muted-foreground uppercase tracking-widest font-semibold">
-        <a href="#work" className="hover:text-white transition-colors">Work</a>
-        <a href="#services" className="hover:text-white transition-colors">Services</a>
-        <a href="#philosophy" className="hover:text-white transition-colors">Philosophy</a>
-        <a href="#process" className="hover:text-white transition-colors">Process</a>
-        <a href="#why-villiz" className="hover:text-white transition-colors">Why Villiz</a>
-        <a href="#contact" className="hover:text-white transition-colors">Contact</a>
+        <a href="#work" className="link-underline hover:text-white transition-colors">Work</a>
+        <a href="#services" className="link-underline hover:text-white transition-colors">Services</a>
+        <a href="#philosophy" className="link-underline hover:text-white transition-colors">Philosophy</a>
+        <a href="#process" className="link-underline hover:text-white transition-colors">Process</a>
+        <a href="#why-villiz" className="link-underline hover:text-white transition-colors">Why Villiz</a>
+        <a href="#contact" className="link-underline hover:text-white transition-colors">Contact</a>
       </nav>
 
       <div className="hidden md:block">
@@ -87,33 +86,33 @@ export function HeroSection() {
   return (
     <section className="relative min-h-screen flex flex-col justify-center items-center px-6 md:px-12 text-center overflow-hidden bg-gradient-to-b from-[#050505] to-[#080808]">
       {/* Subtle brand glow overlay */}
-      <div aria-hidden className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-primary/5 rounded-full blur-[120px] pointer-events-none" />
+      <div aria-hidden className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-primary/5 rounded-full blur-[120px] pointer-events-none animate-ambient" />
 
       <div className="max-w-5xl mx-auto flex flex-col items-center gap-8 relative z-10">
-        <span className="font-mono text-[10px] uppercase tracking-[0.3em] text-primary font-bold animate-pulse">
+        <span className="font-mono text-[10px] uppercase tracking-[0.3em] text-primary font-bold animate-reveal-1">
           CREATIVE PRODUCTION & MARKETING
         </span>
-        <h1 className="font-sans font-extrabold text-4xl sm:text-7xl tracking-tight leading-[1.05] max-w-4xl text-white">
+        <h1 className="font-sans font-extrabold text-4xl sm:text-7xl tracking-tight leading-[1.05] max-w-4xl text-white animate-reveal-2">
           Where Every Frame <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-orange-400">Tells a Story.</span>
         </h1>
-        <p className="text-[14px] sm:text-lg text-muted-foreground max-w-2xl leading-relaxed mt-2 font-medium">
+        <p className="text-[14px] sm:text-lg text-muted-foreground max-w-2xl leading-relaxed mt-2 font-medium animate-reveal-3">
           We help brands, businesses and people create images, campaigns and digital experiences that remain memorable long after the moment has passed.
         </p>
-        <div className="flex flex-col sm:flex-row gap-4 mt-6 w-full sm:w-auto justify-center">
+        <div className="flex flex-col sm:flex-row gap-4 mt-6 w-full sm:w-auto justify-center animate-reveal-4">
           <a 
             href="#work" 
-            className="bg-primary hover:bg-primary-hover text-white text-[13px] font-bold tracking-wide uppercase px-8 py-4 rounded transition-colors flex items-center justify-center gap-2 cursor-pointer"
+            className="bg-primary hover:bg-primary-hover text-white text-[13px] font-bold tracking-wide uppercase px-8 py-4 rounded transition-colors flex items-center justify-center gap-2 cursor-pointer transform hover:-translate-y-0.5 transition-transform duration-200"
           >
             Explore Our Work <ArrowRight className="size-4" />
           </a>
           <a 
             href="#contact" 
-            className="bg-card hover:bg-[#1a1a1a] border border-border text-white text-[13px] font-bold tracking-wide uppercase px-8 py-4 rounded transition-colors text-center cursor-pointer"
+            className="bg-card hover:bg-[#1a1a1a] border border-border text-white text-[13px] font-bold tracking-wide uppercase px-8 py-4 rounded transition-colors text-center cursor-pointer transform hover:-translate-y-0.5 transition-transform duration-200"
           >
             Start a Project
           </a>
         </div>
-        <a href="#philosophy" className="mt-12 font-mono text-[10px] uppercase tracking-[0.2em] text-subtle-foreground hover:text-white transition-colors cursor-pointer">
+        <a href="#philosophy" className="mt-12 font-mono text-[10px] uppercase tracking-[0.2em] text-subtle-foreground hover:text-white transition-colors cursor-pointer animate-reveal-4">
           Meet Villiz ↓
         </a>
       </div>
