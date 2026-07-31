@@ -20,8 +20,9 @@ major_version = 15
 enabled = true
 port = 54323
 
-[inbucket]
+[local_smtp]
 # Local mail catcher — magic links land here during development.
+# (Renamed from the deprecated [inbucket] section per the Supabase CLI's own notice.)
 enabled = true
 port = 54324
 
@@ -37,11 +38,23 @@ jwt_expiry = 3600
 enable_refresh_token_rotation = true
 refresh_token_reuse_interval = 10
 
-# Staff are invited, never self-registered. This mirrors the production setting
-# and the application's own `shouldCreateUser: false`.
+# Staff are invited, never self-registered. This maps directly to
+# GOTRUE_DISABLE_SIGNUP, so `false` here blocks brand-new account creation at
+# the GoTrue level — on top of the application's own `shouldCreateUser: false`
+# on every sign-in request, and `app.handle_new_auth_user()` leaving any
+# profile outside the allowlisted domain permanently inactive regardless (see
+# supabase/migrations/20260728090100_identity.sql). None of this affects
+# existing users signing in — that's the separate flag below.
 enable_signup = false
 
 [auth.email]
-enable_signup = false
+# Despite the name, this is confirmed (empirically, against this CLI version)
+# to be the actual switch for GOTRUE_EXTERNAL_EMAIL_ENABLED — whether the email
+# provider works AT ALL, existing users included, not just new signups.
+# `false` here — this project's setting before this fix — silently broke every
+# magic-link sign-in, even for staff already seeded directly into auth.users.
+# That's a real, previously undiagnosed cause of local (and likely production)
+# login failures, not a hypothetical.
+enable_signup = true
 enable_confirmations = false
 double_confirm_changes = true

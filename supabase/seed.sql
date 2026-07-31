@@ -8,14 +8,83 @@ WHERE id = true;
 
 -- 2. Insert Bodevilliz@gmail.com explicitly into auth.users (to allow auth lookup)
 -- ID: 0eea9074-18f3-4934-9e20-b2bfde1fef05
-INSERT INTO auth.users (id, email, raw_user_meta_data)
+-- Every column below is required for GoTrue itself to find and accept this row.
+-- A minimal insert (id/email/raw_user_meta_data only, as this used to be) looks
+-- fine in the table but is invisible to GoTrue's own logic in three separate
+-- ways, confirmed by comparing against a row GoTrue creates itself:
+--   - instance_id must be the fixed zero-UUID: GoTrue's lookup index is on
+--     (instance_id, lower(email)), so a NULL instance_id never matches.
+--   - email must already be lowercase: GoTrue writes it lowercase itself and
+--     compares exactly, not case-insensitively, against what's stored.
+--   - confirmation_token/recovery_token/email_change/email_change_token_new
+--     have no column default and are NOT NULL in GoTrue's own row-scanning
+--     code; a NULL there breaks the scan with an opaque 500, not a clean error.
+-- Any one of these being wrong makes GoTrue treat this email as never having
+-- signed up, so it tries to create a second user for it — which then collides
+-- with this row's own unique constraints. That was silently breaking both the
+-- real magic-link flow and admin-generated links, not just this seed script.
+INSERT INTO auth.users (
+  id, instance_id, aud, role, email, email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+  confirmation_token, recovery_token, email_change_token_new, email_change, created_at, updated_at
+)
 VALUES (
-  '0eea9074-18f3-4934-9e20-b2bfde1fef05', 
-  'Bodevilliz@gmail.com',
-  '{"full_name": "Bode Villiz"}'::jsonb
+  '0eea9074-18f3-4934-9e20-b2bfde1fef05',
+  '00000000-0000-0000-0000-000000000000',
+  'authenticated',
+  'authenticated',
+  'bodevilliz@gmail.com',
+  now(),
+  '{"provider": "email", "providers": ["email"]}'::jsonb,
+  '{"full_name": "Bode Villiz"}'::jsonb,
+  '',
+  '',
+  '',
+  '',
+  now(),
+  now()
 )
 ON CONFLICT (id) DO UPDATE
-SET email = EXCLUDED.email, raw_user_meta_data = EXCLUDED.raw_user_meta_data;
+SET
+  instance_id = EXCLUDED.instance_id,
+  aud = EXCLUDED.aud,
+  role = EXCLUDED.role,
+  email = EXCLUDED.email,
+  email_confirmed_at = coalesce(auth.users.email_confirmed_at, EXCLUDED.email_confirmed_at),
+  raw_app_meta_data = EXCLUDED.raw_app_meta_data,
+  raw_user_meta_data = EXCLUDED.raw_user_meta_data,
+  confirmation_token = coalesce(auth.users.confirmation_token, ''),
+  recovery_token = coalesce(auth.users.recovery_token, ''),
+  email_change_token_new = coalesce(auth.users.email_change_token_new, ''),
+  email_change_token_current = coalesce(auth.users.email_change_token_current, ''),
+  reauthentication_token = coalesce(auth.users.reauthentication_token, ''),
+  email_change = coalesce(auth.users.email_change, ''),
+  created_at = coalesce(auth.users.created_at, EXCLUDED.created_at),
+  updated_at = now();
+
+-- 2b. Insert the matching auth.identities row. GoTrue resolves "does this email
+-- already have an account" through auth.identities, not auth.users directly —
+-- without this row, both the real magic-link flow (signInWithOtp) and the
+-- admin-generated-link flow treat this email as a brand-new signup and reject
+-- it (enable_signup = false), even though the auth.users row above exists.
+INSERT INTO auth.identities (user_id, provider_id, provider, identity_data, created_at, updated_at)
+VALUES (
+  '0eea9074-18f3-4934-9e20-b2bfde1fef05',
+  '0eea9074-18f3-4934-9e20-b2bfde1fef05',
+  'email',
+  jsonb_build_object(
+    'sub', '0eea9074-18f3-4934-9e20-b2bfde1fef05',
+    'email', 'bodevilliz@gmail.com',
+    'email_verified', true,
+    'phone_verified', false
+  ),
+  now(),
+  now()
+)
+ON CONFLICT (provider_id, provider) DO UPDATE
+SET
+  identity_data = EXCLUDED.identity_data,
+  created_at = coalesce(auth.identities.created_at, EXCLUDED.created_at),
+  updated_at = now();
 
 -- 3. Ensure profile is active and role is set to owner (explicit activation bypassing domain check)
 INSERT INTO public.profiles (id, email, full_name, role, is_active)

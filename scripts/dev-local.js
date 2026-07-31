@@ -1,121 +1,170 @@
+/**
+ * The one official way to start local development.
+ *
+ * Verifies Docker, brings up local Supabase if needed, applies any pending
+ * migrations, applies the idempotent seed data, then boots Next.js on 3001 —
+ * all against the LOCAL stack only. This script must never be able to touch
+ * the remote/hosted Supabase project: that is the exact failure mode ("History
+ * of Issues #4") this environment was previously burned by, so every command
+ * below is deliberately `--local`, never a bare `db push`.
+ *
+ * It does NOT reset the database. `npm run db:reset:local` remains the only
+ * destructive command, and it is never called from here.
+ */
 const { execSync, spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-// Colors for output formatting
 const green = (text) => `\x1b[32m${text}\x1b[0m`;
 const red = (text) => `\x1b[31m${text}\x1b[0m`;
 const yellow = (text) => `\x1b[33m${text}\x1b[0m`;
 const blue = (text) => `\x1b[34m${text}\x1b[0m`;
 
+const REPO_ROOT = path.resolve(__dirname, '..');
+const ORG_ID = '00000000-0000-4000-b000-000000000001';
+
 function runCmd(command, options = {}) {
   try {
-    return execSync(command, { encoding: 'utf8', stdio: options.silent ? 'pipe' : 'inherit', ...options });
+    return execSync(command, { encoding: 'utf8', stdio: options.silent ? 'pipe' : 'inherit', cwd: REPO_ROOT, ...options });
   } catch (err) {
     if (options.ignoreError) return null;
     throw err;
   }
 }
 
-console.log(blue("=== Starting Villiz One Local Stabilised Environment ==="));
+function fail(message) {
+  console.error(red(`✘ ${message}`));
+  process.exit(1);
+}
 
-// 1. Verify Docker is running
-console.log(blue("\nStep 1: Verifying Docker status..."));
+/** Reads project_id out of supabase/config.toml so the Docker container name is never a hardcoded guess. */
+function localDbContainerName() {
+  const toml = fs.readFileSync(path.join(REPO_ROOT, 'supabase', 'config.toml'), 'utf8');
+  const match = toml.match(/^project_id\s*=\s*"([^"]+)"/m);
+  if (!match) fail('Could not read project_id from supabase/config.toml.');
+  return `supabase_db_${match[1]}`;
+}
+
+console.log(blue('=== Starting Villiz One Local Development Environment ==='));
+
+// 1. Docker must be running before anything else can work.
+console.log(blue('\nStep 1/6: Verifying Docker...'));
 try {
   runCmd('docker info', { silent: true });
-  console.log(green("✔ Docker is running successfully."));
-} catch (err) {
-  console.error(red("✘ Docker is not running. Please start Docker Desktop and try again."));
-  process.exit(1);
+  console.log(green('✔ Docker is running.'));
+} catch {
+  fail('Docker is not running. Start Docker Desktop and try again.');
 }
 
-// 2. Start local Supabase if it is not running
-console.log(blue("\nStep 2: Checking local Supabase status..."));
-let statusOutput = '';
-try {
-  statusOutput = runCmd('npx supabase status', { silent: true, ignoreError: true }) || '';
-} catch (err) {}
+// 2. Environment sanity check — refuse to run against a remote project by accident.
+console.log(blue('\nStep 2/6: Verifying .env.local points at LOCAL Supabase...'));
+const envPath = path.join(REPO_ROOT, '.env.local');
+if (!fs.existsSync(envPath)) {
+  fail('.env.local is missing. Copy .env.example to .env.local (values are printed by `npx supabase status` once started).');
+}
+const envContents = fs.readFileSync(envPath, 'utf8');
+const urlLine = envContents.split('\n').find((l) => l.startsWith('NEXT_PUBLIC_SUPABASE_URL='));
+const localUrlPattern = /NEXT_PUBLIC_SUPABASE_URL=.*(127\.0\.0\.1|localhost)/;
+if (!urlLine || !localUrlPattern.test(urlLine)) {
+  fail(
+    '.env.local NEXT_PUBLIC_SUPABASE_URL does not point at a local address (127.0.0.1/localhost). ' +
+      'Refusing to start against what looks like a remote project — this is exactly the "alternating between remote and local Supabase" failure mode from History of Issues #4. Fix .env.local and try again.',
+  );
+}
+console.log(green('✔ .env.local targets local Supabase.'));
 
-const isStopped = !statusOutput || statusOutput.includes("stopped") || statusOutput.includes("error");
+// 3. Start local Supabase if it is not already running.
+console.log(blue('\nStep 3/6: Checking local Supabase status...'));
+const isRunning = (() => {
+  try {
+    runCmd('npx supabase status', { silent: true });
+    return true;
+  } catch {
+    return false;
+  }
+})();
 
-if (isStopped) {
-  console.log(yellow("Supabase is stopped. Starting local Supabase containers..."));
+if (!isRunning) {
+  console.log(yellow('Supabase is stopped. Starting local containers (first start can take a minute)...'));
   try {
     runCmd('npx supabase start');
-    console.log(green("✔ Supabase started successfully."));
-  } catch (err) {
-    console.error(red("✘ Failed to start Supabase containers."));
-    process.exit(1);
+    console.log(green('✔ Supabase started.'));
+  } catch {
+    fail('Failed to start local Supabase containers. Run `npx supabase start` directly to see the full error.');
   }
 } else {
-  console.log(green("✔ Supabase containers are already running."));
+  console.log(green('✔ Supabase is already running.'));
 }
 
-// 3. Ensure migrations are applied safely
-console.log(blue("\nStep 3: Checking database migrations..."));
+// 4. Apply any pending migrations — LOCAL ONLY. Never `db push` (that targets
+// the linked remote project) and never `db reset` (that would wipe data).
+console.log(blue('\nStep 4/6: Applying pending migrations (local only)...'));
 try {
-  runCmd('npx supabase migration list', { silent: true });
-  console.log(green("✔ Migrations are up to date."));
+  const output = runCmd('npx supabase migration up --local', { silent: true });
+  console.log(green('✔ Local database is up to date with migrations.'));
+  if (output && !output.includes('"applied":[]')) console.log(output.trim());
 } catch (err) {
-  console.log(yellow("Applying pending migrations..."));
-  try {
-    runCmd('npx supabase db push');
-    console.log(green("✔ Migrations applied successfully."));
-  } catch (pushErr) {
-    console.error(red("✘ Failed to apply database migrations:"), pushErr.message);
-    process.exit(1);
-  }
+  fail(`Failed to apply local migrations: ${err.message}`);
 }
 
-// 4. Ensure preview seed data exists without deleting existing database contents
-console.log(blue("\nStep 4: Applying idempotent preview seed data..."));
+// 5. Apply the idempotent seed data. Piped straight into the running
+// Postgres container's own `psql` — this machine has no system `psql`, and
+// `supabase db query --file` cannot run a multi-statement file (Postgres's
+// extended query protocol rejects "multiple commands in one prepared
+// statement"), so the container's own client is the correct, dependency-free
+// way to run a real .sql file. Verified idempotent: running seed.sql twice in
+// a row produces zero errors and zero duplicate rows.
+console.log(blue('\nStep 5/6: Applying idempotent seed data...'));
 try {
-  const seedPath = path.resolve(__dirname, '../supabase/seed.sql');
-  const seedSql = fs.readFileSync(seedPath, 'utf8');
-  
-  // Clean comments first, then split into individual statements
-  const cleanSql = seedSql
-    .split('\n')
-    .map(line => {
-      const parts = line.split('--');
-      return parts[0].trim();
-    })
-    .filter(line => line.length > 0)
-    .join(' ');
-    
-  const commands = cleanSql
-    .split(';')
-    .map(cmd => cmd.trim())
-    .filter(cmd => cmd.length > 0);
-
-  for (const cmd of commands) {
-    // Run npx supabase db query --local "cmd"
-    const escapedCmd = cmd.replace(/"/g, '\\"').replace(/`/g, '\\`');
-    runCmd(`npx supabase db query --local "${escapedCmd}"`, { silent: true });
-  }
-  console.log(green("✔ Idempotent preview seed data successfully verified and applied."));
+  const container = localDbContainerName();
+  const seedPath = path.join(REPO_ROOT, 'supabase', 'seed.sql');
+  const seedSql = fs.readFileSync(seedPath);
+  execSync(`docker exec -i ${container} psql -U postgres -d postgres -v ON_ERROR_STOP=1`, {
+    input: seedSql,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  console.log(green('✔ Seed data applied (idempotent — safe to run every time).'));
 } catch (err) {
-  console.error(red("✘ Failed to apply preview seed data:"), err.message);
-  process.exit(1);
+  fail(`Failed to apply seed data: ${err.message}`);
 }
 
-// 5. Print preview URLs clearly
-console.log(blue("\n=== Preview URLs ==="));
-console.log(`Local Web App:    ${green("http://localhost:3001")}`);
-console.log(`Supabase Studio:  ${green("http://127.0.0.1:54323")}`);
-console.log(`Inbucket Inbox:   ${green("http://127.0.0.1:54324")}`);
-console.log(`Staff Account:    ${green("Bodevilliz@gmail.com")} (Role: Lead)`);
-console.log(`Client Workspace: ${green("Villiz Pixels")} (ID: 00000000-0000-4000-b000-000000000001)`);
-console.log(blue("===================="));
+// 6. Verify the seed actually landed before handing control to the developer.
+console.log(blue('\nStep 6/6: Verifying seeded organisation exists...'));
+try {
+  const container = localDbContainerName();
+  const result = execSync(
+    `docker exec -i ${container} psql -U postgres -d postgres -t -A -c "select name from public.organisations where id = '${ORG_ID}'"`,
+  ).toString().trim();
+  if (result !== 'Villiz Pixels') {
+    fail(`Seed verification failed: expected organisation "Villiz Pixels" (${ORG_ID}), got "${result || '(none)'}".`);
+  }
+  console.log(green('✔ Seeded organisation "Villiz Pixels" confirmed.'));
+} catch (err) {
+  fail(`Could not verify seed data: ${err.message}`);
+}
 
-// 6. Start Next.js on port 3001
-console.log(blue("\nStep 5: Booting Next.js on port 3001..."));
+console.log(blue('\n=== Environment Ready ==='));
+console.log(`Local Web App:     ${green('http://localhost:3001')}`);
+console.log(`Supabase Studio:   ${green('http://127.0.0.1:54323')}`);
+console.log(`Mail Catcher:      ${green('http://127.0.0.1:54324')}`);
+console.log(`Staff Account:     ${green('Bodevilliz@gmail.com')} (role: lead)`);
+console.log(`Client Workspace:  ${green('Villiz Pixels')} (${ORG_ID})`);
+console.log(`Database resets:   ${yellow('manual only')} — run \`npm run db:reset:local\` yourself when you need one.`);
+console.log(blue('==========================\n'));
+
+console.log(blue('Booting Next.js on port 3001...\n'));
 const devServer = spawn('npm', ['run', 'dev', '--', '-p', '3001'], {
   stdio: 'inherit',
   shell: true,
-  env: { ...process.env, PORT: '3001' }
+  cwd: REPO_ROOT,
+  env: { ...process.env, PORT: '3001' },
 });
 
 devServer.on('error', (err) => {
-  console.error(red("✘ Failed to start Next.js development server:"), err.message);
+  console.error(red('✘ Failed to start Next.js development server:'), err.message);
+});
+
+process.on('SIGINT', () => {
+  devServer.kill('SIGINT');
+  process.exit(0);
 });

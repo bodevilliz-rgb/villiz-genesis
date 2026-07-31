@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 import { LoginForm } from "./login-form";
+import { DevLoginButton } from "./dev-login-button";
 
 export const metadata: Metadata = { title: "Sign in" };
+
+const DEV_LOGIN_EMAIL = "Bodevilliz@gmail.com";
 
 /**
  * The sign-in screen states plainly what this platform is and who it is for.
@@ -9,6 +12,8 @@ export const metadata: Metadata = { title: "Sign in" };
  * account for them to open — that is a product decision, not an oversight.
  */
 export default function LoginPage() {
+  const devLoginEnabled = process.env.NODE_ENV === "development" && process.env.ENABLE_DEV_LOGIN === "true";
+
   return (
     <main className="flex min-h-screen items-center justify-center px-6 py-12">
       <div className="w-full max-w-sm">
@@ -27,6 +32,8 @@ export default function LoginPage() {
         </div>
 
         <LoginForm />
+
+        {devLoginEnabled ? <DevLoginButton email={DEV_LOGIN_EMAIL} /> : null}
 
         <p className="mt-8 text-[12px] leading-relaxed text-subtle-foreground">
           Access is granted by a platform administrator. If your address is not recognised, ask your account lead

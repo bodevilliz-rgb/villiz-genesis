@@ -9,6 +9,8 @@ import type { Database } from "./database.types";
  * Permitted uses are deliberately narrow and must stay that way:
  *   - inviting Villiz staff (writes to auth.users)
  *   - platform administration scripts
+ *   - the development-only sign-in shortcut (src/server/actions/dev-auth.ts),
+ *     itself gated so it can never run outside local development
  *
  * It must never be used to serve a page or fulfil a user-supplied filter.
  */
