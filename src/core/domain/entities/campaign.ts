@@ -62,14 +62,47 @@ export interface Campaign {
   updatedAt: string;
   createdBy: { id: string; fullName: string | null; email: string } | null;
   updatedBy: { id: string; fullName: string | null; email: string } | null;
+
+  // Sprint 2 properties
+  client: string | null;
+  brand: string | null;
+  campaignType: string | null;
+  ownerId: string | null;
+  teamMembers: string[];
+  colorLabel: string | null;
+  tags: string[];
+  priority: string | null;
+  notes: string | null;
+  // Legacy JSON format retained for backward compatibility or migration script handling
+  legacyAssets?: { name: string; url: string; mimeType?: string; sizeBytes?: number }[];
+  assets?: { assetId: string; attachedBy: string | null; createdAt: string; asset?: import('./media').MediaAsset }[];
+}
+
+export interface CampaignCreatedEvent {
+  eventId: string;
+  occurredAt: string;
+  campaignId: string;
+  organisationId: string;
+  name: string;
+  actorId: string;
+}
+
+export interface CampaignCompletedEvent {
+  eventId: string;
+  occurredAt: string;
+  campaignId: string;
+  organisationId: string;
+  actorId: string;
 }
 
 export interface CampaignOverview {
   campaign: Campaign;
   draftCounts: {
     draft: number;
-    needsReview: number;
+    inReview: number;
     approved: number;
+    scheduled: number;
+    published: number;
     total: number;
   };
 }

@@ -1,10 +1,21 @@
 import { z } from "zod";
 
-export const contentDraftStatusSchema = z.enum(["draft", "needs_review", "approved", "rejected"]);
+export const contentDraftStatusSchema = z.enum([
+  "draft",
+  "in_review",
+  "changes_requested",
+  "approved",
+  "scheduled",
+  "published",
+  "archived",
+]);
 export const contentDraftTypeSchema = z.enum([
   "social_post",
+  "caption",
+  "campaign_copy",
   "email",
   "blog_article",
+  "image_prompt",
   "ad_copy",
   "video_script",
   "other",
@@ -18,6 +29,10 @@ export const createDraftSchema = z.object({
   campaignId: z.string().uuid().optional().or(z.literal("")),
   summary: z.string().trim().max(500, "Keep the summary under 500 characters").optional().or(z.literal("")),
   body: z.string().max(50000).optional().or(z.literal("")),
+
+  // Sprint 2 fields
+  dueAt: z.string().trim().optional().or(z.literal("")),
+  reviewerIds: z.array(z.string().uuid()).optional().default([]),
 });
 
 export const updateDraftSchema = createDraftSchema.extend({

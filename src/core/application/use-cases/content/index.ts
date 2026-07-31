@@ -89,6 +89,10 @@ export async function createDraft(deps: ContentDeps, raw: unknown): Promise<Cont
     summary: blank(input.summary),
     body: input.body?.trim() ?? "",
     createdBy: deps.actor.id,
+
+    // Sprint 2 features
+    dueAt: blank(input.dueAt),
+    reviewerIds: input.reviewerIds ?? [],
   });
 }
 
@@ -117,6 +121,10 @@ export async function updateDraft(deps: ContentDeps, raw: unknown): Promise<Cont
     summary: blank(input.summary),
     body: input.body?.trim() ?? "",
     updatedBy: deps.actor.id,
+
+    // Sprint 2 features
+    dueAt: blank(input.dueAt),
+    reviewerIds: input.reviewerIds ?? [],
   });
 
   // The database writes the version row; the reason for the change is a human
@@ -177,4 +185,69 @@ export async function getContentOverview(deps: ContentDeps, organisationId: stri
 
   const totalDrafts = Object.values(byStatus).reduce((sum, count) => sum + count, 0);
   return { totalDrafts, byStatus, recentDrafts };
+}
+
+export async function scheduleDraft(
+  deps: ContentDeps,
+  organisationId: string,
+  draftId: string,
+  raw: { scheduledAt: string; platform: string; timezone: string }
+): Promise<ContentDraft> {
+  await requireRole(deps, organisationId, canWriteContent);
+  const existing = await deps.content.findDraft(organisationId, draftId);
+  if (!existing) throw new NotFoundError("Draft");
+  if (existing.status !== "approved" && existing.status !== "scheduled") {
+    throw new ValidationError("Only approved content can be scheduled.");
+  }
+  return deps.content.scheduleDraft(organisationId, draftId, {
+    ...raw,
+    updatedBy: deps.actor.id,
+  });
+}
+
+export async function publishDraft(
+  deps: ContentDeps,
+  organisationId: string,
+  draftId: string
+): Promise<ContentDraft> {
+  await requireRole(deps, organisationId, canWriteContent);
+  const existing = await deps.content.findDraft(organisationId, draftId);
+  if (!existing) throw new NotFoundError("Draft");
+  if (existing.status !== "approved" && existing.status !== "scheduled") {
+    throw new ValidationError("Only approved or scheduled content can be published.");
+  }
+  return deps.content.updateStatus(organisationId, draftId, "published", deps.actor.id);
+}
+
+export async function archiveDraft(
+  deps: ContentDeps,
+  organisationId: string,
+  draftId: string
+): Promise<ContentDraft> {
+  await requireRole(deps, organisationId, canWriteContent);
+  const existing = await deps.content.findDraft(organisationId, draftId);
+  if (!existing) throw new NotFoundError("Draft");
+  return deps.content.updateStatus(organisationId, draftId, "archived", deps.actor.id);
+}
+
+export async function duplicateDraft(
+  deps: ContentDeps,
+  organisationId: string,
+  draftId: string
+): Promise<ContentDraft> {
+  await requireRole(deps, organisationId, canWriteContent);
+  const existing = await deps.content.findDraft(organisationId, draftId);
+  if (!existing) throw new NotFoundError("Draft");
+  return deps.content.createDraft({
+    organisationId,
+    title: `${existing.title} (Copy)`,
+    contentType: existing.contentType,
+    categoryId: existing.category?.id ?? null,
+    campaignId: existing.campaign?.id ?? null,
+    summary: existing.summary,
+    body: existing.body,
+    createdBy: deps.actor.id,
+    dueAt: existing.dueAt,
+    reviewerIds: existing.reviewerIds,
+  });
 }

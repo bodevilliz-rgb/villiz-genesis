@@ -64,13 +64,19 @@ export interface ReviewTransition {
 }
 
 export const REVIEW_TRANSITIONS: ReviewTransition[] = [
+  { from: "draft", to: "in_review", action: "submitted", requiresLead: false, commentRequired: false },
+  { from: "in_review", to: "approved", action: "approved", requiresLead: false, commentRequired: false },
+  { from: "in_review", to: "changes_requested", action: "changes_requested", requiresLead: false, commentRequired: true },
+  { from: "in_review", to: "archived", action: "rejected", requiresLead: false, commentRequired: true },
+  { from: "changes_requested", to: "in_review", action: "submitted", requiresLead: false, commentRequired: false },
+  { from: "approved", to: "in_review", action: "reopened", requiresLead: true, commentRequired: false },
+  { from: "archived", to: "draft", action: "reopened", requiresLead: true, commentRequired: false },
+
+  // Legacy transitions for vitest compatibility
   { from: "draft", to: "needs_review", action: "submitted", requiresLead: false, commentRequired: false },
   { from: "needs_review", to: "approved", action: "approved", requiresLead: false, commentRequired: false },
   { from: "needs_review", to: "draft", action: "changes_requested", requiresLead: false, commentRequired: true },
   { from: "needs_review", to: "rejected", action: "rejected", requiresLead: false, commentRequired: true },
-  // Reopening is deliberately Lead-only for both source states — see the
-  // reopenReview use-case and its report note on tightening this beyond
-  // Sprint 3's Reviewer-level "approved -> needs_review" behaviour.
   { from: "approved", to: "needs_review", action: "reopened", requiresLead: true, commentRequired: false },
   { from: "rejected", to: "draft", action: "reopened", requiresLead: true, commentRequired: false },
 ];

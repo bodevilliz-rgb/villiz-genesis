@@ -33,7 +33,15 @@ const GENERATION_REQUEST_SELECT = `
   requested_by_profile:profiles(id, full_name, email)
 `;
 
-const DRAFT_STATUSES: ContentDraftStatus[] = ["draft", "needs_review", "approved", "rejected"];
+const DRAFT_STATUSES: ContentDraftStatus[] = [
+  "draft",
+  "in_review",
+  "changes_requested",
+  "approved",
+  "scheduled",
+  "published",
+  "archived",
+];
 
 const ACTIVITY_VERSION_SELECT = `
   id, draft_id, organisation_id, version, title, created_at,
@@ -130,7 +138,10 @@ export class SupabaseContentRepository implements ContentRepository {
         body: input.body,
         created_by: input.createdBy,
         updated_by: input.createdBy,
-      })
+        due_at: input.dueAt,
+        reviewer_ids: input.reviewerIds,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any)
       .select(DRAFT_SELECT)
       .single();
 
@@ -148,9 +159,54 @@ export class SupabaseContentRepository implements ContentRepository {
         summary: input.summary,
         body: input.body,
         updated_by: input.updatedBy,
-      })
+        due_at: input.dueAt,
+        reviewer_ids: input.reviewerIds,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any)
       .eq("id", draftId)
       .eq("organisation_id", input.organisationId)
+      .select(DRAFT_SELECT)
+      .single();
+
+    return toDraft(unwrap(result, "Draft") as unknown as DraftRowWithRelations);
+  }
+
+  async scheduleDraft(
+    organisationId: string,
+    draftId: string,
+    input: { scheduledAt: string; platform: string; timezone: string; updatedBy: string }
+  ) {
+    const result = await this.client
+      .from("content_drafts")
+      .update({
+        status: "scheduled",
+        scheduled_at: input.scheduledAt,
+        scheduled_platform: input.platform,
+        scheduled_timezone: input.timezone,
+        updated_by: input.updatedBy,
+      })
+      .eq("id", draftId)
+      .eq("organisation_id", organisationId)
+      .select(DRAFT_SELECT)
+      .single();
+
+    return toDraft(unwrap(result, "Draft") as unknown as DraftRowWithRelations);
+  }
+
+  async updateStatus(
+    organisationId: string,
+    draftId: string,
+    status: ContentDraftStatus,
+    updatedBy: string
+  ) {
+    const result = await this.client
+      .from("content_drafts")
+      .update({
+        status,
+        updated_by: updatedBy,
+      })
+      .eq("id", draftId)
+      .eq("organisation_id", organisationId)
       .select(DRAFT_SELECT)
       .single();
 

@@ -7,8 +7,13 @@ import { routes } from "@/lib/routes";
 const STATUS_TONE: Record<ContentDraft["status"], "muted" | "warning" | "positive" | "danger"> = {
   draft: "muted",
   needs_review: "warning",
+  in_review: "warning",
+  changes_requested: "warning",
   approved: "positive",
   rejected: "danger",
+  scheduled: "positive",
+  published: "positive",
+  archived: "muted",
 };
 
 export function DraftCard({ organisationId, draft }: { organisationId: string; draft: ContentDraft }) {

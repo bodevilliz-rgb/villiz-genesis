@@ -1,6 +1,6 @@
-@import "tailwindcss" source(none);
-@source "../app/**/*.{ts,tsx,js,jsx}";
-@source "../components/**/*.{ts,tsx,js,jsx}";
+@import "tailwindcss";
+@source "../components";
+@source "../app";
 
 /* ===========================================================================
    Project Genesis design system

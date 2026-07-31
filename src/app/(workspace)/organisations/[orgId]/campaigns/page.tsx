@@ -15,6 +15,7 @@ import { CAMPAIGN_STATUS_LABELS, type CampaignStatus } from "@/core/domain/entit
 import { campaignPlatformSchema, campaignStatusSchema } from "@/core/application/dto/campaign-dto";
 import { formatNumber } from "@/lib/format";
 import { routes } from "@/lib/routes";
+import { CampaignDashboard } from "@/components/campaigns/campaign-dashboard";
 
 const STATUS_ORDER: CampaignStatus[] = ["planning", "active", "completed", "archived"];
 
@@ -23,7 +24,7 @@ export default async function CampaignsPage({
   searchParams,
 }: {
   params: Promise<{ orgId: string }>;
-  searchParams: Promise<{ q?: string; status?: string; platform?: string }>;
+  searchParams: Promise<{ q?: string; status?: string; platform?: string; view?: string }>;
 }) {
   const { orgId } = await params;
   const filters = await searchParams;
@@ -43,7 +44,7 @@ export default async function CampaignsPage({
   const status = campaignStatusSchema.safeParse(filters.status).success ? filters.status : undefined;
   const platform = campaignPlatformSchema.safeParse(filters.platform).success ? filters.platform : undefined;
 
-  const [byStatus, campaigns, viewerRole, membrainOverview] = await Promise.all([
+  const [byStatus, campaigns, viewerRole, membrainOverview, drafts] = await Promise.all([
     countCampaignsByStatus(campaignDeps, orgId),
     listCampaigns(campaignDeps, {
       organisationId: orgId,
@@ -55,6 +56,7 @@ export default async function CampaignsPage({
     }),
     context.organisations.viewerRole(orgId),
     getMembrainOverview(membrainDeps, orgId),
+    context.content.listDrafts({ organisationId: orgId, limit: 300, offset: 0 }),
   ]);
 
   const canWrite = canWriteContent(context.actor, viewerRole);
@@ -87,7 +89,19 @@ export default async function CampaignsPage({
         ))}
       </div>
 
-      {!hasAnyCampaigns ? (
+      {/* View Tab Switcher */}
+      <div className="flex gap-2 border-b border-border pb-3">
+        <Button asChild variant={(!filters.view || filters.view === "list") ? "primary" : "secondary"} size="sm">
+          <Link href={`/organisations/${orgId}/campaigns?view=list`}>Campaign List</Link>
+        </Button>
+        <Button asChild variant={filters.view === "dashboard" ? "primary" : "secondary"} size="sm">
+          <Link href={`/organisations/${orgId}/campaigns?view=dashboard`}>Campaign Dashboard</Link>
+        </Button>
+      </div>
+
+      {filters.view === "dashboard" ? (
+        <CampaignDashboard campaigns={campaigns} drafts={drafts} _organisationId={orgId} />
+      ) : !hasAnyCampaigns ? (
         <EmptyState
           icon={<Megaphone aria-hidden />}
           title="No campaigns yet"

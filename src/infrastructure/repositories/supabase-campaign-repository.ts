@@ -122,7 +122,20 @@ export class SupabaseCampaignRepository implements CampaignRepository {
         success_metric: input.successMetric,
         created_by: input.createdBy,
         updated_by: input.createdBy,
-      })
+
+        // Sprint 2 fields
+        client: input.client,
+        brand: input.brand,
+        campaign_type: input.campaignType,
+        owner_id: input.ownerId || null,
+        team_members: input.teamMembers,
+        color_label: input.colorLabel,
+        tags: input.tags,
+        priority: input.priority,
+        notes: input.notes,
+        assets: input.assets,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any)
       .select(CAMPAIGN_SELECT)
       .single();
 
@@ -144,7 +157,20 @@ export class SupabaseCampaignRepository implements CampaignRepository {
         platforms: input.platforms,
         success_metric: input.successMetric,
         updated_by: input.updatedBy,
-      })
+
+        // Sprint 2 fields
+        client: input.client,
+        brand: input.brand,
+        campaign_type: input.campaignType,
+        owner_id: input.ownerId || null,
+        team_members: input.teamMembers,
+        color_label: input.colorLabel,
+        tags: input.tags,
+        priority: input.priority,
+        notes: input.notes,
+        assets: input.assets,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any)
       .eq("id", campaignId)
       .eq("organisation_id", input.organisationId)
       .select(CAMPAIGN_SELECT)

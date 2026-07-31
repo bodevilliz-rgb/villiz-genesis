@@ -18,6 +18,18 @@ export interface CampaignWriteModel {
   status: CampaignStatus;
   platforms: CampaignPlatform[];
   successMetric: string | null;
+
+  // Sprint 2 campaign fields
+  client: string | null;
+  brand: string | null;
+  campaignType: string | null;
+  ownerId: string | null;
+  teamMembers: string[];
+  colorLabel: string | null;
+  tags: string[];
+  priority: string | null;
+  notes: string | null;
+  assets: { name: string; url: string; mimeType?: string; sizeBytes?: number }[];
 }
 
 export interface CampaignRepository {

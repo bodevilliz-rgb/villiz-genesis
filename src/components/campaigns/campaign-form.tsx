@@ -154,6 +154,42 @@ export function CampaignForm({ organisationId, campaign }: { organisationId: str
           />
         </Field>
 
+        <Field id="client" label="Client" hint="Optional" errors={state.fieldErrors?.client}>
+          <Input id="client" name="client" defaultValue={campaign?.client ?? ""} placeholder="Villiz Holdings" />
+        </Field>
+
+        <Field id="brand" label="Brand" hint="Optional" errors={state.fieldErrors?.brand}>
+          <Input id="brand" name="brand" defaultValue={campaign?.brand ?? ""} placeholder="Villiz Pixels" />
+        </Field>
+
+        <Field id="campaignType" label="Campaign Type" hint="Optional" errors={state.fieldErrors?.campaignType}>
+          <Input id="campaignType" name="campaignType" defaultValue={campaign?.campaignType ?? ""} placeholder="Product Launch" />
+        </Field>
+
+        <Field id="priority" label="Priority" errors={state.fieldErrors?.priority}>
+          <Select id="priority" name="priority" defaultValue={campaign?.priority ?? "medium"}>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </Select>
+        </Field>
+
+        <Field id="colorLabel" label="Color Label" hint="Hex color code" errors={state.fieldErrors?.colorLabel}>
+          <Input id="colorLabel" name="colorLabel" defaultValue={campaign?.colorLabel ?? "#FF5733"} placeholder="#FF5733" />
+        </Field>
+
+        <Field id="tags" label="Tags" hint="Comma-separated" errors={state.fieldErrors?.tags}>
+          <Input id="tags" name="tags" defaultValue={campaign?.tags?.join(", ") ?? ""} placeholder="summer, promo, sales" />
+        </Field>
+
+        <Field id="ownerId" label="Campaign Owner (ID)" hint="Optional" errors={state.fieldErrors?.ownerId}>
+          <Input id="ownerId" name="ownerId" defaultValue={campaign?.ownerId ?? ""} placeholder="Profile ID" />
+        </Field>
+
+        <Field id="notes" label="Campaign Notes" hint="Optional" errors={state.fieldErrors?.notes} className="sm:col-span-2">
+          <Textarea id="notes" name="notes" defaultValue={campaign?.notes ?? ""} placeholder="Enter general notes..." rows={3} />
+        </Field>
+
         <div className="sm:col-span-2">
           <p className="mb-1.5 text-[13px] font-medium">Platforms</p>
           <p className="mb-2 text-[11px] text-subtle-foreground">Optional · which channels this campaign is planned for</p>

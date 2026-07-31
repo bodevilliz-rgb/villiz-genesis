@@ -131,7 +131,7 @@ export default async function CampaignDetailPage({
             </CardHeader>
             <CardContent className="grid grid-cols-2 gap-3">
               <Stat label="Draft" value={formatNumber(draftCounts.draft)} />
-              <Stat label="Needs review" value={formatNumber(draftCounts.needsReview)} />
+              <Stat label="Needs review" value={formatNumber(draftCounts.inReview)} />
               <Stat label="Approved" value={formatNumber(draftCounts.approved)} />
               <Stat label="Total" value={formatNumber(draftCounts.total)} />
             </CardContent>

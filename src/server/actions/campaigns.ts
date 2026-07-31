@@ -15,6 +15,9 @@ function campaignDeps(context: Awaited<ReturnType<typeof requireContext>>) {
 }
 
 function campaignFormPayload(formData: FormData) {
+  const tagsRaw = textOrEmpty(formData, "tags");
+  const tags = tagsRaw ? tagsRaw.split(",").map((t) => t.trim()).filter(Boolean) : [];
+
   return {
     organisationId: textOrEmpty(formData, "organisationId"),
     name: textOrEmpty(formData, "name"),
@@ -27,6 +30,18 @@ function campaignFormPayload(formData: FormData) {
     status: textOrEmpty(formData, "status") || "planning",
     platforms: getAll(formData, "platforms"),
     successMetric: textOrEmpty(formData, "successMetric"),
+
+    // Sprint 2 campaign fields
+    client: textOrEmpty(formData, "client"),
+    brand: textOrEmpty(formData, "brand"),
+    campaignType: textOrEmpty(formData, "campaignType"),
+    ownerId: textOrEmpty(formData, "ownerId"),
+    teamMembers: [], // default to empty list or parse if present
+    colorLabel: textOrEmpty(formData, "colorLabel"),
+    tags,
+    priority: textOrEmpty(formData, "priority"),
+    notes: textOrEmpty(formData, "notes"),
+    assets: [],
   };
 }
 

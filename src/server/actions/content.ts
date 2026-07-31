@@ -5,6 +5,10 @@ import {
   createDraft,
   createGenerationRequest,
   updateDraft,
+  scheduleDraft,
+  publishDraft,
+  archiveDraft,
+  duplicateDraft,
 } from "@/core/application/use-cases/content";
 import { errorState, successState, textOrEmpty, type ActionState } from "../action-result";
 import { routes } from "@/lib/routes";
@@ -82,6 +86,77 @@ export async function createGenerationRequestAction(
 
     revalidateContent(request.organisationId, request.draftId);
     return successState("Generation request sent to Awo. This draft is now ready for Awo.", request.draftId);
+  } catch (error) {
+    return errorState(error);
+  }
+}
+
+export async function scheduleDraftAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  try {
+    const context = await requireContext();
+    const organisationId = textOrEmpty(formData, "organisationId");
+    const draftId = textOrEmpty(formData, "id");
+    const scheduledAt = textOrEmpty(formData, "scheduledAt");
+    const platform = textOrEmpty(formData, "platform");
+    const timezone = textOrEmpty(formData, "timezone");
+
+    if (!scheduledAt || !platform || !timezone) {
+      throw new Error("Missing scheduling details.");
+    }
+
+    const draft = await scheduleDraft(contentDeps(context), organisationId, draftId, {
+      scheduledAt,
+      platform,
+      timezone,
+    });
+
+    revalidateContent(draft.organisationId, draft.id);
+    return successState("Content scheduled successfully.", draft.id);
+  } catch (error) {
+    return errorState(error);
+  }
+}
+
+export async function publishDraftAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  try {
+    const context = await requireContext();
+    const organisationId = textOrEmpty(formData, "organisationId");
+    const draftId = textOrEmpty(formData, "id");
+
+    const draft = await publishDraft(contentDeps(context), organisationId, draftId);
+
+    revalidateContent(draft.organisationId, draft.id);
+    return successState("Content marked as published.", draft.id);
+  } catch (error) {
+    return errorState(error);
+  }
+}
+
+export async function archiveDraftAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  try {
+    const context = await requireContext();
+    const organisationId = textOrEmpty(formData, "organisationId");
+    const draftId = textOrEmpty(formData, "id");
+
+    const draft = await archiveDraft(contentDeps(context), organisationId, draftId);
+
+    revalidateContent(draft.organisationId, draft.id);
+    return successState("Content archived.", draft.id);
+  } catch (error) {
+    return errorState(error);
+  }
+}
+
+export async function duplicateDraftAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  try {
+    const context = await requireContext();
+    const organisationId = textOrEmpty(formData, "organisationId");
+    const draftId = textOrEmpty(formData, "id");
+
+    const draft = await duplicateDraft(contentDeps(context), organisationId, draftId);
+
+    revalidateContent(draft.organisationId, draft.id);
+    return successState("Content duplicated.", draft.id);
   } catch (error) {
     return errorState(error);
   }

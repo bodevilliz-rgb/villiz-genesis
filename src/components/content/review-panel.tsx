@@ -26,8 +26,13 @@ import type { EligibleReviewer } from "@/core/application/use-cases/review";
 const STATUS_TONE: Record<ContentDraftStatus, "muted" | "warning" | "positive" | "danger"> = {
   draft: "muted",
   needs_review: "warning",
+  in_review: "warning",
+  changes_requested: "warning",
   approved: "positive",
   rejected: "danger",
+  scheduled: "positive",
+  published: "positive",
+  archived: "muted",
 };
 
 function useActionToast(state: { status: "idle" | "success" | "error"; message: string }) {
@@ -212,15 +217,15 @@ export function ReviewPanel({
       </div>
 
       <div className="flex flex-col gap-2 border-t border-border pt-3">
-        {draft.status === "draft" && canWrite ? (
+        {(draft.status === "draft" || draft.status === "changes_requested") && canWrite ? (
           <SubmitForReviewButton organisationId={organisationId} draftId={draft.id} />
         ) : null}
 
-        {draft.status === "needs_review" ? (
+        {draft.status === "in_review" ? (
           canApprove ? (
             isSelfAuthored ? (
               <p className="text-[12px] text-subtle-foreground">
-                You cannot approve, request changes on, or reject your own draft. Ask another Lead or Reviewer.
+                You cannot approve, request changes on, or archive your own draft. Ask another Lead or Reviewer.
               </p>
             ) : (
               <DecisionForm organisationId={organisationId} draftId={draft.id} />
@@ -230,7 +235,7 @@ export function ReviewPanel({
           )
         ) : null}
 
-        {(draft.status === "approved" || draft.status === "rejected") && canLead ? (
+        {(draft.status === "approved" || draft.status === "archived") && canLead ? (
           <ReopenButton organisationId={organisationId} draftId={draft.id} />
         ) : null}
       </div>

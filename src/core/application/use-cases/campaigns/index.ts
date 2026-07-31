@@ -73,6 +73,18 @@ export async function createCampaign(deps: CampaignDeps, raw: unknown): Promise<
     platforms: input.platforms,
     successMetric: blank(input.successMetric),
     createdBy: deps.actor.id,
+
+    // Sprint 2 campaign fields
+    client: blank(input.client),
+    brand: blank(input.brand),
+    campaignType: blank(input.campaignType),
+    ownerId: blank(input.ownerId),
+    teamMembers: input.teamMembers ?? [],
+    colorLabel: blank(input.colorLabel),
+    tags: input.tags ?? [],
+    priority: blank(input.priority),
+    notes: blank(input.notes),
+    assets: input.assets ?? [],
   });
 }
 
@@ -109,6 +121,18 @@ export async function updateCampaign(deps: CampaignDeps, raw: unknown): Promise<
     platforms: input.platforms,
     successMetric: blank(input.successMetric),
     updatedBy: deps.actor.id,
+
+    // Sprint 2 campaign fields
+    client: blank(input.client),
+    brand: blank(input.brand),
+    campaignType: blank(input.campaignType),
+    ownerId: blank(input.ownerId),
+    teamMembers: input.teamMembers ?? [],
+    colorLabel: blank(input.colorLabel),
+    tags: input.tags ?? [],
+    priority: blank(input.priority),
+    notes: blank(input.notes),
+    assets: input.assets ?? [],
   });
 }
 
@@ -148,10 +172,12 @@ export async function getCampaignOverview(
   return {
     campaign,
     draftCounts: {
-      draft: byStatus.draft,
-      needsReview: byStatus.needs_review,
+      draft: byStatus.draft + byStatus.changes_requested,
+      inReview: byStatus.in_review,
       approved: byStatus.approved,
-      total: byStatus.draft + byStatus.needs_review + byStatus.approved,
+      scheduled: byStatus.scheduled,
+      published: byStatus.published,
+      total: byStatus.draft + byStatus.changes_requested + byStatus.in_review + byStatus.approved + byStatus.scheduled + byStatus.published,
     },
   };
 }

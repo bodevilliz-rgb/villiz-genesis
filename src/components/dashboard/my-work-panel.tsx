@@ -9,8 +9,12 @@ import { routes } from "@/lib/routes";
 
 const STATUS_TONE: Record<string, "muted" | "warning" | "positive"> = {
   draft: "muted",
-  needs_review: "warning",
+  in_review: "warning",
+  changes_requested: "warning",
   approved: "positive",
+  scheduled: "positive",
+  published: "positive",
+  archived: "muted",
 };
 
 function Section({ title, empty, children }: { title: string; empty: string; children: React.ReactNode[] }) {

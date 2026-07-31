@@ -20,7 +20,7 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 export type CampaignStatusDb = "planning" | "active" | "completed" | "archived";
 export type ConnectionStatusDb = "connected" | "expired" | "revoked";
 export type ContentDraftAwoStatusDb = "not_requested" | "ready_for_awo";
-export type ContentDraftStatusDb = "draft" | "needs_review" | "approved" | "rejected";
+export type ContentDraftStatusDb = "draft" | "needs_review" | "in_review" | "changes_requested" | "approved" | "rejected" | "scheduled" | "published" | "archived";
 export type ContentDraftReviewActionDb =
   | "submitted"
   | "assigned"
@@ -29,7 +29,7 @@ export type ContentDraftReviewActionDb =
   | "changes_requested"
   | "rejected"
   | "reopened";
-export type ContentDraftTypeDb = "social_post" | "email" | "blog_article" | "ad_copy" | "video_script" | "other";
+export type ContentDraftTypeDb = "social_post" | "caption" | "campaign_copy" | "email" | "blog_article" | "image_prompt" | "ad_copy" | "video_script" | "other";
 export type MembrainSourceDb = "manual" | "client_brief" | "discovery_call" | "performance_insight" | "competitor_research" | "published_asset";
 export type MembrainStatusDb = "draft" | "active" | "archived";
 export type OrganisationRoleDb = "lead" | "contributor" | "reviewer";
@@ -82,6 +82,9 @@ export type ContentDraftRow = {
   last_review_action: ContentDraftReviewActionDb | null;
   last_review_at: string | null;
   version: number;
+  scheduled_at: string | null;
+  scheduled_platform: string | null;
+  scheduled_timezone: string | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: string;

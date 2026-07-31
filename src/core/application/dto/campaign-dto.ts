@@ -30,6 +30,18 @@ const baseCampaignFields = {
   status: campaignStatusSchema.default("planning"),
   platforms: z.array(campaignPlatformSchema).max(8).default([]),
   successMetric: z.string().trim().max(300).optional().or(z.literal("")),
+
+  // Sprint 2 campaign fields
+  client: z.string().trim().max(200).optional().or(z.literal("")),
+  brand: z.string().trim().max(200).optional().or(z.literal("")),
+  campaignType: z.string().trim().max(200).optional().or(z.literal("")),
+  ownerId: z.string().uuid().optional().or(z.literal("")),
+  teamMembers: z.array(z.string().uuid()).optional().default([]),
+  colorLabel: z.string().trim().max(50).optional().or(z.literal("")),
+  tags: z.array(z.string()).optional().default([]),
+  priority: z.string().optional().or(z.literal("")),
+  notes: z.string().optional().or(z.literal("")),
+  assets: z.array(z.any()).optional().default([]),
 };
 
 /** Shared by create/update — kept as a plain function (not a generic schema

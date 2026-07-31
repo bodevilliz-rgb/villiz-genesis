@@ -16,15 +16,17 @@ import { CONTENT_DRAFT_STATUS_LABELS, type ContentDraftStatus } from "@/core/dom
 import { contentDraftStatusSchema, contentDraftTypeSchema } from "@/core/application/dto/content-dto";
 import { formatNumber } from "@/lib/format";
 import { routes } from "@/lib/routes";
+import { ContentCalendar } from "@/components/content/content-calendar";
+import { ContentPipelineBoard } from "@/components/content/content-pipeline-board";
 
-const STATUS_ORDER: ContentDraftStatus[] = ["draft", "needs_review", "approved", "rejected"];
+const STATUS_ORDER: ContentDraftStatus[] = ["draft", "in_review", "changes_requested", "approved", "scheduled", "published", "archived"];
 
 export default async function ContentStudioPage({
   params,
   searchParams,
 }: {
   params: Promise<{ orgId: string }>;
-  searchParams: Promise<{ q?: string; status?: string; type?: string; author?: string }>;
+  searchParams: Promise<{ q?: string; status?: string; type?: string; author?: string; view?: string }>;
 }) {
   const { orgId } = await params;
   const filters = await searchParams;
@@ -97,7 +99,24 @@ export default async function ContentStudioPage({
         readiness={membrainOverview.readiness}
       />
 
-      {!hasAnyDrafts ? (
+      {/* View Tab Switcher */}
+      <div className="flex gap-2 border-b border-border pb-3">
+        <Button asChild variant={(!filters.view || filters.view === "list") ? "primary" : "secondary"} size="sm">
+          <Link href={`/organisations/${orgId}/content?view=list`}>List View</Link>
+        </Button>
+        <Button asChild variant={filters.view === "calendar" ? "primary" : "secondary"} size="sm">
+          <Link href={`/organisations/${orgId}/content?view=calendar`}>Content Calendar</Link>
+        </Button>
+        <Button asChild variant={filters.view === "board" ? "primary" : "secondary"} size="sm">
+          <Link href={`/organisations/${orgId}/content?view=board`}>Content Pipeline</Link>
+        </Button>
+      </div>
+
+      {filters.view === "calendar" ? (
+        <ContentCalendar drafts={drafts} organisationId={orgId} />
+      ) : filters.view === "board" ? (
+        <ContentPipelineBoard initialDrafts={drafts} organisationId={orgId} />
+      ) : !hasAnyDrafts ? (
         <EmptyState
           icon={<FileText aria-hidden />}
           title="No drafts yet"

@@ -46,7 +46,7 @@ const CAMPAIGN_READINESS_ATTENTION_THRESHOLD = 100;
 const PIPELINE_LABELS: Record<ContentPipelineStageKey, string> = {
   draft: "Draft",
   readyForAwo: "Ready for Awo",
-  needsReview: "Needs review",
+  needsReview: "In review",
   approved: "Approved",
   readyToPublish: "Ready to publish",
   published: "Published",
@@ -67,13 +67,11 @@ function toCampaignContext(campaign: Campaign | CampaignListItem): CampaignConte
 }
 
 /**
- * The five stages an operator asked to see — see the note on
- * ContentPipelineStageKey for why "readyToPublish"/"published" are always
- * static zeroes rather than derived from real drafts.
+ * The five stages an operator asked to see.
  */
 export function buildContentPipeline(drafts: ContentDraft[]): ContentPipelineSummary {
-  const draft = drafts.filter((d) => d.status === "draft").length;
-  const needsReview = drafts.filter((d) => d.status === "needs_review").length;
+  const draft = drafts.filter((d) => d.status === "draft" || d.status === "changes_requested").length;
+  const needsReview = drafts.filter((d) => d.status === "needs_review" || d.status === "in_review").length;
   const approved = drafts.filter((d) => d.status === "approved").length;
   const readyForAwo = drafts.filter((d) => d.awoStatus === "ready_for_awo").length;
 
@@ -130,7 +128,7 @@ export function buildMyWork(input: {
     }));
 
   const reviewsWaiting = drafts
-    .filter((d) => d.status === "needs_review")
+    .filter((d) => d.status === "needs_review" || d.status === "in_review")
     .filter((d) => {
       const role = viewerRoles.get(d.organisationId) ?? null;
       return canApproveContent(actor, role);
@@ -212,12 +210,12 @@ export function buildReviewMetricsBase(
   returnedForChanges: number;
   approvedTodayDrafts: ContentDraft[];
 } {
-  const waitingForAssignment = drafts.filter((d) => d.status === "needs_review" && !d.assignedReviewer).length;
+  const waitingForAssignment = drafts.filter((d) => (d.status === "needs_review" || d.status === "in_review") && !d.assignedReviewer).length;
   const assignedToMe = drafts.filter(
-    (d) => d.status === "needs_review" && d.assignedReviewer?.id === actorId,
+    (d) => (d.status === "needs_review" || d.status === "in_review") && d.assignedReviewer?.id === actorId,
   ).length;
   const returnedForChanges = drafts.filter(
-    (d) => d.status === "draft" && d.lastReviewAction === "changes_requested",
+    (d) => d.status === "changes_requested" || (d.status === "draft" && d.lastReviewAction === "changes_requested"),
   ).length;
   const approvedTodayDrafts = drafts.filter(
     (d) => d.status === "approved" && d.lastReviewAction === "approved" && d.lastReviewAt && isSameUtcDay(d.lastReviewAt, now),

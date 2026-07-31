@@ -15,6 +15,10 @@ export interface ContentDraftWriteModel {
   campaignId: string | null;
   summary: string | null;
   body: string;
+
+  // Sprint 2 features
+  dueAt: string | null;
+  reviewerIds: string[];
 }
 
 export interface ContentRepository {
@@ -42,6 +46,17 @@ export interface ContentRepository {
 
   createDraft(input: ContentDraftWriteModel & { createdBy: string }): Promise<ContentDraft>;
   updateDraft(draftId: string, input: ContentDraftWriteModel & { updatedBy: string }): Promise<ContentDraft>;
+  scheduleDraft(
+    organisationId: string,
+    draftId: string,
+    input: { scheduledAt: string; platform: string; timezone: string; updatedBy: string }
+  ): Promise<ContentDraft>;
+  updateStatus(
+    organisationId: string,
+    draftId: string,
+    status: ContentDraftStatus,
+    updatedBy: string
+  ): Promise<ContentDraft>;
 
   /** Attaches the reason for a change to the version the trigger just wrote. */
   annotateLatestVersion(draftId: string, changeSummary: string): Promise<void>;

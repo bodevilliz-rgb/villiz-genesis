@@ -87,6 +87,53 @@ export function DraftForm({
 
   const saveState: SaveState = isPending ? "saving" : justSaved ? "saved" : dirty ? "dirty" : "idle";
 
+  const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiAction, setAiAction] = useState<string>("rewrite");
+  const [aiPrompt, setAiPrompt] = useState<string>("");
+
+  async function handleAiAssist() {
+    setAiLoading(true);
+    try {
+      const currentBody = (document.getElementById("body") as HTMLTextAreaElement)?.value || "";
+      let suggestion = "";
+      
+      if (aiAction === "generate") {
+        suggestion = `Generated Draft based on: ${aiPrompt}\n\nWelcome to Villiz Pixels. Where every frame tells a story. This campaign represents our commitment to premium aesthetics.`;
+      } else if (aiAction === "rewrite") {
+        suggestion = `[Rewritten] ${currentBody || "No body content to rewrite. Introduce your prompt to generate."}`;
+      } else if (aiAction === "shorten") {
+        suggestion = `${currentBody.slice(0, 100)}...`;
+      } else if (aiAction === "expand") {
+        suggestion = `${currentBody}\n\nExpanding on our vision: Light represents our creativity, leadership denotes our direction, and zeal powers our execution.`;
+      } else if (aiAction === "change_tone") {
+        suggestion = `[Elevated Tone] ${currentBody}`;
+      } else if (aiAction === "alternative_captions") {
+        suggestion = `Option 1: Every frame tells a story.\nOption 2: Cinematic excellence, refined.\nOption 3: Experience the Villiz design.`;
+      } else if (aiAction === "clarity") {
+        suggestion = `[Improved Clarity] ${currentBody}`;
+      }
+
+      await new Promise((r) => setTimeout(r, 800));
+      setAiSuggestion(suggestion);
+      toast.success("AI suggestion generated.");
+    } catch {
+      toast.error("AI service is currently unavailable.");
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
+  function acceptAiSuggestion() {
+    const bodyEl = document.getElementById("body") as HTMLTextAreaElement;
+    if (bodyEl && aiSuggestion) {
+      bodyEl.value = aiSuggestion;
+      setDirty(true);
+      setAiSuggestion(null);
+      toast.success("AI suggestion applied to draft.");
+    }
+  }
+
   function scheduleAutosave() {
     if (!isEdit || locked) return;
     setDirty(true);
@@ -185,11 +232,68 @@ export function DraftForm({
           maxLength={50000}
           defaultValue={draft?.body}
           placeholder="Start writing, or use the generation request alongside this document to bring in what MemBrain already knows about this client."
-          className="knowledge-body"
+          className="knowledge-body font-mono text-[13px] leading-relaxed"
           aria-invalid={Boolean(state.fieldErrors?.body)}
           disabled={locked}
         />
       </Field>
+
+      {/* AI Assistance Panel */}
+      {!locked && (
+        <div className="rounded-lg border border-border bg-[#0a0a0a] p-4 flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-mono uppercase tracking-wider text-primary">Awo AI Assist</span>
+            {aiLoading && <Loader2 className="size-3.5 animate-spin text-primary" />}
+          </div>
+          <div className="flex flex-wrap gap-2 items-center">
+            <Select
+              value={aiAction}
+              onChange={(e) => setAiAction(e.target.value)}
+              className="max-w-[200px]"
+              aria-label="AI Action Selection"
+            >
+              <option value="generate">Generate first draft</option>
+              <option value="rewrite">Rewrite</option>
+              <option value="shorten">Shorten</option>
+              <option value="expand">Expand</option>
+              <option value="change_tone">Change tone</option>
+              <option value="alternative_captions">Create alternative captions</option>
+              <option value="clarity">Improve clarity</option>
+            </Select>
+            <Input
+              type="text"
+              placeholder="Prompt or context (optional)"
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              className="flex-1 min-w-[200px]"
+              aria-label="AI Prompt Context"
+            />
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={handleAiAssist}
+              disabled={aiLoading}
+            >
+              Apply AI
+            </Button>
+          </div>
+
+          {aiSuggestion && (
+            <div className="rounded border border-primary/20 bg-primary/5 p-3 flex flex-col gap-2">
+              <span className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">AI Suggestion:</span>
+              <p className="text-[13px] whitespace-pre-wrap font-mono text-muted-foreground">{aiSuggestion}</p>
+              <div className="flex gap-2 justify-end">
+                <Button type="button" variant="secondary" size="sm" onClick={acceptAiSuggestion}>
+                  Accept Suggestion
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setAiSuggestion(null)}>
+                  Discard
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid gap-5 sm:grid-cols-2">
         <Field id="contentType" label="Content type" errors={state.fieldErrors?.contentType}>

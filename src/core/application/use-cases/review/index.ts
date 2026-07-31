@@ -111,7 +111,9 @@ async function applyTransition(
 export async function submitForReview(deps: ReviewDeps, raw: unknown): Promise<ContentDraft> {
   const parsed = submitForReviewSchema.safeParse(raw);
   if (!parsed.success) throw new ValidationError("That request could not be understood.");
-  return applyTransition(deps, parsed.data, () => "needs_review");
+  return applyTransition(deps, parsed.data, (status) =>
+    status === "changes_requested" ? "in_review" : "needs_review",
+  );
 }
 
 export async function approveDraft(deps: ReviewDeps, raw: unknown): Promise<ContentDraft> {
@@ -123,13 +125,17 @@ export async function approveDraft(deps: ReviewDeps, raw: unknown): Promise<Cont
 export async function requestDraftChanges(deps: ReviewDeps, raw: unknown): Promise<ContentDraft> {
   const parsed = requestDraftChangesSchema.safeParse(raw);
   if (!parsed.success) throw new ValidationError("Check the decision below.", parsed.error.flatten().fieldErrors);
-  return applyTransition(deps, parsed.data, () => "draft");
+  return applyTransition(deps, parsed.data, (status) =>
+    status === "in_review" ? "changes_requested" : "draft",
+  );
 }
 
 export async function rejectDraft(deps: ReviewDeps, raw: unknown): Promise<ContentDraft> {
   const parsed = rejectDraftSchema.safeParse(raw);
   if (!parsed.success) throw new ValidationError("Check the decision below.", parsed.error.flatten().fieldErrors);
-  return applyTransition(deps, parsed.data, () => "rejected");
+  return applyTransition(deps, parsed.data, (status) =>
+    status === "in_review" ? "archived" : "rejected",
+  );
 }
 
 /**
@@ -141,7 +147,7 @@ export async function reopenReview(deps: ReviewDeps, raw: unknown): Promise<Cont
   const parsed = reopenReviewSchema.safeParse(raw);
   if (!parsed.success) throw new ValidationError("That request could not be understood.");
   return applyTransition(deps, parsed.data, (status) =>
-    status === "approved" ? "needs_review" : status === "rejected" ? "draft" : null,
+    status === "approved" ? "needs_review" : (status === "archived" || status === "rejected") ? "draft" : null,
   );
 }
 
@@ -246,26 +252,24 @@ export async function listReviewQueue(
   let drafts: ContentDraft[];
   switch (tab) {
     case "awaiting_assignment":
-      drafts = await deps.content.listDraftsForActor({ ...baseFilters, status: "needs_review", unassigned: true });
+      drafts = await deps.content.listDraftsForActor({ ...baseFilters, status: "in_review", unassigned: true });
       break;
     case "assigned_to_me":
       drafts = await deps.content.listDraftsForActor({
         ...baseFilters,
-        status: "needs_review",
+        status: "in_review",
         assignedReviewerId: deps.actor.id,
       });
       break;
     case "all_pending":
       drafts = await deps.content.listDraftsForActor({
         ...baseFilters,
-        status: "needs_review",
+        status: "in_review",
         assignedReviewerId: filters.assignedReviewerId,
       });
       break;
     case "returned_for_changes":
-      drafts = (await deps.content.listDraftsForActor({ ...baseFilters, status: "draft" })).filter(
-        (draft) => draft.lastReviewAction === "changes_requested",
-      );
+      drafts = await deps.content.listDraftsForActor({ ...baseFilters, status: "changes_requested" });
       break;
     case "recently_approved":
       drafts = await deps.content.listDraftsForActor({ ...baseFilters, status: "approved" });

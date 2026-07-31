@@ -1,8 +1,8 @@
 import type { ReviewActionType } from "./review";
 
-export type ContentDraftStatus = "draft" | "needs_review" | "approved" | "rejected";
+export type ContentDraftStatus = "draft" | "needs_review" | "in_review" | "changes_requested" | "approved" | "rejected" | "scheduled" | "published" | "archived";
 
-export type ContentDraftType = "social_post" | "email" | "blog_article" | "ad_copy" | "video_script" | "other";
+export type ContentDraftType = "social_post" | "caption" | "campaign_copy" | "email" | "blog_article" | "image_prompt" | "ad_copy" | "video_script" | "other";
 
 /**
  * Whether Content Studio has handed a structured generation request to Awo
@@ -15,27 +15,33 @@ export type ContentDraftAwoStatus = "not_requested" | "ready_for_awo";
 
 export const CONTENT_DRAFT_STATUS_LABELS: Record<ContentDraftStatus, string> = {
   draft: "Draft",
-  needs_review: "Needs review",
+  needs_review: "In review",
+  in_review: "In review",
+  changes_requested: "Changes requested",
   approved: "Approved",
-  rejected: "Rejected",
+  rejected: "Archived",
+  scheduled: "Scheduled",
+  published: "Published",
+  archived: "Archived",
 };
 
 /**
- * Approved and rejected are both "decided" states — Content Studio blocks
- * further edits until an authorised Lead reopens the review (see
- * reopenReview in the review use-cases), so the same edit no longer
+ * Approved, scheduled, published, and archived are decided states — Content Studio blocks
+ * further edits until an authorised Lead reopens the review, so the same edit no longer
  * silently drifts a draft away from the decision that was just recorded
- * about it. Draft and Needs Review remain editable exactly as before this
- * workflow existed.
+ * about it. Draft, Needs Review, and Changes Requested remain editable.
  */
 export function isContentDraftLocked(status: ContentDraftStatus): boolean {
-  return status === "approved" || status === "rejected";
+  return status === "approved" || status === "scheduled" || status === "published" || status === "archived" || status === "rejected";
 }
 
 export const CONTENT_DRAFT_TYPE_LABELS: Record<ContentDraftType, string> = {
-  social_post: "Social post",
-  email: "Email",
-  blog_article: "Blog article",
+  social_post: "Social media post",
+  caption: "Caption",
+  campaign_copy: "Campaign copy",
+  email: "Email copy",
+  blog_article: "Blog or article draft",
+  image_prompt: "Image-generation prompt",
   ad_copy: "Ad copy",
   video_script: "Video script",
   other: "Other",
@@ -64,10 +70,63 @@ export interface ContentDraft {
   /** The most recent review action, if any — a read-optimisation over content_draft_reviews (see review.ts). */
   lastReviewAction: ReviewActionType | null;
   lastReviewAt: string | null;
+  scheduledAt: string | null;
+  scheduledPlatform: string | null;
+  scheduledTimezone: string | null;
   createdAt: string;
   updatedAt: string;
   createdBy: { id: string; fullName: string | null; email: string } | null;
   updatedBy: { id: string; fullName: string | null; email: string } | null;
+
+  // Sprint 2 features
+  dueAt: string | null;
+  reviewerIds: string[]; // Support multiple reviewers
+  comments?: CommentThread[];
+  
+  // Sprint 3 features
+  assets?: { assetId: string; attachedBy: string | null; createdAt: string; asset?: import('./media').MediaAsset }[];
+}
+
+export interface CommentThread {
+  id: string;
+  draftId: string;
+  organisationId: string;
+  author: { id: string; fullName: string | null; email: string } | null;
+  parentId: string | null;
+  body: string;
+  isResolved: boolean;
+  resolvedBy: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  replies?: CommentThread[];
+}
+
+export interface ContentCreatedEvent {
+  eventId: string;
+  occurredAt: string;
+  draftId: string;
+  organisationId: string;
+  title: string;
+  actorId: string;
+}
+
+export interface ContentScheduledEvent {
+  eventId: string;
+  occurredAt: string;
+  draftId: string;
+  organisationId: string;
+  scheduledAt: string;
+  platform: string;
+  actorId: string;
+}
+
+export interface ContentPublishedEvent {
+  eventId: string;
+  occurredAt: string;
+  draftId: string;
+  organisationId: string;
+  actorId: string;
 }
 
 export interface ContentDraftVersion {

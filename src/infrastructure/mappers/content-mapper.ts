@@ -20,6 +20,9 @@ export type DraftRowWithRelations = ContentDraftRow & {
   created_by_profile: ProfileRef;
   updated_by_profile: ProfileRef;
   assigned_reviewer_profile: ProfileRef;
+  scheduled_at?: string | null;
+  scheduled_platform?: string | null;
+  scheduled_timezone?: string | null;
 };
 
 export type GenerationRequestRowWithRelations = ContentGenerationRequestRow & {
@@ -55,10 +58,15 @@ export function toDraft(row: DraftRowWithRelations): ContentDraft {
     assignedReviewer: toProfileRef(row.assigned_reviewer_profile),
     lastReviewAction: row.last_review_action,
     lastReviewAt: row.last_review_at,
+    scheduledAt: row.scheduled_at ?? null,
+    scheduledPlatform: row.scheduled_platform ?? null,
+    scheduledTimezone: row.scheduled_timezone ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     createdBy: toProfileRef(row.created_by_profile),
     updatedBy: toProfileRef(row.updated_by_profile),
+    dueAt: (row as unknown as Record<string, unknown>).due_at as string | null ?? null,
+    reviewerIds: (row as unknown as Record<string, unknown>).reviewer_ids as string[] ?? [],
   };
 }
 

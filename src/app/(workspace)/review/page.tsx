@@ -31,8 +31,13 @@ const TABS: ReviewQueueTab[] = [
 const STATUS_TONE: Record<ContentDraftStatus, "muted" | "warning" | "positive" | "danger"> = {
   draft: "muted",
   needs_review: "warning",
+  in_review: "warning",
+  changes_requested: "warning",
   approved: "positive",
   rejected: "danger",
+  scheduled: "positive",
+  published: "positive",
+  archived: "muted",
 };
 
 function tabHref(tab: ReviewQueueTab, searchParams: Record<string, string | undefined>) {

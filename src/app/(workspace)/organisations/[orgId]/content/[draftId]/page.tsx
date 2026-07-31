@@ -8,6 +8,7 @@ import { getReviewHistory, listEligibleReviewers } from "@/core/application/use-
 import { PageHeader } from "@/components/common/page-header";
 import { DraftForm } from "@/components/content/draft-form";
 import { ReviewPanel } from "@/components/content/review-panel";
+import { PublishingPanel } from "@/components/content/publishing-panel";
 import { ReviewHistoryTimeline } from "@/components/content/review-history-timeline";
 import { GenerationReadinessPanel } from "@/components/content/generation-readiness-panel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -96,6 +97,19 @@ export default async function DraftDetailPage({
                 canWrite={canWrite}
                 canApprove={canApprove}
                 canLead={canLead}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Publishing & Scheduling</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <PublishingPanel
+                organisationId={orgId}
+                draft={draft}
+                canWrite={canWrite}
               />
             </CardContent>
           </Card>
