@@ -33,5 +33,9 @@ export const routes = {
       detail: (id: string, campaignId: string) => `/organisations/${id}/campaigns/${campaignId}`,
       edit: (id: string, campaignId: string) => `/organisations/${id}/campaigns/${campaignId}/edit`,
     },
+    media: {
+      index: (id: string) => `/organisations/${id}/media`,
+      detail: (id: string, assetId: string) => `/organisations/${id}/media/${assetId}`,
+    },
   },
 } as const;

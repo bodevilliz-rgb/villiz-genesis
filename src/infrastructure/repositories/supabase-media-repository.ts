@@ -2,10 +2,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
 import type { MediaRepository, MediaAssetWriteModel } from "../../core/application/ports/media-port";
-import type { MediaAsset } from "../../core/domain/entities/media";
+import type { MediaAsset, MediaCollection, MediaAssetVersion } from "../../core/domain/entities/media";
+import type { BrandKit } from "../../core/domain/entities/brand";
 
 export class SupabaseMediaRepository implements MediaRepository {
-  constructor(private client: SupabaseClient<Database>) {}
+  private client: any;
+  constructor(client: SupabaseClient<Database>) {
+    this.client = client;
+  }
 
   async createAsset(organisationId: string, storagePath: string, fileName: string, mimeType: string, sizeBytes: number, uploadedBy: string): Promise<MediaAsset> {
     const result = await this.client
@@ -74,8 +78,7 @@ export class SupabaseMediaRepository implements MediaRepository {
       query = query.eq("category" as any, options.category);
     }
     if (options?.isArchived !== undefined) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      query = query.eq("is_archived" as any, options.isArchived);
+      query = query.eq("is_archived", options.isArchived);
     }
     if (options?.typePrefix) {
       query = query.like("mime_type", `${options.typePrefix}%`);
@@ -86,7 +89,7 @@ export class SupabaseMediaRepository implements MediaRepository {
     const result = await query;
     if (result.error) throw result.error;
 
-    return result.data.map((row) => this.mapToDomain(row));
+    return result.data.map((row: any) => this.mapToDomain(row));
   }
 
   async replaceAssetVersion(assetId: string, storagePath: string, fileName: string, mimeType: string, sizeBytes: number, replacedBy: string): Promise<MediaAsset> {
@@ -161,7 +164,307 @@ export class SupabaseMediaRepository implements MediaRepository {
     if (result.error) throw result.error;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  async getAssetVersions(assetId: string): Promise<MediaAssetVersion[]> {
+    const result = await this.client
+      .from("media_asset_versions" as any)
+      .select()
+      .eq("asset_id", assetId)
+      .order("created_at", { ascending: false });
+
+    if (result.error) throw result.error;
+    return (result.data ?? []).map((row: any) => ({
+      id: row.id,
+      assetId: row.asset_id,
+      storagePath: row.storage_path,
+      fileName: row.file_name,
+      mimeType: row.mime_type,
+      sizeBytes: row.size_bytes,
+      width: row.width,
+      height: row.height,
+      replacedBy: row.replaced_by,
+      createdAt: row.created_at,
+    }));
+  }
+
+  // Collections
+  async listCollections(organisationId: string): Promise<MediaCollection[]> {
+    const result = await this.client
+      .from("media_collections")
+      .select(`
+        *,
+        media_collection_assets (
+          asset_id,
+          media_assets (*)
+        )
+      `)
+      .eq("organisation_id", organisationId)
+      .order("created_at", { ascending: false });
+
+    if (result.error) throw result.error;
+    return (result.data ?? []).map((row: any) => {
+      const col = this.mapCollectionToDomain(row);
+      col.assets = (row.media_collection_assets ?? [])
+        .map((mca: any) => mca.media_assets ? this.mapToDomain(mca.media_assets) : null)
+        .filter((x: any): x is MediaAsset => x !== null);
+      return col;
+    });
+  }
+
+  async createCollection(organisationId: string, name: string, description: string | null, createdBy: string): Promise<MediaCollection> {
+    const result = await this.client
+      .from("media_collections")
+      .insert({
+        organisation_id: organisationId,
+        name,
+        description,
+        created_by: createdBy,
+      } as any)
+      .select()
+      .single();
+
+    if (result.error) throw result.error;
+    return this.mapCollectionToDomain(result.data);
+  }
+
+  async updateCollection(collectionId: string, name: string, description: string | null): Promise<MediaCollection> {
+    const result = await this.client
+      .from("media_collections")
+      .update({
+        name,
+        description,
+      } as any)
+      .eq("id", collectionId)
+      .select()
+      .single();
+
+    if (result.error) throw result.error;
+    return this.mapCollectionToDomain(result.data);
+  }
+
+  async deleteCollection(organisationId: string, collectionId: string): Promise<void> {
+    const result = await this.client
+      .from("media_collections")
+      .delete()
+      .eq("id", collectionId)
+      .eq("organisation_id", organisationId);
+
+    if (result.error) throw result.error;
+  }
+
+  async attachAssetToCollection(collectionId: string, assetId: string, position = 0): Promise<void> {
+    const result = await this.client.from("media_collection_assets").insert({
+      collection_id: collectionId,
+      asset_id: assetId,
+      position,
+    } as any);
+
+    if (result.error) throw result.error;
+  }
+
+  async detachAssetFromCollection(collectionId: string, assetId: string): Promise<void> {
+    const result = await this.client
+      .from("media_collection_assets")
+      .delete()
+      .eq("collection_id", collectionId)
+      .eq("asset_id", assetId);
+
+    if (result.error) throw result.error;
+  }
+
+  async listAssetsForCollection(collectionId: string): Promise<MediaAsset[]> {
+    const result = await this.client
+      .from("media_collection_assets")
+      .select(`
+        media_assets (*)
+      `)
+      .eq("collection_id", collectionId)
+      .order("position" as any, { ascending: true });
+
+    if (result.error) throw result.error;
+    return (result.data ?? [])
+      .map((row: any) => row.media_assets ? this.mapToDomain(row.media_assets) : null)
+      .filter((x: any): x is MediaAsset => x !== null);
+  }
+
+  // Brand Kits
+  async listBrandKits(organisationId: string): Promise<BrandKit[]> {
+    const result = await this.client
+      .from("brand_kits")
+      .select(`
+        *,
+        brand_kit_assets (
+          role,
+          asset_id,
+          media_assets (*)
+        )
+      `)
+      .eq("organisation_id", organisationId)
+      .order("created_at", { ascending: false });
+
+    if (result.error) throw result.error;
+    return (result.data ?? []).map((row: any) => {
+      const bk = this.mapBrandKitToDomain(row);
+      bk.assets = (row.brand_kit_assets ?? [])
+        .map((ba: any) => {
+          if (!ba.media_assets) return null;
+          return {
+            brandKitId: row.id,
+            assetId: ba.asset_id,
+            role: ba.role,
+            asset: this.mapToDomain(ba.media_assets),
+            createdAt: ba.created_at,
+          };
+        })
+        .filter((x: any): x is any => x !== null);
+      return bk;
+    });
+  }
+
+  async createBrandKit(organisationId: string, name: string, colors: Record<string, string>[], typography: Record<string, string>[], toneNotes: string | null, usageGuidance: string | null, createdBy: string): Promise<BrandKit> {
+    const result = await this.client
+      .from("brand_kits")
+      .insert({
+        organisation_id: organisationId,
+        name,
+        colors,
+        typography,
+        tone_notes: toneNotes,
+        usage_guidance: usageGuidance,
+        created_by: createdBy,
+      } as any)
+      .select()
+      .single();
+
+    if (result.error) throw result.error;
+    return this.mapBrandKitToDomain(result.data);
+  }
+
+  async updateBrandKit(brandKitId: string, name: string, colors: Record<string, string>[], typography: Record<string, string>[], toneNotes: string | null, usageGuidance: string | null): Promise<BrandKit> {
+    const result = await this.client
+      .from("brand_kits")
+      .update({
+        name,
+        colors,
+        typography,
+        tone_notes: toneNotes,
+        usage_guidance: usageGuidance,
+      } as any)
+      .eq("id", brandKitId)
+      .select()
+      .single();
+
+    if (result.error) throw result.error;
+    return this.mapBrandKitToDomain(result.data);
+  }
+
+  async deleteBrandKit(organisationId: string, brandKitId: string): Promise<void> {
+    const result = await this.client
+      .from("brand_kits")
+      .delete()
+      .eq("id", brandKitId)
+      .eq("organisation_id", organisationId);
+
+    if (result.error) throw result.error;
+  }
+
+  async attachAssetToBrandKit(brandKitId: string, assetId: string, role: string | null): Promise<void> {
+    const result = await this.client.from("brand_kit_assets").insert({
+      brand_kit_id: brandKitId,
+      asset_id: assetId,
+      role,
+    } as any);
+
+    if (result.error) throw result.error;
+  }
+
+  async detachAssetFromBrandKit(brandKitId: string, assetId: string): Promise<void> {
+    const result = await this.client
+      .from("brand_kit_assets")
+      .delete()
+      .eq("brand_kit_id", brandKitId)
+      .eq("asset_id", assetId);
+
+    if (result.error) throw result.error;
+  }
+
+  // Linking queries
+  async listAssetsForDraft(draftId: string): Promise<MediaAsset[]> {
+    const result = await this.client
+      .from("content_draft_assets")
+      .select(`
+        media_assets (*)
+      `)
+      .eq("draft_id", draftId);
+
+    if (result.error) throw result.error;
+    return (result.data ?? [])
+      .map((row: any) => row.media_assets ? this.mapToDomain(row.media_assets) : null)
+      .filter((x: any): x is MediaAsset => x !== null);
+  }
+
+  async detachFromDraft(draftId: string, assetId: string): Promise<void> {
+    const result = await this.client
+      .from("content_draft_assets")
+      .delete()
+      .eq("draft_id", draftId)
+      .eq("asset_id", assetId);
+
+    if (result.error) throw result.error;
+  }
+
+  async listAssetsForCampaign(campaignId: string): Promise<MediaAsset[]> {
+    const result = await this.client
+      .from("campaign_assets")
+      .select(`
+        media_assets (*)
+      `)
+      .eq("campaign_id", campaignId);
+
+    if (result.error) throw result.error;
+    return (result.data ?? [])
+      .map((row: any) => row.media_assets ? this.mapToDomain(row.media_assets) : null)
+      .filter((x: any): x is MediaAsset => x !== null);
+  }
+
+  async detachFromCampaign(campaignId: string, assetId: string): Promise<void> {
+    const result = await this.client
+      .from("campaign_assets")
+      .delete()
+      .eq("campaign_id", campaignId)
+      .eq("asset_id", assetId);
+
+    if (result.error) throw result.error;
+  }
+
+  private mapCollectionToDomain(row: any): MediaCollection {
+    return {
+      id: row.id,
+      organisationId: row.organisation_id,
+      name: row.name,
+      description: row.description ?? null,
+      createdBy: null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      assets: [],
+    };
+  }
+
+  private mapBrandKitToDomain(row: any): BrandKit {
+    return {
+      id: row.id,
+      organisationId: row.organisation_id,
+      name: row.name,
+      colors: row.colors ?? [],
+      typography: row.typography ?? [],
+      toneNotes: row.tone_notes ?? null,
+      usageGuidance: row.usage_guidance ?? null,
+      createdBy: null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      assets: [],
+    };
+  }
+
   private mapToDomain(row: any): MediaAsset {
     return {
       id: row.id,

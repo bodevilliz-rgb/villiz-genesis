@@ -41,14 +41,26 @@ export default async function DraftDetailPage({
 
   if (!draft) notFound();
 
-  const [categories, campaigns, latestRequest, readiness, reviewHistory, eligibleReviewers] = await Promise.all([
+  const [categories, campaigns, latestRequest, readiness, reviewHistory, eligibleReviewers, allAssets, attachedAssets] = await Promise.all([
     context.membrain.listCategories(orgId),
     context.campaigns.listCampaigns({ organisationId: orgId, limit: 100, offset: 0 }),
     getLatestGenerationRequest(deps, orgId, draftId),
     getGenerationReadiness(deps, orgId, draftId),
     getReviewHistory(deps, orgId, draftId),
     listEligibleReviewers(deps, orgId),
+    context.media.listAssets(orgId),
+    context.media.listAssetsForDraft(draftId),
   ]);
+
+  const signedUrls: Record<string, string> = {};
+  for (const asset of allAssets) {
+    if (asset.mimeType.startsWith("image/")) {
+      try {
+        const signedUrl = await context.storage.getSignedUrl(asset.storagePath);
+        signedUrls[asset.storagePath] = signedUrl;
+      } catch {}
+    }
+  }
 
   const canWrite = canWriteContent(context.actor, viewerRole);
   const canApprove = canApproveContent(context.actor, viewerRole);
@@ -79,6 +91,9 @@ export default async function DraftDetailPage({
               campaigns={campaigns}
               draft={draft}
               locked={isContentDraftLocked(draft.status)}
+              allAssets={allAssets}
+              attachedAssets={attachedAssets}
+              signedUrls={signedUrls}
             />
           </CardContent>
         </Card>

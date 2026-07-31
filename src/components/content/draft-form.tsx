@@ -1,8 +1,8 @@
 "use client";
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Check, Loader2 } from "lucide-react";
+import { Check, Loader2, Video, Music, FileText, X, Paperclip, Plus } from "lucide-react";
 import { createDraftAction, updateDraftAction } from "@/server/actions/content";
 import { idleState } from "@/server/action-result";
 import { Field } from "@/components/ui/field";
@@ -15,6 +15,8 @@ import { FormMessage } from "@/components/common/form-message";
 import { CONTENT_DRAFT_TYPE_LABELS, type ContentDraft } from "@/core/domain/entities/content";
 import type { MembrainCategory } from "@/core/domain/entities/membrain";
 import type { Campaign } from "@/core/domain/entities/campaign";
+import type { MediaAsset } from "@/core/domain/entities/media";
+import { attachAssetToDraftAction, detachAssetFromDraftAction } from "@/server/actions/media";
 import { routes } from "@/lib/routes";
 
 const AUTOSAVE_DEBOUNCE_MS = 2000;
@@ -66,6 +68,9 @@ export function DraftForm({
   campaigns,
   draft,
   locked = false,
+  allAssets = [],
+  attachedAssets = [],
+  signedUrls = {},
 }: {
   organisationId: string;
   categories: MembrainCategory[];
@@ -73,6 +78,9 @@ export function DraftForm({
   draft?: ContentDraft;
   /** True once a draft is approved or rejected — see isContentDraftLocked. Disables every field until a Lead reopens the review. */
   locked?: boolean;
+  allAssets?: MediaAsset[];
+  attachedAssets?: MediaAsset[];
+  signedUrls?: Record<string, string>;
 }) {
   const isEdit = Boolean(draft);
   const router = useRouter();
@@ -88,6 +96,9 @@ export function DraftForm({
   const saveState: SaveState = isPending ? "saving" : justSaved ? "saved" : dirty ? "dirty" : "idle";
 
   const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
+  const [showAssetModal, setShowAssetModal] = useState(false);
+  const [localAttachedAssets, setLocalAttachedAssets] = useState<MediaAsset[]>(attachedAssets);
+  const [isAssetPending, startAssetTransition] = useTransition();
   const [aiLoading, setAiLoading] = useState(false);
   const [aiAction, setAiAction] = useState<string>("rewrite");
   const [aiPrompt, setAiPrompt] = useState<string>("");
@@ -338,6 +349,138 @@ export function DraftForm({
           <Input id="summary" name="summary" maxLength={500} defaultValue={draft?.summary ?? ""} disabled={locked} />
         </Field>
       </div>
+
+      {isEdit && (
+        <div className="border-t border-border pt-6 mt-6 flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <h4 className="text-[13px] font-semibold text-foreground flex items-center gap-1.5">
+              <Paperclip className="size-4 text-primary" /> Attached Media & Brand Assets
+            </h4>
+            {!locked && (
+              <Button type="button" onClick={() => setShowAssetModal(true)} variant="ghost" className="h-7 py-1 px-2.5 text-[11px]">
+                <Plus className="size-3.5 mr-1" /> Link asset
+              </Button>
+            )}
+          </div>
+
+          {localAttachedAssets.length === 0 ? (
+            <p className="text-[12px] text-muted-foreground italic">No brand or media assets linked to this draft yet.</p>
+          ) : (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {localAttachedAssets.map((asset) => {
+                const sUrl = signedUrls[asset.storagePath];
+                return (
+                  <div key={asset.id} className="flex items-center justify-between p-2 rounded-md border border-border bg-muted/20">
+                    <div className="flex items-center gap-2.5 truncate">
+                      {asset.mimeType.startsWith("image/") && sUrl ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img src={sUrl} alt="" className="size-8 rounded object-cover border border-border" />
+                      ) : (
+                        <div className="size-8 rounded border border-border bg-muted flex items-center justify-center">
+                          {asset.mimeType.startsWith("video/") ? <Video className="size-4 text-muted-foreground" /> :
+                           asset.mimeType.startsWith("audio/") ? <Music className="size-4 text-muted-foreground" /> :
+                           <FileText className="size-4 text-muted-foreground" />}
+                        </div>
+                      )}
+                      <div className="flex flex-col truncate">
+                        <span className="text-[12px] font-medium text-foreground truncate">{asset.title || asset.fileName}</span>
+                        <span className="text-[10px] text-muted-foreground capitalize">{asset.mimeType.split("/")[1]}</span>
+                      </div>
+                    </div>
+                    {!locked && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          startAssetTransition(async () => {
+                            if (!draft) return;
+                            const result = await detachAssetFromDraftAction(draft.id, asset.id, organisationId);
+                            if (result.status === "success") {
+                              toast.success(result.message);
+                              setLocalAttachedAssets(localAttachedAssets.filter(a => a.id !== asset.id));
+                            } else {
+                              toast.error(result.message);
+                            }
+                          });
+                        }}
+                        className="text-muted-foreground hover:text-negative p-1 rounded"
+                        disabled={isAssetPending}
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {showAssetModal && draft && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-xl max-h-[70vh] flex flex-col animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-border pb-3 mb-4">
+              <h4 className="text-md font-semibold text-foreground">Link Brand Asset</h4>
+              <button type="button" onClick={() => setShowAssetModal(false)} className="text-muted-foreground hover:text-foreground">
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 flex flex-col gap-2">
+              {allAssets
+                .filter(asset => !localAttachedAssets.some(a => a.id === asset.id))
+                .map(asset => (
+                  <div key={asset.id} className="flex items-center justify-between p-2 rounded hover:bg-muted/40 border border-transparent hover:border-border">
+                    <div className="flex items-center gap-3">
+                      {asset.mimeType.startsWith("image/") && signedUrls[asset.storagePath] ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img src={signedUrls[asset.storagePath]} alt="" className="size-8 rounded object-cover border border-border" />
+                      ) : (
+                        <div className="size-8 rounded border border-border bg-muted flex items-center justify-center">
+                          {asset.mimeType.startsWith("video/") ? <Video className="size-4 text-muted-foreground" /> :
+                           asset.mimeType.startsWith("audio/") ? <Music className="size-4 text-muted-foreground" /> :
+                           <FileText className="size-4 text-muted-foreground" />}
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-[12px] font-medium text-foreground truncate max-w-[200px]">{asset.title || asset.fileName}</p>
+                        <p className="text-[10px] text-muted-foreground uppercase">{asset.mimeType.split("/")[1]}</p>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      onClick={() => {
+                        startAssetTransition(async () => {
+                          const result = await attachAssetToDraftAction(draft.id, asset.id, organisationId);
+                          if (result.status === "success") {
+                            toast.success(result.message);
+                            setLocalAttachedAssets([...localAttachedAssets, asset]);
+                            setShowAssetModal(false);
+                          } else {
+                            toast.error(result.message);
+                          }
+                        });
+                      }}
+                      variant="ghost"
+                      className="text-primary text-[11px] font-medium py-1 px-2.5 h-auto"
+                      disabled={isAssetPending}
+                    >
+                      Link
+                    </Button>
+                  </div>
+                ))}
+
+              {allAssets.filter(asset => !localAttachedAssets.some(a => a.id === asset.id)).length === 0 && (
+                <p className="text-center text-[12px] text-muted-foreground py-8">All available assets have been linked to this draft.</p>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 mt-4 pt-3 border-t border-border">
+              <Button type="button" onClick={() => setShowAssetModal(false)} variant="primary">Cancel</Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isEdit ? (
         <Field

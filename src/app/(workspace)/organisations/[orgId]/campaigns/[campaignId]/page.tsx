@@ -18,6 +18,7 @@ import {
   CAMPAIGN_STATUS_TONE,
 } from "@/core/domain/entities/campaign";
 import { formatDate, formatNumber } from "@/lib/format";
+import { CampaignAssetsPanel } from "@/components/campaigns/campaign-assets-panel";
 import { routes } from "@/lib/routes";
 
 export default async function CampaignDetailPage({
@@ -36,13 +37,25 @@ export default async function CampaignDetailPage({
   };
   const membrainDeps = { actor: context.actor, membrain: context.membrain, organisations: context.organisations };
 
-  const [overview, viewerRole, membrainOverview] = await Promise.all([
+  const [overview, viewerRole, membrainOverview, allAssets, attachedAssets] = await Promise.all([
     getCampaignOverview(campaignDeps, orgId, campaignId).catch(() => null),
     context.organisations.viewerRole(orgId),
     getMembrainOverview(membrainDeps, orgId),
+    context.media.listAssets(orgId),
+    context.media.listAssetsForCampaign(campaignId),
   ]);
 
   if (!overview) notFound();
+
+  const signedUrls: Record<string, string> = {};
+  for (const asset of allAssets) {
+    if (asset.mimeType.startsWith("image/")) {
+      try {
+        const signedUrl = await context.storage.getSignedUrl(asset.storagePath);
+        signedUrls[asset.storagePath] = signedUrl;
+      } catch {}
+    }
+  }
   const { campaign, draftCounts } = overview;
 
   const canWrite = canWriteContent(context.actor, viewerRole);
@@ -122,6 +135,15 @@ export default async function CampaignDetailPage({
               ) : null}
             </CardContent>
           </Card>
+
+          <CampaignAssetsPanel
+            organisationId={orgId}
+            campaignId={campaignId}
+            allAssets={allAssets}
+            attachedAssets={attachedAssets}
+            signedUrls={signedUrls}
+            canWrite={canWrite}
+          />
         </div>
 
         <div className="flex flex-col gap-4">
