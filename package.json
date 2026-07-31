@@ -17,6 +17,8 @@
     "db:reset:local": "./scripts/db-reset.sh",
     "db:test": "./scripts/db-test.sh",
     "db:types:check": "python3 scripts/gen-db-types.py --check",
+    "dev:local": "node scripts/dev-local.js",
+    "preview:check": "node scripts/preview-check.js",
     "verify": "npm run typecheck && npm run lint && npm run test && npm run build"
   },
   "dependencies": {

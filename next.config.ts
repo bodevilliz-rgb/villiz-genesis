@@ -1,14 +1,16 @@
 import type { NextConfig } from "next";
+import { join } from "path";
 
 /**
  * Production configuration for Project Genesis.
  *
  * `typedRoutes` is intentionally disabled: Sprint 1 uses dynamic organisation
  * routes built from runtime UUIDs, which typed routes cannot statically verify
- * without casting everywhere. Route safety is instead centralised in
+ * without casting everywhere. Route safety is centralised in
  * `src/lib/routes.ts` so there is a single source of truth for every URL.
  */
 const nextConfig: NextConfig = {
+  outputFileTracingRoot: join(__dirname),
   reactStrictMode: true,
   poweredByHeader: false,
   experimental: {
