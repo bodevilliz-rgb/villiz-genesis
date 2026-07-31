@@ -1,5 +1,6 @@
-@import "tailwindcss";
-@source "/Users/villizpixels/Documents/Villiz-One/PROJECT GENESIS/villiz-genesis/src/**/*.{ts,tsx,js,jsx}";
+@import "tailwindcss" source(none);
+@source "../app/**/*.{ts,tsx,js,jsx}";
+@source "../components/**/*.{ts,tsx,js,jsx}";
 
 /* ===========================================================================
    Project Genesis design system
