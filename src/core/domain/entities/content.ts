@@ -1,6 +1,6 @@
 import type { ReviewActionType } from "./review";
 
-export type ContentDraftStatus = "draft" | "needs_review" | "in_review" | "changes_requested" | "approved" | "rejected" | "scheduled" | "published" | "archived";
+export type ContentDraftStatus = "draft" | "needs_review" | "in_review" | "changes_requested" | "awaiting_client" | "approved" | "rejected" | "scheduled" | "published" | "archived";
 
 export type ContentDraftType = "social_post" | "caption" | "campaign_copy" | "email" | "blog_article" | "image_prompt" | "ad_copy" | "video_script" | "other";
 
@@ -18,8 +18,9 @@ export const CONTENT_DRAFT_STATUS_LABELS: Record<ContentDraftStatus, string> = {
   needs_review: "In review",
   in_review: "In review",
   changes_requested: "Changes requested",
+  awaiting_client: "Awaiting Client Sign-off",
   approved: "Approved",
-  rejected: "Archived",
+  rejected: "Rejected",
   scheduled: "Scheduled",
   published: "Published",
   archived: "Archived",
@@ -32,7 +33,7 @@ export const CONTENT_DRAFT_STATUS_LABELS: Record<ContentDraftStatus, string> = {
  * about it. Draft, Needs Review, and Changes Requested remain editable.
  */
 export function isContentDraftLocked(status: ContentDraftStatus): boolean {
-  return status === "approved" || status === "scheduled" || status === "published" || status === "archived" || status === "rejected";
+  return status === "approved" || status === "scheduled" || status === "published" || status === "archived" || status === "rejected" || status === "awaiting_client";
 }
 
 export const CONTENT_DRAFT_TYPE_LABELS: Record<ContentDraftType, string> = {
@@ -85,6 +86,10 @@ export interface ContentDraft {
   
   // Sprint 3 features
   assets?: { assetId: string; attachedBy: string | null; createdAt: string; asset?: import('./media').MediaAsset }[];
+
+  // Sprint 4 features
+  priority: "low" | "medium" | "high";
+  reviewDeadline: string | null;
 }
 
 export interface CommentThread {
@@ -140,6 +145,10 @@ export interface ContentDraftVersion {
   changeSummary: string | null;
   createdAt: string;
   changedBy: { id: string; fullName: string | null; email: string } | null;
+  priority: "low" | "medium" | "high";
+  reviewDeadline: string | null;
+  categoryId: string | null;
+  campaignId: string | null;
 }
 
 export interface ContentGenerationRequest {

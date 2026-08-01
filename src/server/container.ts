@@ -11,6 +11,8 @@ import { SupabaseReviewRepository } from "@/infrastructure/repositories/supabase
 import { SupabaseUsageRepository } from "@/infrastructure/repositories/supabase-usage-repository";
 import { SupabaseMediaRepository } from "@/infrastructure/repositories/supabase-media-repository";
 import { SupabaseStoragePort } from "@/infrastructure/ports/supabase-storage-port";
+import { SupabaseAuditRepository } from "@/infrastructure/repositories/supabase-audit-repository";
+import { SupabaseNotificationRepository } from "@/infrastructure/repositories/supabase-notification-repository";
 import type { Actor } from "@/core/domain/entities/identity";
 import { routes } from "@/lib/routes";
 
@@ -36,6 +38,8 @@ export interface RequestContext {
   usage: SupabaseUsageRepository;
   media: SupabaseMediaRepository;
   storage: SupabaseStoragePort;
+  audits: SupabaseAuditRepository;
+  notifications: SupabaseNotificationRepository;
 }
 
 export const getActor = cache(async (): Promise<Actor | null> => {
@@ -61,6 +65,8 @@ export const getRequestContext = cache(async (): Promise<RequestContext | null> 
     usage: new SupabaseUsageRepository(client),
     media: new SupabaseMediaRepository(client),
     storage: new SupabaseStoragePort(client),
+    audits: new SupabaseAuditRepository(client),
+    notifications: new SupabaseNotificationRepository(client),
   };
 });
 

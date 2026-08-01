@@ -67,6 +67,8 @@ export function toDraft(row: DraftRowWithRelations): ContentDraft {
     updatedBy: toProfileRef(row.updated_by_profile),
     dueAt: (row as unknown as Record<string, unknown>).due_at as string | null ?? null,
     reviewerIds: (row as unknown as Record<string, unknown>).reviewer_ids as string[] ?? [],
+    priority: row.priority,
+    reviewDeadline: row.review_deadline,
   };
 }
 
@@ -84,6 +86,10 @@ export function toDraftVersion(
     changeSummary: row.change_summary,
     createdAt: row.created_at,
     changedBy: toProfileRef(row.changed_by_profile),
+    priority: row.priority,
+    reviewDeadline: row.review_deadline,
+    categoryId: row.category_id,
+    campaignId: row.campaign_id,
   };
 }
 

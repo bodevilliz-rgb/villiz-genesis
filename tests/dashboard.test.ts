@@ -56,6 +56,8 @@ function draft(overrides: Partial<ContentDraft> = {}): ContentDraft {
     updatedAt: "2026-07-01T00:00:00Z",
     createdBy: { id: "actor-1", fullName: "Actor One", email: "actor@villiz.com" },
     updatedBy: { id: "actor-1", fullName: "Actor One", email: "actor@villiz.com" },
+    priority: "medium",
+    reviewDeadline: null,
     ...overrides,
   };
 }

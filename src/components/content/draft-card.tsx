@@ -9,6 +9,7 @@ const STATUS_TONE: Record<ContentDraft["status"], "muted" | "warning" | "positiv
   needs_review: "warning",
   in_review: "warning",
   changes_requested: "warning",
+  awaiting_client: "warning",
   approved: "positive",
   rejected: "danger",
   scheduled: "positive",

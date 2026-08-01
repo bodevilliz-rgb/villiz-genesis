@@ -93,6 +93,10 @@ export async function createDraft(deps: ContentDeps, raw: unknown): Promise<Cont
     // Sprint 2 features
     dueAt: blank(input.dueAt),
     reviewerIds: input.reviewerIds ?? [],
+
+    // Sprint 4 features
+    priority: input.priority,
+    reviewDeadline: blank(input.reviewDeadline),
   });
 }
 
@@ -125,6 +129,10 @@ export async function updateDraft(deps: ContentDeps, raw: unknown): Promise<Cont
     // Sprint 2 features
     dueAt: blank(input.dueAt),
     reviewerIds: input.reviewerIds ?? [],
+
+    // Sprint 4 features
+    priority: input.priority,
+    reviewDeadline: blank(input.reviewDeadline),
   });
 
   // The database writes the version row; the reason for the change is a human
@@ -249,5 +257,7 @@ export async function duplicateDraft(
     createdBy: deps.actor.id,
     dueAt: existing.dueAt,
     reviewerIds: existing.reviewerIds,
+    priority: existing.priority,
+    reviewDeadline: existing.reviewDeadline,
   });
 }

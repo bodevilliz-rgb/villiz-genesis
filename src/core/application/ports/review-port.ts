@@ -1,4 +1,4 @@
-import type { ContentDraft, ContentDraftStatus } from "@/core/domain/entities/content";
+import type { CommentThread, ContentDraft, ContentDraftStatus } from "@/core/domain/entities/content";
 import type { ReviewActionType, ReviewHistoryEntry } from "@/core/domain/entities/review";
 
 export interface ReviewRepository {
@@ -30,4 +30,22 @@ export interface ReviewRepository {
    * entering review).
    */
   listLatestSubmissions(draftIds: string[]): Promise<Map<string, string>>;
+
+  // Threaded Comments operations
+  listComments(organisationId: string, draftId: string): Promise<CommentThread[]>;
+  createComment(
+    organisationId: string,
+    draftId: string,
+    authorId: string,
+    parentId: string | null,
+    body: string
+  ): Promise<CommentThread>;
+  updateComment(
+    organisationId: string,
+    commentId: string,
+    authorId: string,
+    body: string
+  ): Promise<CommentThread>;
+  resolveComment(organisationId: string, commentId: string, resolvedBy: string): Promise<void>;
+  reopenComment(organisationId: string, commentId: string): Promise<void>;
 }

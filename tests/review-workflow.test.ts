@@ -166,6 +166,8 @@ function baseDraft(overrides: Partial<ContentDraft> = {}): ContentDraft {
     updatedAt: "2026-07-01T00:00:00Z",
     createdBy: profileRef(AUTHOR_ID, "Author"),
     updatedBy: profileRef(AUTHOR_ID, "Author"),
+    priority: "medium",
+    reviewDeadline: null,
     ...overrides,
   };
 }

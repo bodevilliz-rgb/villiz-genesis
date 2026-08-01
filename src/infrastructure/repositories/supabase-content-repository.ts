@@ -140,8 +140,9 @@ export class SupabaseContentRepository implements ContentRepository {
         updated_by: input.createdBy,
         due_at: input.dueAt,
         reviewer_ids: input.reviewerIds,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any)
+        priority: input.priority,
+        review_deadline: input.reviewDeadline,
+      })
       .select(DRAFT_SELECT)
       .single();
 
@@ -161,8 +162,9 @@ export class SupabaseContentRepository implements ContentRepository {
         updated_by: input.updatedBy,
         due_at: input.dueAt,
         reviewer_ids: input.reviewerIds,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any)
+        priority: input.priority,
+        review_deadline: input.reviewDeadline,
+      })
       .eq("id", draftId)
       .eq("organisation_id", input.organisationId)
       .select(DRAFT_SELECT)

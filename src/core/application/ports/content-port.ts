@@ -19,6 +19,10 @@ export interface ContentDraftWriteModel {
   // Sprint 2 features
   dueAt: string | null;
   reviewerIds: string[];
+
+  // Sprint 4 features
+  priority: "low" | "medium" | "high";
+  reviewDeadline: string | null;
 }
 
 export interface ContentRepository {

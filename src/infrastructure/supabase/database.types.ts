@@ -20,7 +20,7 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 export type CampaignStatusDb = "planning" | "active" | "completed" | "archived";
 export type ConnectionStatusDb = "connected" | "expired" | "revoked";
 export type ContentDraftAwoStatusDb = "not_requested" | "ready_for_awo";
-export type ContentDraftStatusDb = "draft" | "needs_review" | "in_review" | "changes_requested" | "approved" | "rejected" | "scheduled" | "published" | "archived";
+export type ContentDraftStatusDb = "draft" | "needs_review" | "in_review" | "changes_requested" | "awaiting_client" | "approved" | "rejected" | "scheduled" | "published" | "archived";
 export type ContentDraftReviewActionDb =
   | "submitted"
   | "assigned"
@@ -89,6 +89,10 @@ export type ContentDraftRow = {
   updated_by: string | null;
   created_at: string;
   updated_at: string;
+  priority: "low" | "medium" | "high";
+  review_deadline: string | null;
+  due_at: string | null;
+  reviewer_ids: string[];
 };
 
 export type ContentDraftReviewRow = {
@@ -101,6 +105,41 @@ export type ContentDraftReviewRow = {
   previous_status: ContentDraftStatusDb;
   new_status: ContentDraftStatusDb;
   comment: string | null;
+  created_at: string;
+};
+
+export type ContentDraftCommentRow = {
+  id: string;
+  draft_id: string;
+  organisation_id: string;
+  author_id: string | null;
+  parent_id: string | null;
+  body: string;
+  is_resolved: boolean;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AuditEventRow = {
+  id: string;
+  organisation_id: string;
+  draft_id: string | null;
+  actor_id: string | null;
+  event_type: string;
+  description: string;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+};
+
+export type NotificationRow = {
+  id: string;
+  organisation_id: string;
+  profile_id: string;
+  type: string;
+  message: string;
+  is_read: boolean;
   created_at: string;
 };
 
@@ -118,7 +157,10 @@ export type ContentDraftVersionRow = {
   change_summary: string | null;
   changed_by: string | null;
   created_at: string;
+  priority: "low" | "medium" | "high";
+  review_deadline: string | null;
 };
+
 
 export type ContentGenerationRequestRow = {
   id: string;
@@ -372,6 +414,7 @@ export type Database = {
           Fk<"ai_usage_events_profile_id_fkey", "profile_id", "profiles">,
         ]
       >;
+
       campaigns: Table<
         CampaignRow,
         Partial<CampaignRow>,
@@ -391,6 +434,18 @@ export type Database = {
           Fk<"content_draft_reviews_assigned_reviewer_id_fkey", "assigned_reviewer_id", "profiles">,
           Fk<"content_draft_reviews_draft_id_fkey", "draft_id", "content_drafts">,
           Fk<"content_draft_reviews_organisation_id_fkey", "organisation_id", "organisations">,
+        ]
+      >;
+      content_draft_comments: Table<
+        ContentDraftCommentRow,
+        Partial<ContentDraftCommentRow>,
+        Partial<ContentDraftCommentRow>,
+        [
+          Fk<"content_draft_comments_organisation_id_fkey", "organisation_id", "organisations">,
+          Fk<"content_draft_comments_draft_id_fkey", "draft_id", "content_drafts">,
+          Fk<"content_draft_comments_author_id_fkey", "author_id", "profiles">,
+          Fk<"content_draft_comments_parent_id_fkey", "parent_id", "content_draft_comments">,
+          Fk<"content_draft_comments_resolved_by_fkey", "resolved_by", "profiles">,
         ]
       >;
       content_draft_versions: Table<
@@ -533,6 +588,25 @@ export type Database = {
         [
           Fk<"social_accounts_connected_by_fkey", "connected_by", "profiles">,
           Fk<"social_accounts_organisation_id_fkey", "organisation_id", "organisations">,
+        ]
+      >;
+      audit_events: Table<
+        AuditEventRow,
+        Partial<AuditEventRow>,
+        Partial<AuditEventRow>,
+        [
+          Fk<"audit_events_organisation_id_fkey", "organisation_id", "organisations">,
+          Fk<"audit_events_draft_id_fkey", "draft_id", "content_drafts">,
+          Fk<"audit_events_actor_id_fkey", "actor_id", "profiles">,
+        ]
+      >;
+      notifications: Table<
+        NotificationRow,
+        Partial<NotificationRow>,
+        Partial<NotificationRow>,
+        [
+          Fk<"notifications_organisation_id_fkey", "organisation_id", "organisations">,
+          Fk<"notifications_profile_id_fkey", "profile_id", "profiles">,
         ]
       >;
     };

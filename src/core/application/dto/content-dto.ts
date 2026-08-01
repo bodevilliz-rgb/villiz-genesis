@@ -33,6 +33,10 @@ export const createDraftSchema = z.object({
   // Sprint 2 fields
   dueAt: z.string().trim().optional().or(z.literal("")),
   reviewerIds: z.array(z.string().uuid()).optional().default([]),
+
+  // Sprint 4 fields
+  priority: z.enum(["low", "medium", "high"]).default("medium"),
+  reviewDeadline: z.string().trim().optional().or(z.literal("")),
 });
 
 export const updateDraftSchema = createDraftSchema.extend({

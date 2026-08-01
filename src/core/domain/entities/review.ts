@@ -72,6 +72,15 @@ export const REVIEW_TRANSITIONS: ReviewTransition[] = [
   { from: "approved", to: "in_review", action: "reopened", requiresLead: true, commentRequired: false },
   { from: "archived", to: "draft", action: "reopened", requiresLead: true, commentRequired: false },
 
+  // Awaiting Client Transitions
+  { from: "in_review", to: "awaiting_client", action: "submitted", requiresLead: false, commentRequired: false },
+  { from: "awaiting_client", to: "approved", action: "approved", requiresLead: false, commentRequired: false },
+  { from: "awaiting_client", to: "changes_requested", action: "changes_requested", requiresLead: false, commentRequired: true },
+  { from: "awaiting_client", to: "archived", action: "rejected", requiresLead: false, commentRequired: true },
+  { from: "awaiting_client", to: "rejected", action: "rejected", requiresLead: false, commentRequired: true },
+  { from: "rejected", to: "draft", action: "reopened", requiresLead: true, commentRequired: false },
+
+
   // Legacy transitions for vitest compatibility
   { from: "draft", to: "needs_review", action: "submitted", requiresLead: false, commentRequired: false },
   { from: "needs_review", to: "approved", action: "approved", requiresLead: false, commentRequired: false },

@@ -28,6 +28,7 @@ const STATUS_TONE: Record<ContentDraftStatus, "muted" | "warning" | "positive" |
   needs_review: "warning",
   in_review: "warning",
   changes_requested: "warning",
+  awaiting_client: "warning",
   approved: "positive",
   rejected: "danger",
   scheduled: "positive",
