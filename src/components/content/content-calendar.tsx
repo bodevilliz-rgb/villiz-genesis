@@ -7,6 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { formatRelative } from "@/lib/format";
 import { toast } from "sonner";
+import { reschedulePublishingJob } from "@/server/actions/publishing";
+
+/** Only a draft with a still-queued scheduled job can safely move — anything already publishing/published/failed must never be draggable. */
+function isReschedulable(draft: ContentDraft): boolean {
+  return draft.status === "scheduled";
+}
 
 type ViewMode = "month" | "week" | "day" | "agenda";
 
@@ -57,24 +63,31 @@ export function ContentCalendar({
     e.preventDefault();
   }
 
-  function handleDrop(e: React.DragEvent<HTMLDivElement>, targetDate: Date) {
+  async function handleDrop(e: React.DragEvent<HTMLDivElement>, targetDate: Date) {
     e.preventDefault();
     const draftId = e.dataTransfer.getData("calendarDraftId");
     if (!draftId) return;
 
-    setLocalDrafts((prev) =>
-      prev.map((d) => {
-        if (d.id === draftId) {
-          // Keep the existing time component if available, just update the date
-          const oldTime = d.scheduledAt ? d.scheduledAt.split("T")[1] : "12:00:00Z";
-          const newDateStr = targetDate.toISOString().split("T")[0];
-          return { ...d, scheduledAt: `${newDateStr}T${oldTime}` };
-        }
-        return d;
-      })
-    );
-    // Real implementation would call scheduleDraftAction here
-    toast?.success?.("Content rescheduled successfully.");
+    const draft = localDrafts.find((d) => d.id === draftId);
+    if (!draft || !isReschedulable(draft) || !draft.scheduledPlatform) return;
+
+    // Keep the existing time component if available, just move the date.
+    const oldTime = draft.scheduledAt ? draft.scheduledAt.split("T")[1] : "12:00:00.000Z";
+    const newDateStr = targetDate.toISOString().split("T")[0];
+    const newScheduledAt = `${newDateStr}T${oldTime}`;
+    const previousScheduledAt = draft.scheduledAt;
+
+    // Optimistic move, reverted below if the server refuses it.
+    setLocalDrafts((prev) => prev.map((d) => (d.id === draftId ? { ...d, scheduledAt: newScheduledAt } : d)));
+
+    const result = await reschedulePublishingJob(organisationId, draftId, draft.scheduledPlatform, newScheduledAt);
+
+    if (result.success) {
+      toast.success(result.message);
+    } else {
+      toast.error(result.message);
+      setLocalDrafts((prev) => prev.map((d) => (d.id === draftId ? { ...d, scheduledAt: previousScheduledAt } : d)));
+    }
   }
 
   // Generate calendar days for the current month
@@ -175,18 +188,19 @@ export function ContentCalendar({
                 <span className="text-xs font-mono font-medium text-muted-foreground">{day.getDate()}</span>
                 <div className="flex flex-col gap-1 overflow-y-auto max-h-[80px]">
                   {dayDrafts.map((draft) => {
-                    const platformColor = draft.scheduledPlatform === "linkedin" ? "text-blue-500" 
+                    const platformColor = draft.scheduledPlatform === "linkedin" ? "text-blue-500"
                       : draft.scheduledPlatform === "instagram" ? "text-pink-500"
                       : draft.scheduledPlatform === "twitter" ? "text-neutral-300"
                       : "text-primary";
+                    const draggable = isReschedulable(draft);
                     return (
                       <a
                         key={draft.id}
                         href={`/organisations/${organisationId}/content/${draft.id}`}
-                        draggable
-                        onDragStart={(e) => handleDragStart(e, draft.id)}
-                        className="block p-1 text-[11px] font-mono leading-normal rounded border border-border/60 bg-card hover:bg-card-hover truncate cursor-grab active:cursor-grabbing"
-                        title={`${draft.title} (${draft.status})`}
+                        draggable={draggable}
+                        onDragStart={draggable ? (e) => handleDragStart(e, draft.id) : undefined}
+                        className={`block p-1 text-[11px] font-mono leading-normal rounded border border-border/60 bg-card hover:bg-card-hover truncate ${draggable ? "cursor-grab active:cursor-grabbing" : "cursor-default"}`}
+                        title={`${draft.title} (${draft.status})${draggable ? "" : " — not reschedulable by drag"}`}
                       >
                         <span className={`${platformColor} font-bold mr-1`}>●</span>
                         {draft.title}

@@ -3,6 +3,7 @@ import type { ReviewRepository } from "@/core/application/ports/review-port";
 import type { CommentThread, ContentDraftStatus } from "@/core/domain/entities/content";
 import type { ReviewActionType, ReviewHistoryEntry } from "@/core/domain/entities/review";
 import type { GenesisClient } from "../supabase/server-client";
+import type { ContentDraftStatusDb } from "../supabase/database.types";
 import { toDraft, type DraftRowWithRelations } from "../mappers/content-mapper";
 import { DRAFT_SELECT } from "./supabase-content-repository";
 import { translateError, unwrap } from "./errors";
@@ -60,9 +61,14 @@ export class SupabaseReviewRepository implements ReviewRepository {
     const { error: rpcError } = await this.client.rpc("perform_content_draft_review", {
       p_draft_id: input.draftId,
       p_action: input.action,
-      p_new_status: input.newStatus,
-      p_assigned_reviewer_id: input.assignedReviewerId,
-      p_comment: input.comment,
+      // The Postgres function's parameters have no DEFAULT, so the generator
+      // (scripts/gen-db-types.py) types them as required rather than
+      // nullable — but a plain Postgres parameter still legally accepts an
+      // explicit NULL value at the type level regardless of DEFAULT. These
+      // casts are compile-time only; the actual null still reaches Postgres.
+      p_new_status: input.newStatus as ContentDraftStatusDb,
+      p_assigned_reviewer_id: input.assignedReviewerId as string,
+      p_comment: input.comment as string,
     });
 
     if (rpcError) translateError(rpcError, "Review decision");

@@ -33,6 +33,7 @@ export default async function OrganisationLayout({
     { href: routes.organisations.content.index(orgId), label: "Content Studio", icon: "pen-line", prefix: true },
     { href: routes.organisations.campaigns.index(orgId), label: "Campaigns", icon: "blocks", prefix: true },
     { href: routes.organisations.media.index(orgId), label: "Media Library", icon: "images", prefix: true },
+    { href: routes.organisations.publishing.index(orgId), label: "Publishing Queue", icon: "bar-chart", prefix: true },
     { href: routes.organisations.team(orgId), label: "Team", icon: "users" },
     { href: routes.organisations.settings(orgId), label: "Settings", icon: "settings" },
   ];

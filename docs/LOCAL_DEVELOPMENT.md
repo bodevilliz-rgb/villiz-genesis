@@ -71,6 +71,25 @@ Staff Account:     Bodevilliz@gmail.com (role: lead)
 Client Workspace:  Villiz Pixels (00000000-0000-4000-b000-000000000001)
 ```
 
+## Running the publishing worker
+
+`npm run dev:local` starts the web app only. The Publishing Queue's
+automatic Queued → Publishing → Published/Failed processing needs a second,
+separate process — the background worker:
+
+```bash
+npm run worker:publishing
+```
+
+Run it alongside `dev:local` in its own terminal. Without it running,
+publishing jobs will sit in "Queued" forever — the web app itself never
+claims or processes a job, by design (see `docs/PUBLISHING_ENGINE.md`).
+
+It logs one structured JSON line per event (`job_claimed`, `attempt_started`,
+`attempt_completed`/`attempt_failed`, `stale_job_recovered`, etc.) to stdout.
+`Ctrl+C` stops it gracefully — any attempt already in flight finishes before
+the process exits.
+
 ## Shutting down
 
 `Ctrl+C` stops the Next.js dev server. Local Supabase's Docker containers keep

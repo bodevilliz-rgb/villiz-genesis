@@ -1,0 +1,403 @@
+import { randomUUID } from "crypto";
+import { ForbiddenError, NotFoundError, ValidationError } from "@/core/domain/errors";
+import type { Actor, OrganisationRole } from "@/core/domain/entities/identity";
+import { canWriteContent } from "@/core/domain/entities/identity";
+import {
+  DEFAULT_MAX_PUBLISHING_RETRIES,
+  type PublishingAnalytics,
+  type PublishingAttempt,
+  type PublishingJob,
+  type PublishingPlatform,
+} from "@/core/domain/entities/publishing";
+import type { PublishingRepository, PublishingQueueFilters } from "@/core/application/ports/publishing-port";
+import type { ContentRepository } from "@/core/application/ports/content-port";
+import type { OrganisationRepository } from "@/core/application/ports/organisation-port";
+import type { AuditRepository } from "@/core/application/ports/audit-port";
+import type { NotificationRepository } from "@/core/application/ports/notification-port";
+import { computePublishingAnalytics } from "./analytics";
+
+interface PublishingDeps {
+  actor: Actor;
+  publishing: PublishingRepository;
+  content: ContentRepository;
+  organisations: OrganisationRepository;
+  audits: AuditRepository;
+  notifications: NotificationRepository;
+}
+
+async function requireRole(
+  deps: PublishingDeps,
+  organisationId: string,
+  check: (actor: Actor, role: OrganisationRole | null) => boolean,
+): Promise<void> {
+  if (deps.actor.isPlatformAdmin) return;
+  const role = await deps.organisations.viewerRole(organisationId);
+  if (!check(deps.actor, role)) {
+    throw new ForbiddenError("You do not have permission to do that in the Publishing Queue.");
+  }
+}
+
+async function requireMember(deps: PublishingDeps, organisationId: string): Promise<void> {
+  if (deps.actor.isPlatformAdmin) return;
+  const role = await deps.organisations.viewerRole(organisationId);
+  if (!role) throw new ForbiddenError("You do not have access to this account's Publishing Queue.");
+}
+
+const PUBLISHABLE_STATUSES = ["approved", "scheduled", "failed"] as const;
+
+/** Immediate publish — "Publish Now". Queues a due-now job; the worker (never the operator) drives it to Published/Failed. */
+export async function createImmediatePublishingJob(
+  deps: PublishingDeps,
+  input: {
+    organisationId: string;
+    draftId: string;
+    platform: PublishingPlatform;
+    idempotencyKey: string;
+    devSimulationMode?: "always_succeed" | "fail_next_attempt" | "always_fail" | null;
+  },
+): Promise<PublishingJob> {
+  await requireRole(deps, input.organisationId, canWriteContent);
+
+  const draft = await deps.content.findDraft(input.organisationId, input.draftId);
+  if (!draft) throw new NotFoundError("Draft");
+
+  // Checked before the status guard, deliberately: a double-click or action
+  // retry arrives after the first call has already moved the draft to
+  // "publishing" (no longer in PUBLISHABLE_STATUSES) — without this early
+  // return, the replay would throw a confusing ValidationError instead of
+  // idempotently returning the job the first call already created.
+  const existingActive = await deps.publishing.findActiveJobForDraftPlatform(input.draftId, input.platform);
+  if (existingActive) return existingActive;
+
+  if (!PUBLISHABLE_STATUSES.includes(draft.status as (typeof PUBLISHABLE_STATUSES)[number])) {
+    throw new ValidationError("Only approved, scheduled, or failed content can be published.");
+  }
+
+  const job = await deps.publishing.createJob({
+    organisationId: input.organisationId,
+    draftId: input.draftId,
+    platform: input.platform,
+    triggerType: "immediate",
+    scheduledFor: new Date().toISOString(),
+    idempotencyKey: input.idempotencyKey,
+    requestedBy: deps.actor.id,
+    maxRetries: DEFAULT_MAX_PUBLISHING_RETRIES,
+    devSimulationMode: input.devSimulationMode ?? null,
+  });
+
+  if (draft.status !== "publishing") {
+    await deps.content.updateStatus(input.organisationId, input.draftId, "publishing", deps.actor.id);
+  }
+
+  await deps.audits.recordEvent({
+    organisationId: input.organisationId,
+    draftId: input.draftId,
+    actorId: deps.actor.id,
+    eventType: "publishing_job_queued",
+    description: `Queued an immediate publish to ${input.platform}.`,
+    metadata: { jobId: job.id, platform: input.platform, triggerType: "immediate" },
+  });
+
+  return job;
+}
+
+/** Scheduled publish. Draft-level scheduledAt/platform/timezone are kept in sync too, since Content Studio and the Calendar already read those fields directly. */
+export async function createScheduledPublishingJob(
+  deps: PublishingDeps,
+  input: {
+    organisationId: string;
+    draftId: string;
+    platform: PublishingPlatform;
+    scheduledFor: string;
+    timezone: string;
+    idempotencyKey: string;
+    devSimulationMode?: "always_succeed" | "fail_next_attempt" | "always_fail" | null;
+  },
+): Promise<PublishingJob> {
+  await requireRole(deps, input.organisationId, canWriteContent);
+
+  const scheduledForDate = new Date(input.scheduledFor);
+  if (Number.isNaN(scheduledForDate.getTime())) {
+    throw new ValidationError("That scheduled date and time could not be understood.");
+  }
+  if (scheduledForDate.getTime() <= Date.now()) {
+    throw new ValidationError("Scheduled publish time must be in the future.");
+  }
+
+  const draft = await deps.content.findDraft(input.organisationId, input.draftId);
+  if (!draft) throw new NotFoundError("Draft");
+
+  // See the identical comment in createImmediatePublishingJob — checked
+  // before the status guard so a double-click/replay idempotently returns
+  // the already-created job instead of erroring on a status the first call
+  // already advanced past.
+  const existingActive = await deps.publishing.findActiveJobForDraftPlatform(input.draftId, input.platform);
+  if (existingActive) return existingActive;
+
+  if (!PUBLISHABLE_STATUSES.includes(draft.status as (typeof PUBLISHABLE_STATUSES)[number])) {
+    throw new ValidationError("Only approved, scheduled, or failed content can be scheduled for publishing.");
+  }
+
+  const job = await deps.publishing.createJob({
+    organisationId: input.organisationId,
+    draftId: input.draftId,
+    platform: input.platform,
+    triggerType: "scheduled",
+    scheduledFor: scheduledForDate.toISOString(),
+    idempotencyKey: input.idempotencyKey,
+    requestedBy: deps.actor.id,
+    maxRetries: DEFAULT_MAX_PUBLISHING_RETRIES,
+    devSimulationMode: input.devSimulationMode ?? null,
+  });
+
+  await deps.content.scheduleDraft(input.organisationId, input.draftId, {
+    scheduledAt: scheduledForDate.toISOString(),
+    platform: input.platform,
+    timezone: input.timezone,
+    updatedBy: deps.actor.id,
+  });
+
+  await deps.audits.recordEvent({
+    organisationId: input.organisationId,
+    draftId: input.draftId,
+    actorId: deps.actor.id,
+    eventType: "publishing_job_queued",
+    description: `Scheduled a publish to ${input.platform} for ${scheduledForDate.toISOString()}.`,
+    metadata: { jobId: job.id, platform: input.platform, triggerType: "scheduled", scheduledFor: scheduledForDate.toISOString() },
+  });
+
+  return job;
+}
+
+/** Worker-only. `deps` here is expected to be backed by the service-role client — see scripts/publishing-worker.ts. */
+export async function claimNextPublishingJob(
+  deps: Pick<PublishingDeps, "publishing">,
+  workerId: string,
+): Promise<PublishingJob | null> {
+  return deps.publishing.claimNextJob(workerId);
+}
+
+/** Worker-only. Creates the next attempt row (append-only) and flips the draft to "publishing" the moment real work starts. */
+export async function startPublishingAttempt(
+  deps: Pick<PublishingDeps, "publishing" | "content">,
+  job: PublishingJob,
+): Promise<PublishingAttempt> {
+  const existingAttempts = await deps.publishing.listAttemptsForJob(job.organisationId, job.id);
+  const attemptNumber = existingAttempts.length + 1;
+  const previousAttempt = existingAttempts[existingAttempts.length - 1] ?? null;
+
+  const attempt = await deps.publishing.createAttempt({
+    jobId: job.id,
+    organisationId: job.organisationId,
+    draftId: job.draftId,
+    platform: job.platform,
+    attemptNumber,
+    retryOfAttemptId: previousAttempt?.id ?? null,
+  });
+
+  await deps.content.updateStatus(job.organisationId, job.draftId, "publishing", job.requestedBy || "");
+
+  return deps.publishing.startAttempt(attempt.id);
+}
+
+/** Worker-only. Records success and drives the draft the rest of the way to Published — the operator never does this manually. */
+export async function completePublishingAttempt(
+  deps: Pick<PublishingDeps, "publishing" | "content" | "audits" | "notifications">,
+  job: PublishingJob,
+  attempt: PublishingAttempt,
+  result: { externalPostId: string; externalUrl: string; providerMetadata: Record<string, unknown> },
+): Promise<void> {
+  await deps.publishing.completeAttempt(attempt.id, result);
+  await deps.publishing.markJobPublished(job.id);
+  await deps.content.updateStatus(job.organisationId, job.draftId, "published", job.requestedBy || "");
+
+  await deps.audits.recordEvent({
+    organisationId: job.organisationId,
+    draftId: job.draftId,
+    actorId: null,
+    eventType: "publishing_attempt_completed",
+    description: `Published to ${job.platform}.`,
+    metadata: { jobId: job.id, attemptId: attempt.id, externalUrl: result.externalUrl },
+  });
+
+  if (job.requestedBy) {
+    // Notification delivery is best-effort — a failure here must never roll back the publish that already succeeded.
+    try {
+      await deps.notifications.createNotification({
+        organisationId: job.organisationId,
+        profileId: job.requestedBy,
+        type: "publish_succeeded",
+        message: `Your ${job.platform} publish succeeded. ${result.externalUrl}`,
+      });
+    } catch {
+      // Logged by the worker's own structured logging around this call; swallow here by design.
+    }
+  }
+}
+
+/** Worker-only. Records failure as a terminal, immutable attempt — no automatic retry. An operator must explicitly retry. */
+export async function failPublishingAttempt(
+  deps: Pick<PublishingDeps, "publishing" | "content" | "audits" | "notifications">,
+  job: PublishingJob,
+  attempt: PublishingAttempt,
+  failure: { errorCode: string; errorMessage: string; providerMetadata: Record<string, unknown> },
+): Promise<void> {
+  await deps.publishing.failAttempt(attempt.id, failure);
+  await deps.publishing.markJobFailed(job.id);
+  await deps.content.updateStatus(job.organisationId, job.draftId, "failed", job.requestedBy || "");
+
+  await deps.audits.recordEvent({
+    organisationId: job.organisationId,
+    draftId: job.draftId,
+    actorId: null,
+    eventType: "publishing_attempt_failed",
+    description: `Publish to ${job.platform} failed: ${failure.errorMessage}`,
+    metadata: { jobId: job.id, attemptId: attempt.id, errorCode: failure.errorCode },
+  });
+
+  if (job.requestedBy) {
+    try {
+      await deps.notifications.createNotification({
+        organisationId: job.organisationId,
+        profileId: job.requestedBy,
+        type: "publish_failed",
+        message: `Your ${job.platform} publish failed: ${failure.errorMessage}`,
+      });
+    } catch {
+      // Best-effort, see completePublishingAttempt's identical rationale.
+    }
+  }
+}
+
+export async function retryFailedPublishingJob(
+  deps: PublishingDeps,
+  organisationId: string,
+  jobId: string,
+): Promise<PublishingJob> {
+  await requireRole(deps, organisationId, canWriteContent);
+
+  const job = await deps.publishing.findJobById(organisationId, jobId);
+  if (!job) throw new NotFoundError("Publishing job");
+  if (job.status !== "failed") {
+    throw new ValidationError("Only a failed publishing job can be retried.");
+  }
+  if (job.retryCount >= job.maxRetries) {
+    throw new ValidationError(`This job has reached its retry limit (${job.maxRetries}).`);
+  }
+
+  const retried = await deps.publishing.requeueJobForRetry(organisationId, jobId);
+
+  await deps.audits.recordEvent({
+    organisationId,
+    draftId: job.draftId,
+    actorId: deps.actor.id,
+    eventType: "publishing_job_retry_requested",
+    description: `Requested a retry of the ${job.platform} publish (attempt ${job.retryCount + 2}).`,
+    metadata: { jobId, platform: job.platform },
+  });
+
+  return retried;
+}
+
+export async function cancelPublishingJob(
+  deps: PublishingDeps,
+  organisationId: string,
+  jobId: string,
+): Promise<PublishingJob> {
+  await requireRole(deps, organisationId, canWriteContent);
+
+  const job = await deps.publishing.findJobById(organisationId, jobId);
+  if (!job) throw new NotFoundError("Publishing job");
+  if (job.status !== "queued") {
+    throw new ValidationError("Only a still-queued publishing job can be cancelled.");
+  }
+
+  const cancelled = await deps.publishing.cancelJob(organisationId, jobId);
+
+  const draft = await deps.content.findDraft(organisationId, job.draftId);
+  if (draft && (draft.status === "publishing" || draft.status === "scheduled")) {
+    await deps.content.updateStatus(organisationId, job.draftId, "approved", deps.actor.id);
+  }
+
+  await deps.audits.recordEvent({
+    organisationId,
+    draftId: job.draftId,
+    actorId: deps.actor.id,
+    eventType: "publishing_job_cancelled",
+    description: `Cancelled the ${job.triggerType} publish to ${job.platform}.`,
+    metadata: { jobId, platform: job.platform },
+  });
+
+  return cancelled;
+}
+
+/** Worker-only, called once at startup and then on a fixed interval — see scripts/publishing-worker.ts. */
+export async function recoverStalePublishingJobs(
+  deps: Pick<PublishingDeps, "publishing">,
+  staleAfterSeconds: number,
+): Promise<PublishingJob[]> {
+  return deps.publishing.recoverStaleJobs(staleAfterSeconds);
+}
+
+export async function getPublishingJob(
+  deps: PublishingDeps,
+  organisationId: string,
+  jobId: string,
+): Promise<PublishingJob> {
+  await requireMember(deps, organisationId);
+  const job = await deps.publishing.findJobById(organisationId, jobId);
+  if (!job) throw new NotFoundError("Publishing job");
+  return job;
+}
+
+export async function listPublishingQueue(
+  deps: PublishingDeps,
+  filters: PublishingQueueFilters,
+): Promise<PublishingJob[]> {
+  if (filters.organisationId) await requireMember(deps, filters.organisationId);
+  return deps.publishing.listJobs(filters);
+}
+
+export async function getPublishingAttempts(
+  deps: PublishingDeps,
+  organisationId: string,
+  jobId: string,
+): Promise<PublishingAttempt[]> {
+  await requireMember(deps, organisationId);
+  return deps.publishing.listAttemptsForJob(organisationId, jobId);
+}
+
+export async function getPublishingAnalytics(
+  deps: PublishingDeps,
+  organisationId: string,
+  input: { dateFrom?: string; dateTo?: string } = {},
+): Promise<PublishingAnalytics> {
+  await requireMember(deps, organisationId);
+  const [jobs, attempts] = await Promise.all([
+    deps.publishing.listJobsForAnalytics(organisationId, input),
+    deps.publishing.listAttemptsForAnalytics(organisationId, input),
+  ]);
+  return computePublishingAnalytics(jobs, attempts, new Date());
+}
+
+/**
+ * Cross-organisation rollup for the Dashboard, mirroring
+ * ContentRepository.listDraftsForActor's own reliance on RLS alone (no
+ * organisationId filter) rather than a per-org permission check — the
+ * Dashboard already shows every account the actor can see at once.
+ */
+export async function getPublishingAnalyticsForActor(
+  deps: Pick<PublishingDeps, "publishing">,
+  input: { dateFrom?: string; dateTo?: string } = {},
+): Promise<PublishingAnalytics> {
+  const [jobs, attempts] = await Promise.all([
+    deps.publishing.listJobsForAnalytics(undefined, input),
+    deps.publishing.listAttemptsForAnalytics(undefined, input),
+  ]);
+  return computePublishingAnalytics(jobs, attempts, new Date());
+}
+
+/** Convenience for callers (server actions) that don't want to mint their own idempotency key for a one-off action. */
+export function generateIdempotencyKey(): string {
+  return randomUUID();
+}

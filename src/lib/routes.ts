@@ -39,5 +39,9 @@ export const routes = {
       index: (id: string) => `/organisations/${id}/media`,
       detail: (id: string, assetId: string) => `/organisations/${id}/media/${assetId}`,
     },
+    publishing: {
+      index: (id: string) => `/organisations/${id}/publishing`,
+      job: (id: string, jobId: string) => `/organisations/${id}/publishing/${jobId}`,
+    },
   },
 } as const;

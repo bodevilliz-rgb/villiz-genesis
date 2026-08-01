@@ -20,22 +20,20 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 export type CampaignStatusDb = "planning" | "active" | "completed" | "archived";
 export type ConnectionStatusDb = "connected" | "expired" | "revoked";
 export type ContentDraftAwoStatusDb = "not_requested" | "ready_for_awo";
-export type ContentDraftStatusDb = "draft" | "needs_review" | "in_review" | "changes_requested" | "awaiting_client" | "approved" | "rejected" | "scheduled" | "publishing" | "published" | "failed" | "archived";
-export type ContentDraftReviewActionDb =
-  | "submitted"
-  | "assigned"
-  | "reassigned"
-  | "approved"
-  | "changes_requested"
-  | "rejected"
-  | "reopened";
-export type ContentDraftTypeDb = "social_post" | "caption" | "campaign_copy" | "email" | "blog_article" | "image_prompt" | "ad_copy" | "video_script" | "other";
+export type ContentDraftReviewActionDb = "submitted" | "assigned" | "reassigned" | "approved" | "changes_requested" | "rejected" | "reopened";
+export type ContentDraftStatusDb = "draft" | "needs_review" | "approved" | "rejected" | "in_review" | "changes_requested" | "scheduled" | "published" | "archived" | "publishing" | "failed" | "awaiting_client";
+export type ContentDraftTypeDb = "social_post" | "email" | "blog_article" | "ad_copy" | "video_script" | "other" | "caption" | "campaign_copy" | "image_prompt";
 export type MembrainSourceDb = "manual" | "client_brief" | "discovery_call" | "performance_insight" | "competitor_research" | "published_asset";
 export type MembrainStatusDb = "draft" | "active" | "archived";
 export type OrganisationRoleDb = "lead" | "contributor" | "reviewer";
 export type OrganisationStatusDb = "prospect" | "active" | "paused" | "offboarded";
 export type PlatformRoleDb = "owner" | "admin" | "member";
 export type PostStatusDb = "idea" | "researching" | "drafting" | "in_review" | "approved" | "scheduled" | "published" | "failed" | "archived";
+export type PublishingAttemptStatusDb = "queued" | "started" | "completed" | "failed";
+export type PublishingJobStatusDb = "queued" | "processing" | "published" | "failed" | "cancelled";
+export type PublishingPlatformDb = "linkedin" | "facebook" | "instagram" | "x";
+export type PublishingSimulationModeDb = "always_succeed" | "fail_next_attempt" | "always_fail";
+export type PublishingTriggerTypeDb = "immediate" | "scheduled" | "retry";
 export type SocialPlatformDb = "instagram" | "facebook" | "linkedin" | "x" | "tiktok" | "youtube" | "pinterest" | "threads";
 
 export type AiUsageEventRow = {
@@ -46,6 +44,44 @@ export type AiUsageEventRow = {
   input_tokens: number;
   output_tokens: number;
   occurred_at: string;
+};
+
+export type AuditEventRow = {
+  id: string;
+  organisation_id: string;
+  draft_id: string | null;
+  actor_id: string | null;
+  event_type: string;
+  description: string;
+  metadata: Json;
+  created_at: string;
+};
+
+export type BrandKitAssetRow = {
+  brand_kit_id: string;
+  asset_id: string;
+  role: string | null;
+  created_at: string;
+};
+
+export type BrandKitRow = {
+  id: string;
+  organisation_id: string;
+  name: string;
+  colors: Json | null;
+  typography: Json | null;
+  tone_notes: string | null;
+  usage_guidance: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CampaignAssetRow = {
+  campaign_id: string;
+  asset_id: string;
+  attached_by: string | null;
+  created_at: string;
 };
 
 export type CampaignRow = {
@@ -65,46 +101,22 @@ export type CampaignRow = {
   updated_by: string | null;
   created_at: string;
   updated_at: string;
+  client: string | null;
+  brand: string | null;
+  campaign_type: string | null;
+  owner_id: string | null;
+  team_members: string[] | null;
+  color_label: string | null;
+  tags: string[] | null;
+  priority: string | null;
+  notes: string | null;
+  assets: Json | null;
 };
 
-export type ContentDraftRow = {
-  id: string;
-  organisation_id: string;
-  category_id: string | null;
-  campaign_id: string | null;
-  title: string;
-  content_type: ContentDraftTypeDb;
-  summary: string | null;
-  body: string;
-  status: ContentDraftStatusDb;
-  awo_status: ContentDraftAwoStatusDb;
-  assigned_reviewer_id: string | null;
-  last_review_action: ContentDraftReviewActionDb | null;
-  last_review_at: string | null;
-  version: number;
-  scheduled_at: string | null;
-  scheduled_platform: string | null;
-  scheduled_timezone: string | null;
-  created_by: string | null;
-  updated_by: string | null;
-  created_at: string;
-  updated_at: string;
-  priority: "low" | "medium" | "high";
-  review_deadline: string | null;
-  due_at: string | null;
-  reviewer_ids: string[];
-};
-
-export type ContentDraftReviewRow = {
-  id: string;
+export type ContentDraftAssetRow = {
   draft_id: string;
-  organisation_id: string;
-  action: ContentDraftReviewActionDb;
-  actor_id: string | null;
-  assigned_reviewer_id: string | null;
-  previous_status: ContentDraftStatusDb;
-  new_status: ContentDraftStatusDb;
-  comment: string | null;
+  asset_id: string;
+  attached_by: string | null;
   created_at: string;
 };
 
@@ -122,24 +134,16 @@ export type ContentDraftCommentRow = {
   updated_at: string;
 };
 
-export type AuditEventRow = {
+export type ContentDraftReviewRow = {
   id: string;
+  draft_id: string;
   organisation_id: string;
-  draft_id: string | null;
+  action: ContentDraftReviewActionDb;
   actor_id: string | null;
-  event_type: string;
-  description: string;
-  metadata: Record<string, unknown> | null;
-  created_at: string;
-};
-
-export type NotificationRow = {
-  id: string;
-  organisation_id: string;
-  profile_id: string;
-  type: string;
-  message: string;
-  is_read: boolean;
+  assigned_reviewer_id: string | null;
+  previous_status: ContentDraftStatusDb;
+  new_status: ContentDraftStatusDb;
+  comment: string | null;
   created_at: string;
 };
 
@@ -151,16 +155,43 @@ export type ContentDraftVersionRow = {
   title: string;
   body: string;
   category_id: string | null;
-  campaign_id: string | null;
   content_type: ContentDraftTypeDb;
   status: ContentDraftStatusDb;
   change_summary: string | null;
   changed_by: string | null;
   created_at: string;
-  priority: "low" | "medium" | "high";
+  campaign_id: string | null;
+  priority: string;
   review_deadline: string | null;
 };
 
+export type ContentDraftRow = {
+  id: string;
+  organisation_id: string;
+  category_id: string | null;
+  title: string;
+  content_type: ContentDraftTypeDb;
+  summary: string | null;
+  body: string;
+  status: ContentDraftStatusDb;
+  awo_status: ContentDraftAwoStatusDb;
+  version: number;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  campaign_id: string | null;
+  assigned_reviewer_id: string | null;
+  last_review_action: ContentDraftReviewActionDb | null;
+  last_review_at: string | null;
+  scheduled_at: string | null;
+  scheduled_platform: string | null;
+  scheduled_timezone: string | null;
+  due_at: string | null;
+  reviewer_ids: string[] | null;
+  priority: string;
+  review_deadline: string | null;
+};
 
 export type ContentGenerationRequestRow = {
   id: string;
@@ -177,6 +208,110 @@ export type ContentGenerationRequestRow = {
   requested_at: string;
 };
 
+export type ConversationSummaryRow = {
+  id: string;
+  title: string;
+  summary: string;
+  tags: string[];
+  source: string;
+  confidence: number;
+  conversation_date: string;
+  participants: string[];
+  key_points: string[];
+  created_at: string;
+  updated_at: string;
+  search_vector: unknown | null;
+};
+
+export type DailyBriefRow = {
+  id: string;
+  brief_date: string;
+  content: Json;
+  created_at: string;
+};
+
+export type DecisionReviewRow = {
+  id: string;
+  title: string;
+  summary: string;
+  tags: string[];
+  source: string;
+  confidence: number;
+  question: string;
+  options: string[];
+  recommendation: string | null;
+  decision: string | null;
+  review_date: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DecisionRow = {
+  id: string;
+  title: string;
+  context: string | null;
+  decision: string;
+  status: string;
+  created_at: string;
+};
+
+export type ExecutiveUserRow = {
+  id: string;
+  telegram_user_id: number;
+  display_name: string | null;
+  is_active: boolean;
+  created_at: string;
+};
+
+export type GoogleAccountRow = {
+  account_key: string;
+  display_name: string;
+  email_address: string | null;
+  status: string;
+  connected_at: string | null;
+  last_successful_sync_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type GoogleOauthTokenRow = {
+  account_key: string;
+  encrypted_access_token: string;
+  encrypted_refresh_token: string | null;
+  expiry_date: number | null;
+  scope: string;
+  token_type: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type KnowledgeRow = {
+  id: string;
+  title: string;
+  summary: string;
+  content: string;
+  tags: string[];
+  source: string;
+  confidence: number;
+  created_at: string;
+  updated_at: string;
+  search_vector: unknown | null;
+};
+
+export type MediaAssetVersionRow = {
+  id: string;
+  asset_id: string;
+  storage_path: string;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  width: number | null;
+  height: number | null;
+  replaced_by: string | null;
+  created_at: string;
+};
+
 export type MediaAssetRow = {
   id: string;
   organisation_id: string;
@@ -188,6 +323,52 @@ export type MediaAssetRow = {
   height: number | null;
   uploaded_by: string | null;
   created_at: string;
+  title: string | null;
+  thumbnail_path: string | null;
+  category: string | null;
+  description: string | null;
+  alt_text: string | null;
+  tags: string[] | null;
+  brand: string | null;
+  duration: number | null;
+  copyright_owner: string | null;
+  usage_rights: string | null;
+  expires_at: string | null;
+  is_ai_generated: boolean;
+  is_archived: boolean;
+  updated_at: string;
+};
+
+export type MediaCollectionAssetRow = {
+  collection_id: string;
+  asset_id: string;
+  position: number;
+  created_at: string;
+};
+
+export type MediaCollectionRow = {
+  id: string;
+  organisation_id: string;
+  name: string;
+  description: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MeetingRow = {
+  id: string;
+  title: string;
+  summary: string;
+  tags: string[];
+  source: string;
+  confidence: number;
+  occurred_at: string;
+  attendees: string[];
+  action_items: string[];
+  created_at: string;
+  updated_at: string;
+  search_vector: unknown | null;
 };
 
 export type MembrainCategoryRow = {
@@ -251,6 +432,16 @@ export type MembrainTagRow = {
   created_at: string;
 };
 
+export type NotificationRow = {
+  id: string;
+  organisation_id: string;
+  profile_id: string;
+  type: string;
+  message: string;
+  is_read: boolean;
+  created_at: string;
+};
+
 export type OrganisationLimitsRow = {
   organisation_id: string;
   max_social_accounts: number;
@@ -293,6 +484,21 @@ export type PlatformSettingsRow = {
   updated_at: string;
 };
 
+export type PlaybookRow = {
+  id: string;
+  slug: string;
+  title: string;
+  summary: string;
+  content: string;
+  tags: string[];
+  source: string;
+  confidence: number;
+  version: number;
+  approval_status: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ProfileRow = {
   id: string;
   email: string;
@@ -304,6 +510,60 @@ export type ProfileRow = {
   last_seen_at: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type ProjectRow = {
+  id: string;
+  name: string;
+  description: string | null;
+  status: string;
+  priority: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PublishingAttemptRow = {
+  id: string;
+  job_id: string;
+  organisation_id: string;
+  draft_id: string;
+  platform: PublishingPlatformDb;
+  attempt_number: number;
+  status: PublishingAttemptStatusDb;
+  queued_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  failed_at: string | null;
+  duration_ms: number | null;
+  external_post_id: string | null;
+  external_url: string | null;
+  error_code: string | null;
+  error_message: string | null;
+  retry_of_attempt_id: string | null;
+  provider_metadata: Json;
+  created_at: string;
+};
+
+export type PublishingJobRow = {
+  id: string;
+  organisation_id: string;
+  draft_id: string;
+  platform: PublishingPlatformDb;
+  trigger_type: PublishingTriggerTypeDb;
+  scheduled_for: string;
+  status: PublishingJobStatusDb;
+  idempotency_key: string;
+  requested_by: string | null;
+  created_at: string;
+  updated_at: string;
+  next_attempt_at: string | null;
+  retry_count: number;
+  max_retries: number;
+  completed_at: string | null;
+  cancelled_at: string | null;
+  claimed_by: string | null;
+  claimed_at: string | null;
+  dev_simulation_mode: PublishingSimulationModeDb | null;
 };
 
 export type ScheduledPostRow = {
@@ -327,6 +587,19 @@ export type SocialAccountRow = {
   status: ConnectionStatusDb;
   connected_by: string | null;
   connected_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TaskRow = {
+  id: string;
+  project_id: string | null;
+  title: string;
+  description: string | null;
+  status: string;
+  priority: string;
+  due_at: string | null;
+  completed_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -372,6 +645,49 @@ export type MembrainSearchRow = {
   total_count: number;
 };
 
+export type SearchConversationSummaryRow = {
+  id: string;
+  title: string;
+  summary: string;
+  tags: string[];
+  source: string;
+  confidence: number;
+  conversation_date: string;
+  participants: string[];
+  key_points: string[];
+  created_at: string;
+  updated_at: string;
+  rank: number;
+};
+
+export type SearchKnowledgeRow = {
+  id: string;
+  title: string;
+  summary: string;
+  content: string;
+  tags: string[];
+  source: string;
+  confidence: number;
+  created_at: string;
+  updated_at: string;
+  rank: number;
+};
+
+export type SearchMeetingRow = {
+  id: string;
+  title: string;
+  summary: string;
+  tags: string[];
+  source: string;
+  confidence: number;
+  occurred_at: string;
+  attendees: string[];
+  action_items: string[];
+  created_at: string;
+  updated_at: string;
+  rank: number;
+};
+
 type Relationship = {
   foreignKeyName: string;
   columns: string[];
@@ -414,7 +730,44 @@ export type Database = {
           Fk<"ai_usage_events_profile_id_fkey", "profile_id", "profiles">,
         ]
       >;
-
+      audit_events: Table<
+        AuditEventRow,
+        Partial<AuditEventRow>,
+        Partial<AuditEventRow>,
+        [
+          Fk<"audit_events_actor_id_fkey", "actor_id", "profiles">,
+          Fk<"audit_events_draft_id_fkey", "draft_id", "content_drafts">,
+          Fk<"audit_events_organisation_id_fkey", "organisation_id", "organisations">,
+        ]
+      >;
+      brand_kit_assets: Table<
+        BrandKitAssetRow,
+        Partial<BrandKitAssetRow>,
+        Partial<BrandKitAssetRow>,
+        [
+          Fk<"brand_kit_assets_asset_id_fkey", "asset_id", "media_assets">,
+          Fk<"brand_kit_assets_brand_kit_id_fkey", "brand_kit_id", "brand_kits">,
+        ]
+      >;
+      brand_kits: Table<
+        BrandKitRow,
+        Partial<BrandKitRow>,
+        Partial<BrandKitRow>,
+        [
+          Fk<"brand_kits_created_by_fkey", "created_by", "profiles">,
+          Fk<"brand_kits_organisation_id_fkey", "organisation_id", "organisations">,
+        ]
+      >;
+      campaign_assets: Table<
+        CampaignAssetRow,
+        Partial<CampaignAssetRow>,
+        Partial<CampaignAssetRow>,
+        [
+          Fk<"campaign_assets_asset_id_fkey", "asset_id", "media_assets">,
+          Fk<"campaign_assets_attached_by_fkey", "attached_by", "profiles">,
+          Fk<"campaign_assets_campaign_id_fkey", "campaign_id", "campaigns">,
+        ]
+      >;
       campaigns: Table<
         CampaignRow,
         Partial<CampaignRow>,
@@ -422,7 +775,30 @@ export type Database = {
         [
           Fk<"campaigns_created_by_fkey", "created_by", "profiles">,
           Fk<"campaigns_organisation_id_fkey", "organisation_id", "organisations">,
+          Fk<"campaigns_owner_id_fkey", "owner_id", "profiles">,
           Fk<"campaigns_updated_by_fkey", "updated_by", "profiles">,
+        ]
+      >;
+      content_draft_assets: Table<
+        ContentDraftAssetRow,
+        Partial<ContentDraftAssetRow>,
+        Partial<ContentDraftAssetRow>,
+        [
+          Fk<"content_draft_assets_asset_id_fkey", "asset_id", "media_assets">,
+          Fk<"content_draft_assets_attached_by_fkey", "attached_by", "profiles">,
+          Fk<"content_draft_assets_draft_id_fkey", "draft_id", "content_drafts">,
+        ]
+      >;
+      content_draft_comments: Table<
+        ContentDraftCommentRow,
+        Partial<ContentDraftCommentRow>,
+        Partial<ContentDraftCommentRow>,
+        [
+          Fk<"content_draft_comments_author_id_fkey", "author_id", "profiles">,
+          Fk<"content_draft_comments_draft_id_fkey", "draft_id", "content_drafts">,
+          Fk<"content_draft_comments_organisation_id_fkey", "organisation_id", "organisations">,
+          Fk<"content_draft_comments_parent_id_fkey", "parent_id", "content_draft_comments">,
+          Fk<"content_draft_comments_resolved_by_fkey", "resolved_by", "profiles">,
         ]
       >;
       content_draft_reviews: Table<
@@ -434,18 +810,6 @@ export type Database = {
           Fk<"content_draft_reviews_assigned_reviewer_id_fkey", "assigned_reviewer_id", "profiles">,
           Fk<"content_draft_reviews_draft_id_fkey", "draft_id", "content_drafts">,
           Fk<"content_draft_reviews_organisation_id_fkey", "organisation_id", "organisations">,
-        ]
-      >;
-      content_draft_comments: Table<
-        ContentDraftCommentRow,
-        Partial<ContentDraftCommentRow>,
-        Partial<ContentDraftCommentRow>,
-        [
-          Fk<"content_draft_comments_organisation_id_fkey", "organisation_id", "organisations">,
-          Fk<"content_draft_comments_draft_id_fkey", "draft_id", "content_drafts">,
-          Fk<"content_draft_comments_author_id_fkey", "author_id", "profiles">,
-          Fk<"content_draft_comments_parent_id_fkey", "parent_id", "content_draft_comments">,
-          Fk<"content_draft_comments_resolved_by_fkey", "resolved_by", "profiles">,
         ]
       >;
       content_draft_versions: Table<
@@ -482,6 +846,23 @@ export type Database = {
           Fk<"content_generation_requests_requested_by_fkey", "requested_by", "profiles">,
         ]
       >;
+      conversation_summaries: Table<ConversationSummaryRow>;
+      daily_briefs: Table<DailyBriefRow>;
+      decision_reviews: Table<DecisionReviewRow>;
+      decisions: Table<DecisionRow>;
+      executive_users: Table<ExecutiveUserRow>;
+      google_accounts: Table<GoogleAccountRow>;
+      google_oauth_tokens: Table<GoogleOauthTokenRow>;
+      knowledge: Table<KnowledgeRow>;
+      media_asset_versions: Table<
+        MediaAssetVersionRow,
+        Partial<MediaAssetVersionRow>,
+        Partial<MediaAssetVersionRow>,
+        [
+          Fk<"media_asset_versions_asset_id_fkey", "asset_id", "media_assets">,
+          Fk<"media_asset_versions_replaced_by_fkey", "replaced_by", "profiles">,
+        ]
+      >;
       media_assets: Table<
         MediaAssetRow,
         Partial<MediaAssetRow>,
@@ -491,6 +872,25 @@ export type Database = {
           Fk<"media_assets_uploaded_by_fkey", "uploaded_by", "profiles">,
         ]
       >;
+      media_collection_assets: Table<
+        MediaCollectionAssetRow,
+        Partial<MediaCollectionAssetRow>,
+        Partial<MediaCollectionAssetRow>,
+        [
+          Fk<"media_collection_assets_asset_id_fkey", "asset_id", "media_assets">,
+          Fk<"media_collection_assets_collection_id_fkey", "collection_id", "media_collections">,
+        ]
+      >;
+      media_collections: Table<
+        MediaCollectionRow,
+        Partial<MediaCollectionRow>,
+        Partial<MediaCollectionRow>,
+        [
+          Fk<"media_collections_created_by_fkey", "created_by", "profiles">,
+          Fk<"media_collections_organisation_id_fkey", "organisation_id", "organisations">,
+        ]
+      >;
+      meetings: Table<MeetingRow>;
       membrain_categories: Table<
         MembrainCategoryRow,
         Partial<MembrainCategoryRow>,
@@ -537,6 +937,15 @@ export type Database = {
           Fk<"membrain_tags_organisation_id_fkey", "organisation_id", "organisations">,
         ]
       >;
+      notifications: Table<
+        NotificationRow,
+        Partial<NotificationRow>,
+        Partial<NotificationRow>,
+        [
+          Fk<"notifications_organisation_id_fkey", "organisation_id", "organisations">,
+          Fk<"notifications_profile_id_fkey", "profile_id", "profiles">,
+        ]
+      >;
       organisation_limits: Table<
         OrganisationLimitsRow,
         Partial<OrganisationLimitsRow>,
@@ -564,12 +973,35 @@ export type Database = {
         ]
       >;
       platform_settings: Table<PlatformSettingsRow>;
+      playbooks: Table<PlaybookRow>;
       profiles: Table<
         ProfileRow,
         Partial<ProfileRow>,
         Partial<ProfileRow>,
         [
           Fk<"profiles_id_fkey", "id", "users">,
+        ]
+      >;
+      projects: Table<ProjectRow>;
+      publishing_attempts: Table<
+        PublishingAttemptRow,
+        Partial<PublishingAttemptRow>,
+        Partial<PublishingAttemptRow>,
+        [
+          Fk<"publishing_attempts_draft_id_fkey", "draft_id", "content_drafts">,
+          Fk<"publishing_attempts_job_id_fkey", "job_id", "publishing_jobs">,
+          Fk<"publishing_attempts_organisation_id_fkey", "organisation_id", "organisations">,
+          Fk<"publishing_attempts_retry_of_attempt_id_fkey", "retry_of_attempt_id", "publishing_attempts">,
+        ]
+      >;
+      publishing_jobs: Table<
+        PublishingJobRow,
+        Partial<PublishingJobRow>,
+        Partial<PublishingJobRow>,
+        [
+          Fk<"publishing_jobs_draft_id_fkey", "draft_id", "content_drafts">,
+          Fk<"publishing_jobs_organisation_id_fkey", "organisation_id", "organisations">,
+          Fk<"publishing_jobs_requested_by_fkey", "requested_by", "profiles">,
         ]
       >;
       scheduled_posts: Table<
@@ -590,23 +1022,12 @@ export type Database = {
           Fk<"social_accounts_organisation_id_fkey", "organisation_id", "organisations">,
         ]
       >;
-      audit_events: Table<
-        AuditEventRow,
-        Partial<AuditEventRow>,
-        Partial<AuditEventRow>,
+      tasks: Table<
+        TaskRow,
+        Partial<TaskRow>,
+        Partial<TaskRow>,
         [
-          Fk<"audit_events_organisation_id_fkey", "organisation_id", "organisations">,
-          Fk<"audit_events_draft_id_fkey", "draft_id", "content_drafts">,
-          Fk<"audit_events_actor_id_fkey", "actor_id", "profiles">,
-        ]
-      >;
-      notifications: Table<
-        NotificationRow,
-        Partial<NotificationRow>,
-        Partial<NotificationRow>,
-        [
-          Fk<"notifications_organisation_id_fkey", "organisation_id", "organisations">,
-          Fk<"notifications_profile_id_fkey", "profile_id", "profiles">,
+          Fk<"tasks_project_id_fkey", "project_id", "projects">,
         ]
       >;
     };
@@ -614,6 +1035,19 @@ export type Database = {
       organisation_usage_snapshot: View<UsageSnapshotRow>;
     };
     Functions: {
+      claim_next_publishing_job: {
+        Args: {
+          p_worker_id: string;
+        };
+        Returns: unknown;
+      };
+      immutable_array_to_string: {
+        Args: {
+          arr: string[];
+          sep: string;
+        };
+        Returns: unknown;
+      };
       membrain_context: {
         Args: {
           p_organisation_id: string;
@@ -644,11 +1078,38 @@ export type Database = {
         Args: {
           p_draft_id: string;
           p_action: ContentDraftReviewActionDb;
-          p_new_status: ContentDraftStatusDb | null;
-          p_assigned_reviewer_id: string | null;
-          p_comment: string | null;
+          p_new_status: ContentDraftStatusDb;
+          p_assigned_reviewer_id: string;
+          p_comment: string;
         };
         Returns: unknown;
+      };
+      recover_stale_publishing_jobs: {
+        Args: {
+          p_stale_after_seconds?: number | null;
+        };
+        Returns: unknown;
+      };
+      search_conversation_summaries: {
+        Args: {
+          search_query: string;
+          result_limit?: number | null;
+        };
+        Returns: SearchConversationSummaryRow[];
+      };
+      search_knowledge: {
+        Args: {
+          search_query: string;
+          result_limit?: number | null;
+        };
+        Returns: SearchKnowledgeRow[];
+      };
+      search_meetings: {
+        Args: {
+          search_query: string;
+          result_limit?: number | null;
+        };
+        Returns: SearchMeetingRow[];
       };
     };
     Enums: {
@@ -664,6 +1125,11 @@ export type Database = {
       organisation_status: OrganisationStatusDb;
       platform_role: PlatformRoleDb;
       post_status: PostStatusDb;
+      publishing_attempt_status: PublishingAttemptStatusDb;
+      publishing_job_status: PublishingJobStatusDb;
+      publishing_platform: PublishingPlatformDb;
+      publishing_simulation_mode: PublishingSimulationModeDb;
+      publishing_trigger_type: PublishingTriggerTypeDb;
       social_platform: SocialPlatformDb;
     };
     CompositeTypes: Record<string, never>;

@@ -1,6 +1,7 @@
 import "server-only";
 import type { AuditRepository, AuditEvent } from "@/core/application/ports/audit-port";
 import type { GenesisClient } from "../supabase/server-client";
+import type { Json } from "../supabase/database.types";
 import { translateError } from "./errors";
 
 const AUDIT_EVENT_SELECT = `
@@ -59,7 +60,7 @@ export class SupabaseAuditRepository implements AuditRepository {
         actor_id: input.actorId,
         event_type: input.eventType,
         description: input.description,
-        metadata: input.metadata || {},
+        metadata: (input.metadata || {}) as Json,
       })
       .select(AUDIT_EVENT_SELECT)
       .single();

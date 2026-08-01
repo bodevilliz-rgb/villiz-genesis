@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import { requireContext } from "@/server/container";
 import { getDashboardHome } from "@/core/application/use-cases/dashboard";
 import { aggregateUsage, toUsageMetrics } from "@/core/domain/entities/usage";
+import { getPublishingAnalyticsForActor, listPublishingQueue } from "@/core/application/use-cases/publishing";
+import { PUBLISHING_PLATFORM_LABELS } from "@/core/domain/entities/publishing";
+import { PublishingEngineWidget } from "@/components/dashboard/publishing-engine-widget";
 import {
   CommandCentreHeader,
   RevenueSummary,
@@ -17,7 +20,16 @@ export const metadata: Metadata = { title: "Command Centre" };
 
 export default async function DashboardPage() {
   const context = await requireContext();
-  const [, usage, dashboard] = await Promise.all([
+  const publishingDeps = {
+    actor: context.actor,
+    publishing: context.publishing,
+    content: context.content,
+    organisations: context.organisations,
+    audits: context.audits,
+    notifications: context.notifications,
+  };
+
+  const [, usage, dashboard, publishingAnalytics, activePublishingJobs] = await Promise.all([
     context.organisations.listForActor(),
     context.usage.forAllVisibleOrganisations(),
     getDashboardHome({
@@ -28,7 +40,24 @@ export default async function DashboardPage() {
       membrain: context.membrain,
       reviews: context.reviews,
     }),
+    getPublishingAnalyticsForActor(publishingDeps),
+    listPublishingQueue(publishingDeps, { status: "queued", limit: 10, offset: 0 }),
   ]);
+
+  // The Publishing Queue timeline reads real publishing_jobs rows, not
+  // content_drafts.status — a "Publishing" job must never be misclassified
+  // as still "Approved" here.
+  const publishingJobItems = await Promise.all(
+    activePublishingJobs.slice(0, 5).map(async (job) => {
+      const draft = await context.content.findDraft(job.organisationId, job.draftId);
+      return {
+        id: job.id,
+        title: draft?.title ?? "Untitled draft",
+        timeLabel: new Date(job.scheduledFor).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        platforms: [PUBLISHING_PLATFORM_LABELS[job.platform]],
+      };
+    }),
+  );
 
   const portfolioMetrics = toUsageMetrics(aggregateUsage(usage));
   const atRiskCount = portfolioMetrics.filter((m) => m.state !== "ok").length;
@@ -56,15 +85,11 @@ export default async function DashboardPage() {
         detail: `${waitingReviewsCount} reviews are currently pending client validation. Resolving these bottlenecks will accelerate campaign schedules.`,
       };
 
-  // Map publishing queue to timeline
-  const publishingTimeline = dashboard.myWork.publishingQueue.map((item) => ({
-    id: item.draftId,
-    title: item.title,
-    timeLabel: item.scheduledAt ? new Date(item.scheduledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "PENDING",
-    platforms: item.platforms.length > 0 ? item.platforms.map(p => p.charAt(0).toUpperCase() + p.slice(1)) : ["Pending"],
-  }));
+  // Publishing timeline — sourced from real publishing_jobs rows (fetched
+  // above as activePublishingJobs/publishingJobItems), not content_drafts.
+  const publishingTimeline = [...publishingJobItems];
 
-  // Fallback to active campaigns if no reviews waiting
+  // Fallback to active campaigns if nothing is actually queued
   if (publishingTimeline.length === 0) {
     dashboard.activeCampaigns.slice(0, 3).forEach((c, idx) => {
       publishingTimeline.push({
@@ -129,6 +154,7 @@ export default async function DashboardPage() {
 
         {/* Column 2: Publishing & Activities */}
         <div className="flex flex-col gap-6">
+          <PublishingEngineWidget analytics={publishingAnalytics} />
           <PublishingQueue items={publishingTimeline} />
           <LiveActivityFeed items={activityItems} />
         </div>
