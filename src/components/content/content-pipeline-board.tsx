@@ -11,7 +11,9 @@ const PIPELINE_COLUMNS: ContentDraftStatus[] = [
   "awaiting_client",
   "approved",
   "scheduled",
+  "publishing",
   "published",
+  "failed",
   "archived",
 ];
 
@@ -24,7 +26,9 @@ const COLUMN_LABELS: Record<ContentDraftStatus, string> = {
   approved: "Approved",
   rejected: "Rejected (Legacy)",
   scheduled: "Scheduled",
+  publishing: "Publishing",
   published: "Published",
+  failed: "Failed",
   archived: "Archived",
 };
 
@@ -49,6 +53,22 @@ export function ContentPipelineBoard({
     }
   }
 
+  function handleDragStart(e: React.DragEvent<HTMLDivElement>, draftId: string) {
+    e.dataTransfer.setData("draftId", draftId);
+  }
+
+  function handleDragOver(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault(); // Necessary to allow dropping
+  }
+
+  function handleDrop(e: React.DragEvent<HTMLDivElement>, status: ContentDraftStatus) {
+    e.preventDefault();
+    const draftId = e.dataTransfer.getData("draftId");
+    if (draftId) {
+      handleMoveDraft(draftId, status);
+    }
+  }
+
   return (
     <div className="flex gap-4 overflow-x-auto pb-4 max-w-full">
       {PIPELINE_COLUMNS.map((column) => {
@@ -57,6 +77,8 @@ export function ContentPipelineBoard({
         return (
           <div
             key={column}
+            onDragOver={handleDragOver}
+            onDrop={(e) => handleDrop(e, column)}
             className="flex-1 min-w-[280px] max-w-[320px] rounded-xl border border-border bg-[#050505] p-4 flex flex-col gap-3 min-h-[500px]"
           >
             <div className="flex items-center justify-between border-b border-border pb-2">
@@ -68,13 +90,15 @@ export function ContentPipelineBoard({
 
             <div className="flex flex-col gap-2.5 overflow-y-auto max-h-[600px] flex-1">
               {columnDrafts.length === 0 ? (
-                <div className="flex-1 border border-dashed border-border/40 rounded-lg flex items-center justify-center py-8 text-center">
+                <div className="flex-1 border border-dashed border-border/40 rounded-lg flex items-center justify-center py-8 text-center pointer-events-none">
                   <span className="text-[11px] text-subtle-foreground">No items in this stage</span>
                 </div>
               ) : (
                 columnDrafts.map((draft) => (
                   <div
                     key={draft.id}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, draft.id)}
                     className="p-3.5 border border-border bg-card rounded-lg flex flex-col gap-2 hover:border-primary/50 transition-all cursor-grab active:cursor-grabbing"
                   >
                     <span className="text-xs font-medium">{draft.title}</span>
@@ -94,9 +118,8 @@ export function ContentPipelineBoard({
                             )
                           }
                           className="px-1.5 py-0.5 rounded border border-border hover:bg-card-hover text-[10px] font-mono"
-                          title="Move Left"
                         >
-                          &larr;
+                          &larr; Move
                         </button>
                       )}
                       <a
@@ -115,9 +138,8 @@ export function ContentPipelineBoard({
                             )
                           }
                           className="px-1.5 py-0.5 rounded border border-border hover:bg-card-hover text-[10px] font-mono"
-                          title="Move Right"
                         >
-                          &rarr;
+                          Move &rarr;
                         </button>
                       )}
                     </div>

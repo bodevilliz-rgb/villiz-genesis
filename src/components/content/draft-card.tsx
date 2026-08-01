@@ -13,7 +13,9 @@ const STATUS_TONE: Record<ContentDraft["status"], "muted" | "warning" | "positiv
   approved: "positive",
   rejected: "danger",
   scheduled: "positive",
+  publishing: "positive",
   published: "positive",
+  failed: "danger",
   archived: "muted",
 };
 

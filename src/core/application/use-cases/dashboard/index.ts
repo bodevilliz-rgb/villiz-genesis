@@ -44,11 +44,12 @@ const KNOWLEDGE_COVERAGE_ATTENTION_THRESHOLD = 100;
 const CAMPAIGN_READINESS_ATTENTION_THRESHOLD = 100;
 
 const PIPELINE_LABELS: Record<ContentPipelineStageKey, string> = {
-  draft: "Draft",
-  readyForAwo: "Ready for Awo",
-  needsReview: "In review",
+  draft: "Drafts",
+  needsReview: "Awaiting Review",
   approved: "Approved",
-  readyToPublish: "Ready to publish",
+  scheduled: "Scheduled",
+  publishing: "Publishing",
+  failed: "Failed",
   published: "Published",
 };
 
@@ -73,18 +74,22 @@ export function buildContentPipeline(drafts: ContentDraft[]): ContentPipelineSum
   const draft = drafts.filter((d) => d.status === "draft" || d.status === "changes_requested").length;
   const needsReview = drafts.filter((d) => d.status === "needs_review" || d.status === "in_review").length;
   const approved = drafts.filter((d) => d.status === "approved").length;
-  const readyForAwo = drafts.filter((d) => d.awoStatus === "ready_for_awo").length;
+  const scheduled = drafts.filter((d) => d.status === "scheduled").length;
+  const publishing = drafts.filter((d) => d.status === "publishing").length;
+  const failed = drafts.filter((d) => d.status === "failed").length;
+  const published = drafts.filter((d) => d.status === "published").length;
 
   const stages: ContentPipelineStage[] = [
-    { key: "draft", label: PIPELINE_LABELS.draft, count: draft, isTracked: true },
-    { key: "readyForAwo", label: PIPELINE_LABELS.readyForAwo, count: readyForAwo, isTracked: true },
-    { key: "needsReview", label: PIPELINE_LABELS.needsReview, count: needsReview, isTracked: true },
-    { key: "approved", label: PIPELINE_LABELS.approved, count: approved, isTracked: true },
-    { key: "readyToPublish", label: PIPELINE_LABELS.readyToPublish, count: 0, isTracked: false },
-    { key: "published", label: PIPELINE_LABELS.published, count: 0, isTracked: false },
+    { key: "draft", label: PIPELINE_LABELS.draft || "Drafts", count: draft, isTracked: true },
+    { key: "needsReview", label: PIPELINE_LABELS.needsReview || "In Review", count: needsReview, isTracked: true },
+    { key: "approved", label: PIPELINE_LABELS.approved || "Approved", count: approved, isTracked: true },
+    { key: "scheduled", label: "Scheduled", count: scheduled, isTracked: true },
+    { key: "publishing", label: "Publishing", count: publishing, isTracked: true },
+    { key: "failed", label: "Failed", count: failed, isTracked: true },
+    { key: "published", label: "Published", count: published, isTracked: true },
   ];
 
-  return { stages, totalDrafts: draft + needsReview + approved };
+  return { stages, totalDrafts: draft + needsReview + approved + scheduled + publishing + failed + published };
 }
 
 export function mergeActivity(sources: DashboardActivityItem[][], limit: number): DashboardActivityItem[] {
@@ -144,7 +149,20 @@ export function buildMyWork(input: {
 
   const recentActivity = activity.filter((item) => item.actor?.id === actor.id).slice(0, MY_WORK_LIST_LIMIT);
 
-  return { assignedCampaigns, recentDrafts, reviewsWaiting, recentActivity };
+  const publishingQueue = drafts
+    .filter((d) => ["scheduled", "publishing", "failed"].includes(d.status))
+    .slice(0, MY_WORK_LIST_LIMIT)
+    .map((draft) => ({
+      draftId: draft.id,
+      organisationId: draft.organisationId,
+      organisationName: organisationNames.get(draft.organisationId) ?? "Unknown account",
+      title: draft.title,
+      status: draft.status,
+      scheduledAt: draft.scheduledAt,
+      platforms: draft.scheduledPlatform ? [draft.scheduledPlatform] : [],
+    }));
+
+  return { assignedCampaigns, recentDrafts, reviewsWaiting, recentActivity, publishingQueue };
 }
 
 export function buildAwoInsights(input: {

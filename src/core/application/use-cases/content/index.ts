@@ -221,10 +221,11 @@ export async function publishDraft(
   await requireRole(deps, organisationId, canWriteContent);
   const existing = await deps.content.findDraft(organisationId, draftId);
   if (!existing) throw new NotFoundError("Draft");
-  if (existing.status !== "approved" && existing.status !== "scheduled") {
-    throw new ValidationError("Only approved or scheduled content can be published.");
+  if (existing.status !== "approved" && existing.status !== "scheduled" && existing.status !== "failed") {
+    throw new ValidationError("Only approved, scheduled, or failed content can be published.");
   }
-  return deps.content.updateStatus(organisationId, draftId, "published", deps.actor.id);
+  // Transition to 'publishing' as requested by the workflow queue.
+  return deps.content.updateStatus(organisationId, draftId, "publishing", deps.actor.id);
 }
 
 export async function archiveDraft(

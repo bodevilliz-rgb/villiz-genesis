@@ -37,7 +37,13 @@ function draftFormPayload(formData: FormData) {
 function revalidateContent(organisationId: string, draftId?: string) {
   revalidatePath(routes.organisations.content.index(organisationId));
   revalidatePath(routes.organisations.detail(organisationId));
-  if (draftId) revalidatePath(routes.organisations.content.draft(organisationId, draftId));
+  revalidatePath(routes.dashboard);
+  revalidatePath(routes.review);
+  revalidatePath(routes.organisations.campaigns.index(organisationId));
+  if (draftId) {
+    revalidatePath(routes.organisations.content.draft(organisationId, draftId));
+    revalidatePath(routes.reviewWorkspace(draftId));
+  }
 }
 
 export async function createDraftAction(_prev: ActionState, formData: FormData): Promise<ActionState> {

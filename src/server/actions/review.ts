@@ -26,6 +26,7 @@ function revalidateReview(organisationId: string, draftId: string) {
   revalidatePath(routes.organisations.content.index(organisationId));
   revalidatePath(routes.dashboard);
   revalidatePath(routes.review);
+  revalidatePath(routes.reviewWorkspace(draftId));
 }
 
 // Internal Audit Event Helper
@@ -161,7 +162,7 @@ export async function recordReviewDecisionAction(_prev: ActionState, formData: F
       if (draft.createdBy) {
         await notifyUser(context, organisationId, draft.createdBy.id, "review_rejected", `Your draft "${draft.title}" was rejected.`);
       }
-    } else {
+    } else if (decision === "request_changes") {
       draft = await requestDraftChanges(deps, input);
       eventType = "revision_requested";
       description = `Requested revisions on draft "${draft.title}".`;
@@ -169,6 +170,8 @@ export async function recordReviewDecisionAction(_prev: ActionState, formData: F
       if (draft.createdBy) {
         await notifyUser(context, organisationId, draft.createdBy.id, "revision_requested", `Revisions requested on your draft "${draft.title}".`);
       }
+    } else {
+      return errorState(new Error(`Unknown review decision: "${decision}".`));
     }
 
     // Audit Log

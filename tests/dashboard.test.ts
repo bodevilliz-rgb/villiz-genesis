@@ -117,12 +117,15 @@ function stagesByKey(pipeline: ContentPipelineSummary): Record<ContentPipelineSt
 }
 
 describe("buildContentPipeline", () => {
-  it("buckets drafts by real status and by the orthogonal awoStatus flag", () => {
+  it("buckets drafts by real status", () => {
     const drafts = [
       draft({ id: "1", status: "draft", awoStatus: "ready_for_awo" }),
       draft({ id: "2", status: "needs_review" }),
       draft({ id: "3", status: "approved" }),
-      draft({ id: "4", status: "approved" }),
+      draft({ id: "4", status: "scheduled" }),
+      draft({ id: "5", status: "publishing" }),
+      draft({ id: "6", status: "failed" }),
+      draft({ id: "7", status: "published" }),
     ];
 
     const pipeline = buildContentPipeline(drafts);
@@ -130,25 +133,20 @@ describe("buildContentPipeline", () => {
 
     expect(byKey.draft.count).toBe(1);
     expect(byKey.needsReview.count).toBe(1);
-    expect(byKey.approved.count).toBe(2);
-    expect(byKey.readyForAwo.count).toBe(1);
-    expect(pipeline.totalDrafts).toBe(4);
+    expect(byKey.approved.count).toBe(1);
+    expect(byKey.scheduled.count).toBe(1);
+    expect(byKey.publishing.count).toBe(1);
+    expect(byKey.failed.count).toBe(1);
+    expect(byKey.published.count).toBe(1);
+    expect(pipeline.totalDrafts).toBe(7);
   });
 
-  it("always renders readyToPublish and published as untracked zero stages", () => {
+  it("always renders publishing stages with true isTracked", () => {
     const pipeline = buildContentPipeline([draft({ status: "approved" })]);
     const byKey = stagesByKey(pipeline);
 
-    expect(byKey.readyToPublish).toEqual({ key: "readyToPublish", label: "Ready to publish", count: 0, isTracked: false });
-    expect(byKey.published).toEqual({ key: "published", label: "Published", count: 0, isTracked: false });
-  });
-
-  it("counts a draft that is both Draft status and Ready for Awo in both buckets, never as a single sequential stage", () => {
-    const pipeline = buildContentPipeline([draft({ status: "draft", awoStatus: "ready_for_awo" })]);
-    const byKey = stagesByKey(pipeline);
-
-    expect(byKey.draft.count).toBe(1);
-    expect(byKey.readyForAwo.count).toBe(1);
+    expect(byKey.scheduled.isTracked).toBe(true);
+    expect(byKey.published.isTracked).toBe(true);
   });
 });
 

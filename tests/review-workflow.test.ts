@@ -206,9 +206,19 @@ describe("approveDraft — self-approval prevention", () => {
     await expect(approveDraft(deps, request)).rejects.toBeInstanceOf(ForbiddenError);
   });
 
-  it("allows a different Lead or Reviewer to approve the same draft", async () => {
+  it("allows a different Lead or Reviewer to approve the same draft (needs_review -> approved)", async () => {
     const { deps, getDraft } = createHarness({
       draft: baseDraft({ status: "needs_review", createdBy: profileRef(AUTHOR_ID, "Author") }),
+      viewerRole: "reviewer",
+      members: [],
+    });
+    await approveDraft(deps, request);
+    expect(getDraft().status).toBe("approved");
+  });
+
+  it("allows a different Lead or Reviewer to approve an in_review draft (regression test)", async () => {
+    const { deps, getDraft } = createHarness({
+      draft: baseDraft({ status: "in_review", createdBy: profileRef(AUTHOR_ID, "Author") }),
       viewerRole: "reviewer",
       members: [],
     });

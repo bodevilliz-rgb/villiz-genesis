@@ -37,7 +37,9 @@ const STATUS_TONE: Record<ContentDraftStatus, "muted" | "warning" | "positive" |
   approved: "positive",
   rejected: "danger",
   scheduled: "positive",
+  publishing: "positive",
   published: "positive",
+  failed: "danger",
   archived: "muted",
 };
 
@@ -155,11 +157,11 @@ export default async function ReviewQueuePage({
               {items.map((item) => (
                 <li key={item.draftId}>
                   <Link
-                    href={routes.organisations.content.draft(item.organisationId, item.draftId)}
-                    className="flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-card-hover"
+                    href={routes.reviewWorkspace(item.draftId)}
+                    className="flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-card-hover group"
                   >
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] font-medium">{item.title}</span>
+                      <span className="block truncate text-[13px] font-medium group-hover:text-primary transition-colors">{item.title}</span>
                       <span className="block truncate text-[12px] text-subtle-foreground">
                         {item.organisationName}
                         {item.campaignName ? ` · ${item.campaignName}` : ""} ·{" "}
@@ -174,6 +176,9 @@ export default async function ReviewQueuePage({
                     ) : null}
                     <Badge tone="muted">{CONTENT_DRAFT_TYPE_LABELS[item.contentType]}</Badge>
                     <Badge tone={STATUS_TONE[item.status]}>{CONTENT_DRAFT_STATUS_LABELS[item.status]}</Badge>
+                    <span className="ml-2 rounded-md bg-secondary px-3 py-1.5 text-xs font-semibold text-secondary-foreground shadow-sm transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
+                      Open Review
+                    </span>
                   </Link>
                 </li>
               ))}

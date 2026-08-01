@@ -1,10 +1,12 @@
 "use client";
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useState, useRef } from "react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
+import { PrePublishDialog } from "./pre-publish-dialog";
 import {
   scheduleDraftAction,
   publishDraftAction,
@@ -45,10 +47,39 @@ export function PublishingPanel({
   const [timezone, setTimezone] = useState("UTC");
   const [scheduledAt, setScheduledAt] = useState("");
 
-  const isPublishable = draft.status === "approved" || draft.status === "scheduled";
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<"publish" | "schedule" | null>(null);
+  
+  const scheduleFormRef = useRef<HTMLFormElement>(null);
+  const publishFormRef = useRef<HTMLFormElement>(null);
+
+  const isPublishable = draft.status === "approved" || draft.status === "scheduled" || draft.status === "failed";
+
+  const handlePublishIntercept = (e: React.MouseEvent, type: "publish" | "schedule") => {
+    e.preventDefault();
+    setPendingAction(type);
+    setDialogOpen(true);
+  };
+
+  const confirmAction = () => {
+    setDialogOpen(false);
+    if (pendingAction === "publish" && publishFormRef.current) {
+      publishFormRef.current.requestSubmit();
+    } else if (pendingAction === "schedule" && scheduleFormRef.current) {
+      scheduleFormRef.current.requestSubmit();
+    }
+    setPendingAction(null);
+  };
 
   return (
     <div className="flex flex-col gap-4">
+      <PrePublishDialog 
+        organisationId={organisationId} 
+        draft={draft} 
+        open={dialogOpen} 
+        onOpenChange={setDialogOpen} 
+        onConfirmPublish={confirmAction} 
+      />
       {/* Draft Status Info */}
       <div className="flex flex-col gap-1.5">
         <span className="text-[11px] uppercase tracking-wider text-subtle-foreground">Publishing status</span>
@@ -87,7 +118,7 @@ export function PublishingPanel({
 
           {/* Schedule Form */}
           {isPublishable && (
-            <form action={scheduleAction} className="flex flex-col gap-3.5 border-t border-border pt-3">
+            <form ref={scheduleFormRef} action={scheduleAction} className="flex flex-col gap-3.5 border-t border-border pt-3">
               <input type="hidden" name="organisationId" value={organisationId} />
               <input type="hidden" name="id" value={draft.id} />
               
@@ -126,18 +157,18 @@ export function PublishingPanel({
                 </Select>
               </Field>
 
-              <SubmitButton pendingLabel="Scheduling…">Schedule</SubmitButton>
+              <Button type="button" onClick={(e) => handlePublishIntercept(e, "schedule")}>Schedule</Button>
             </form>
           )}
 
           {/* Publish Now Action */}
           {isPublishable && (
-            <form action={publishAction}>
+            <form ref={publishFormRef} action={publishAction}>
               <input type="hidden" name="organisationId" value={organisationId} />
               <input type="hidden" name="id" value={draft.id} />
-              <SubmitButton variant="secondary" className="w-full" pendingLabel="Publishing…">
+              <Button type="button" variant="secondary" className="w-full" onClick={(e) => handlePublishIntercept(e, "publish")}>
                 Publish Now
-              </SubmitButton>
+              </Button>
             </form>
           )}
         </div>

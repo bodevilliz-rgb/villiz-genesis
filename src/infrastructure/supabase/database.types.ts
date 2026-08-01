@@ -20,7 +20,7 @@ export type Json = string | number | boolean | null | { [key: string]: Json | un
 export type CampaignStatusDb = "planning" | "active" | "completed" | "archived";
 export type ConnectionStatusDb = "connected" | "expired" | "revoked";
 export type ContentDraftAwoStatusDb = "not_requested" | "ready_for_awo";
-export type ContentDraftStatusDb = "draft" | "needs_review" | "in_review" | "changes_requested" | "awaiting_client" | "approved" | "rejected" | "scheduled" | "published" | "archived";
+export type ContentDraftStatusDb = "draft" | "needs_review" | "in_review" | "changes_requested" | "awaiting_client" | "approved" | "rejected" | "scheduled" | "publishing" | "published" | "failed" | "archived";
 export type ContentDraftReviewActionDb =
   | "submitted"
   | "assigned"

@@ -17,6 +17,7 @@ import type { MembrainCategory } from "@/core/domain/entities/membrain";
 import type { Campaign } from "@/core/domain/entities/campaign";
 import type { MediaAsset } from "@/core/domain/entities/media";
 import { attachAssetToDraftAction, detachAssetFromDraftAction } from "@/server/actions/media";
+import { generateCaption, rewriteContent } from "@/server/actions/awo";
 import { routes } from "@/lib/routes";
 
 const AUTOSAVE_DEBOUNCE_MS = 2000;
@@ -110,26 +111,25 @@ export function DraftForm({
       let suggestion = "";
       
       if (aiAction === "generate") {
-        suggestion = `Generated Draft based on: ${aiPrompt}\n\nWelcome to Villiz Pixels. Where every frame tells a story. This campaign represents our commitment to premium aesthetics.`;
-      } else if (aiAction === "rewrite") {
-        suggestion = `[Rewritten] ${currentBody || "No body content to rewrite. Introduce your prompt to generate."}`;
-      } else if (aiAction === "shorten") {
-        suggestion = `${currentBody.slice(0, 100)}...`;
-      } else if (aiAction === "expand") {
-        suggestion = `${currentBody}\n\nExpanding on our vision: Light represents our creativity, leadership denotes our direction, and zeal powers our execution.`;
-      } else if (aiAction === "change_tone") {
-        suggestion = `[Elevated Tone] ${currentBody}`;
-      } else if (aiAction === "alternative_captions") {
-        suggestion = `Option 1: Every frame tells a story.\nOption 2: Cinematic excellence, refined.\nOption 3: Experience the Villiz design.`;
-      } else if (aiAction === "clarity") {
-        suggestion = `[Improved Clarity] ${currentBody}`;
+        const res = await generateCaption(organisationId, aiPrompt || draft?.title || "Generate a creative draft", draft?.category?.label || "General");
+        suggestion = res.text;
+      } else {
+        let instruction: "expand" | "shorten" | "professional" | "casual" | "punchy" = "professional";
+        if (aiAction === "shorten") instruction = "shorten";
+        if (aiAction === "expand") instruction = "expand";
+        if (aiAction === "change_tone") instruction = "professional"; // Map properly later if needed
+        if (aiAction === "alternative_captions") instruction = "punchy";
+        if (aiAction === "clarity") instruction = "professional";
+        
+        const res = await rewriteContent(organisationId, currentBody, instruction);
+        suggestion = res.text;
       }
 
-      await new Promise((r) => setTimeout(r, 800));
       setAiSuggestion(suggestion);
       toast.success("AI suggestion generated.");
-    } catch {
-      toast.error("AI service is currently unavailable.");
+    } catch (e) {
+      toast.error("Failed to generate AI suggestion");
+      console.error(e);
     } finally {
       setAiLoading(false);
     }

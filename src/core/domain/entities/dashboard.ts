@@ -15,10 +15,11 @@ import type { ContentDraftStatus } from "./content";
  */
 export type ContentPipelineStageKey =
   | "draft"
-  | "readyForAwo"
   | "needsReview"
   | "approved"
-  | "readyToPublish"
+  | "scheduled"
+  | "publishing"
+  | "failed"
   | "published";
 
 export interface ContentPipelineStage {
@@ -84,6 +85,15 @@ export interface MyWork {
   assignedCampaigns: MyWorkCampaign[];
   recentDrafts: MyWorkDraft[];
   reviewsWaiting: MyWorkReview[];
+  publishingQueue: Array<{
+    draftId: string;
+    organisationId: string;
+    organisationName: string;
+    title: string;
+    status: ContentDraftStatus;
+    scheduledAt: string | null;
+    platforms: string[];
+  }>;
   recentActivity: DashboardActivityItem[];
 }
 

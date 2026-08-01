@@ -152,6 +152,47 @@ console.log(`Client Workspace:  ${green('Villiz Pixels')} (${ORG_ID})`);
 console.log(`Database resets:   ${yellow('manual only')} — run \`npm run db:reset:local\` yourself when you need one.`);
 console.log(blue('==========================\n'));
 
+// 7. Refuse to boot a second Next.js instance on top of one already running.
+//
+// A previous incident: repeated `dev:local` runs across sessions left several
+// orphaned `next dev` processes all bound to port 3001 (including one from
+// this repo's pre-move path). Requests were then served nondeterministically
+// by whichever process's listener happened to accept the connection — and
+// since a React Server Action's reference ID is generated per compiled
+// process, a page rendered by one instance but submitted while a *different*
+// instance answered would silently fail (net::ERR_ABORTED, no server log, no
+// user-facing error) with the draft left exactly as it was. That looked like
+// an application bug in the approval workflow; it was actually this.
+console.log(blue('\nChecking port 3001 is not already in use...'));
+const portOwnerPid = runCmd('lsof -tiTCP:3001 -sTCP:LISTEN', { silent: true, ignoreError: true });
+if (portOwnerPid && portOwnerPid.trim()) {
+  const alreadyHealthy = (() => {
+    try {
+      const status = runCmd('curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/login --max-time 3', {
+        silent: true,
+      });
+      return status.trim() === '200';
+    } catch {
+      return false;
+    }
+  })();
+
+  if (alreadyHealthy) {
+    console.log(green('✔ A healthy dev server is already running on port 3001 — reusing it, not spawning a duplicate.'));
+    console.log(blue('\n=== Environment Ready (already running) ==='));
+    console.log(`Local Web App:     ${green('http://localhost:3001')}`);
+    console.log(blue('==========================\n'));
+    process.exit(0);
+  }
+
+  fail(
+    `Port 3001 is already in use by another process (pid ${portOwnerPid.trim().split('\n').join(', ')}) that is not answering as this app. ` +
+      `Stop it before continuing: \`lsof -tiTCP:3001 -sTCP:LISTEN | xargs kill\`, then run \`npm run dev:local\` again. ` +
+      'Never spawn a second Next.js process on top of it — that is exactly how the review-workflow "stuck in review" bug happened before.',
+  );
+}
+console.log(green('✔ Port 3001 is free.'));
+
 console.log(blue('Booting Next.js on port 3001...\n'));
 const devServer = spawn('npm', ['run', 'dev', '--', '-p', '3001'], {
   stdio: 'inherit',

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SubmitButton } from "@/components/ui/submit-button";
+import { PublishingPanel } from "@/components/content/publishing-panel";
 import {
   CONTENT_DRAFT_STATUS_LABELS,
   CONTENT_DRAFT_TYPE_LABELS,
@@ -58,7 +59,9 @@ const STATUS_TONE: Record<ContentDraft["status"], "muted" | "warning" | "positiv
   approved: "positive",
   rejected: "danger",
   scheduled: "positive",
+  publishing: "positive",
   published: "positive",
+  failed: "danger",
   archived: "muted",
 };
 
@@ -98,10 +101,22 @@ export function ReviewWorkspaceClient({
   const [replyBody, setReplyBody] = useState("");
 
   // Form states using useActionState
-  const [, submitAction] = useActionState(submitForReviewAction, idleState);
-  const [, decisionAction] = useActionState(recordReviewDecisionAction, idleState);
-  const [, reopenAction] = useActionState(reopenReviewAction, idleState);
-  const [, archiveAction] = useActionState(archiveDraftAction, idleState);
+  const [submitState, submitAction] = useActionState(submitForReviewAction, idleState);
+  const [decisionState, decisionAction] = useActionState(recordReviewDecisionAction, idleState);
+  const [reopenState, reopenAction] = useActionState(reopenReviewAction, idleState);
+  const [archiveState, archiveAction] = useActionState(archiveDraftAction, idleState);
+
+  useEffect(() => {
+    const states = [submitState, decisionState, reopenState, archiveState];
+    for (const s of states) {
+      if (s.status === "error") {
+        toast.error(s.message);
+      } else if (s.status === "success") {
+        toast.success(s.message);
+        router.refresh();
+      }
+    }
+  }, [submitState, decisionState, reopenState, archiveState, router]);
 
   // Quick toast feedback handlers
   const handleActionComplete = (state: { status: string; message: string }, successMessage: string) => {
@@ -113,7 +128,7 @@ export function ReviewWorkspaceClient({
     }
   };
 
-  const isLead = viewerRole === "owner" || viewerRole === "admin";
+  const isLead = viewerRole === "lead";
 
   return (
     <div className="flex flex-col gap-6 h-full pb-8">
@@ -154,7 +169,7 @@ export function ReviewWorkspaceClient({
         <div className="flex flex-wrap items-center gap-2">
           {/* Submit for review button */}
           {(draft.status === "draft" || draft.status === "changes_requested") && (
-            <form action={submitAction} onSubmit={() => setTimeout(() => router.refresh(), 500)}>
+            <form action={submitAction}>
               <input type="hidden" name="organisationId" value={draft.organisationId} />
               <input type="hidden" name="draftId" value={draft.id} />
               <SubmitButton variant="primary" size="sm">
@@ -166,7 +181,7 @@ export function ReviewWorkspaceClient({
           {/* Lead/Assigned reviewer action decisions */}
           {draft.status === "in_review" && (
             <div className="flex gap-2">
-              <form action={decisionAction} onSubmit={() => setTimeout(() => router.refresh(), 500)}>
+              <form action={decisionAction}>
                 <input type="hidden" name="organisationId" value={draft.organisationId} />
                 <input type="hidden" name="draftId" value={draft.id} />
                 <input type="hidden" name="decision" value="approve" />
@@ -175,16 +190,16 @@ export function ReviewWorkspaceClient({
                 </SubmitButton>
               </form>
 
-              <form action={decisionAction} onSubmit={() => setTimeout(() => router.refresh(), 500)}>
+              <form action={decisionAction}>
                 <input type="hidden" name="organisationId" value={draft.organisationId} />
                 <input type="hidden" name="draftId" value={draft.id} />
-                <input type="hidden" name="decision" value="changes" />
+                <input type="hidden" name="decision" value="request_changes" />
                 <SubmitButton variant="secondary" size="sm">
                   Request Changes
                 </SubmitButton>
               </form>
 
-              <form action={decisionAction} onSubmit={() => setTimeout(() => router.refresh(), 500)}>
+              <form action={decisionAction}>
                 <input type="hidden" name="organisationId" value={draft.organisationId} />
                 <input type="hidden" name="draftId" value={draft.id} />
                 <input type="hidden" name="decision" value="reject" />
@@ -195,20 +210,22 @@ export function ReviewWorkspaceClient({
             </div>
           )}
 
-          {/* Lead reopen review when locked */}
-          {(draft.status === "approved" || draft.status === "rejected") && isLead && (
-            <form action={reopenAction} onSubmit={() => setTimeout(() => router.refresh(), 500)}>
-              <input type="hidden" name="organisationId" value={draft.organisationId} />
-              <input type="hidden" name="draftId" value={draft.id} />
-              <SubmitButton variant="secondary" size="sm">
-                Reopen Review
-              </SubmitButton>
-            </form>
+          {/* Reopen / Archive (Lead Only) */}
+          {(draft.status === "approved" || draft.status === "rejected" || draft.status === "archived") && isLead && (
+            <div className="flex gap-2">
+              <form action={reopenAction}>
+                <input type="hidden" name="organisationId" value={draft.organisationId} />
+                <input type="hidden" name="draftId" value={draft.id} />
+                <SubmitButton variant="secondary" size="sm">
+                  Reopen Review
+                </SubmitButton>
+              </form>
+            </div>
           )}
 
           {/* Archive / Restore draft */}
           {draft.status !== "archived" ? (
-            <form action={archiveAction} onSubmit={() => setTimeout(() => router.refresh(), 500)}>
+            <form action={archiveAction}>
               <input type="hidden" name="organisationId" value={draft.organisationId} />
               <input type="hidden" name="draftId" value={draft.id} />
               <input type="hidden" name="isArchive" value="true" />
@@ -217,7 +234,7 @@ export function ReviewWorkspaceClient({
               </SubmitButton>
             </form>
           ) : (
-            <form action={archiveAction} onSubmit={() => setTimeout(() => router.refresh(), 500)}>
+            <form action={archiveAction}>
               <input type="hidden" name="organisationId" value={draft.organisationId} />
               <input type="hidden" name="draftId" value={draft.id} />
               <input type="hidden" name="isArchive" value="false" />
@@ -283,6 +300,24 @@ export function ReviewWorkspaceClient({
             {/* TAB: CONTENT PREVIEW */}
             {activeLeftTab === "preview" && (
               <div className="flex flex-col gap-4">
+                {/* Publishing Panel when approved */}
+                {draft.status === "approved" && (
+                  <Card className="border border-border shadow-sm">
+                    <CardHeader className="bg-muted/40 py-3.5 px-4 border-b border-border">
+                      <CardTitle className="text-xs font-semibold uppercase tracking-wider text-subtle-foreground flex items-center gap-2">
+                        Publishing & Scheduling
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                      <PublishingPanel
+                        organisationId={draft.organisationId}
+                        draft={draft}
+                        canWrite={isLead || viewerRole === "contributor"}
+                      />
+                    </CardContent>
+                  </Card>
+                )}
+
                 <Card className="border border-border shadow-sm">
                   <CardHeader className="bg-muted/40 py-3.5 px-4 border-b border-border">
                     <CardTitle className="text-xs font-semibold uppercase tracking-wider text-subtle-foreground flex items-center gap-2">

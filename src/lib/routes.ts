@@ -7,6 +7,8 @@ export const routes = {
   authCallback: "/auth/callback",
   dashboard: "/dashboard",
   review: "/review",
+  reviewWorkspace: (id: string) => `/review/${id}`,
+  reviewCompare: (id: string) => `/review/${id}/compare`,
   settings: "/settings",
   organisations: {
     index: "/organisations",

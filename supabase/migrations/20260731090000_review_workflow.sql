@@ -40,7 +40,7 @@
 --    cleanly, which is why this migration adds a second append-only trigger
 --    rather than extending the existing one.
 --
--- 5. app.perform_content_draft_review() is SECURITY INVOKER, not DEFINER.
+-- 5. public.perform_content_draft_review() is SECURITY INVOKER, not DEFINER.
 --    Every one of its writes (the content_drafts UPDATE and the
 --    content_draft_reviews INSERT) is already covered by the *existing*
 --    content_drafts_update policy (can_write_org OR can_approve_org) and a
@@ -120,7 +120,7 @@ create trigger content_draft_reviews_append_only
 -- comment is required, reviewer eligibility, and self-approval prevention
 -- are all validated in TypeScript before this is ever called.
 -- ---------------------------------------------------------------------------
-create or replace function app.perform_content_draft_review(
+create or replace function public.perform_content_draft_review(
   p_draft_id uuid,
   p_action public.content_draft_review_action,
   p_new_status public.content_draft_status,

@@ -56,12 +56,12 @@ export default async function DashboardPage() {
         detail: `${waitingReviewsCount} reviews are currently pending client validation. Resolving these bottlenecks will accelerate campaign schedules.`,
       };
 
-  // Map reviews waiting to publishing timeline / queue
-  const publishingTimeline = dashboard.myWork.reviewsWaiting.map((item) => ({
+  // Map publishing queue to timeline
+  const publishingTimeline = dashboard.myWork.publishingQueue.map((item) => ({
     id: item.draftId,
     title: item.title,
-    timeLabel: "AWAITING REVIEW",
-    platforms: ["Social Media"],
+    timeLabel: item.scheduledAt ? new Date(item.scheduledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "PENDING",
+    platforms: item.platforms.length > 0 ? item.platforms.map(p => p.charAt(0).toUpperCase() + p.slice(1)) : ["Pending"],
   }));
 
   // Fallback to active campaigns if no reviews waiting

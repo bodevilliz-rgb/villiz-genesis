@@ -110,12 +110,30 @@ export default async function ContentStudioPage({
         <Button asChild variant={filters.view === "board" ? "primary" : "secondary"} size="sm">
           <Link href={`/organisations/${orgId}/content?view=board`}>Content Pipeline</Link>
         </Button>
+        <Button asChild variant={filters.view === "queue" ? "primary" : "secondary"} size="sm">
+          <Link href={`/organisations/${orgId}/content?view=queue`}>Publishing Queue</Link>
+        </Button>
       </div>
 
       {filters.view === "calendar" ? (
         <ContentCalendar drafts={drafts} organisationId={orgId} />
       ) : filters.view === "board" ? (
         <ContentPipelineBoard initialDrafts={drafts} organisationId={orgId} />
+      ) : filters.view === "queue" ? (
+        <div className="flex flex-col gap-3">
+          <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-subtle-foreground">
+            Publishing Queue
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {drafts.filter(d => ["scheduled", "publishing", "failed", "published"].includes(d.status)).length === 0 ? (
+              <p className="text-sm text-muted-foreground col-span-full">No items in the publishing queue.</p>
+            ) : (
+              drafts.filter(d => ["scheduled", "publishing", "failed", "published"].includes(d.status)).map((draft) => (
+                <DraftCard key={draft.id} organisationId={orgId} draft={draft} />
+              ))
+            )}
+          </div>
+        </div>
       ) : !hasAnyDrafts ? (
         <EmptyState
           icon={<FileText aria-hidden />}

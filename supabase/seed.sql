@@ -87,6 +87,7 @@ SET
   updated_at = now();
 
 -- 3. Ensure profile is active and role is set to owner (explicit activation bypassing domain check)
+ALTER TABLE public.profiles DISABLE TRIGGER profiles_guard_self_escalation;
 INSERT INTO public.profiles (id, email, full_name, role, is_active)
 VALUES (
   '0eea9074-18f3-4934-9e20-b2bfde1fef05', 
@@ -97,6 +98,53 @@ VALUES (
 )
 ON CONFLICT (id) DO UPDATE
 SET is_active = true, role = 'owner', full_name = EXCLUDED.full_name;
+ALTER TABLE public.profiles ENABLE TRIGGER profiles_guard_self_escalation;
+
+-- 3b. Insert a test author so Bode can approve their drafts
+INSERT INTO auth.users (
+  id, instance_id, aud, role, email, email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+  confirmation_token, recovery_token, email_change_token_new, email_change, created_at, updated_at
+)
+VALUES (
+  '11111111-1111-4111-b111-111111111111',
+  '00000000-0000-0000-0000-000000000000',
+  'authenticated',
+  'authenticated',
+  'author@villiz.com',
+  now(),
+  '{"provider": "email", "providers": ["email"]}'::jsonb,
+  '{"full_name": "Test Author"}'::jsonb,
+  '', '', '', '', now(), now()
+)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO auth.identities (user_id, provider_id, provider, identity_data, created_at, updated_at)
+VALUES (
+  '11111111-1111-4111-b111-111111111111',
+  '11111111-1111-4111-b111-111111111111',
+  'email',
+  jsonb_build_object(
+    'sub', '11111111-1111-4111-b111-111111111111',
+    'email', 'author@villiz.com',
+    'email_verified', true,
+    'phone_verified', false
+  ),
+  now(), now()
+)
+ON CONFLICT (provider_id, provider) DO NOTHING;
+
+ALTER TABLE public.profiles DISABLE TRIGGER profiles_guard_self_escalation;
+INSERT INTO public.profiles (id, email, full_name, role, is_active)
+VALUES (
+  '11111111-1111-4111-b111-111111111111', 
+  'author@villiz.com', 
+  'Test Author', 
+  'member', 
+  true
+)
+ON CONFLICT (id) DO UPDATE
+SET is_active = true, role = 'member', full_name = EXCLUDED.full_name;
+ALTER TABLE public.profiles ENABLE TRIGGER profiles_guard_self_escalation;
 
 -- 4. Seed the Client Organisation (Villiz Pixels)
 INSERT INTO public.organisations (id, name, slug, status, created_by)
@@ -109,16 +157,23 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
--- 5. Seed organisation membership (role must be lead)
-INSERT INTO public.organisation_members (organisation_id, profile_id, role, assigned_by)
+-- 5. Link Bode to the Organisation as Lead
+INSERT INTO public.organisation_members (organisation_id, profile_id, role)
 VALUES (
   '00000000-0000-4000-b000-000000000001', 
-  '0eea9074-18f3-4934-9e20-b2bfde1fef05', 
-  'lead',
-  '0eea9074-18f3-4934-9e20-b2bfde1fef05'
+  '0eea9074-18f3-4934-9e20-b2bfde1fef05',
+  'lead'
 )
-ON CONFLICT (organisation_id, profile_id) DO UPDATE
-SET role = 'lead';
+ON CONFLICT (organisation_id, profile_id) DO NOTHING;
+
+-- 5b. Link Test Author to the Organisation as Contributor
+INSERT INTO public.organisation_members (organisation_id, profile_id, role)
+VALUES (
+  '00000000-0000-4000-b000-000000000001', 
+  '11111111-1111-4111-b111-111111111111',
+  'contributor'
+)
+ON CONFLICT (organisation_id, profile_id) DO NOTHING;
 
 -- 6. Seed Campaigns (At least 2 campaigns)
 INSERT INTO public.campaigns (id, organisation_id, name, description, objective, target_audience, primary_cta, start_date, end_date, status, platforms, created_by, updated_by)
@@ -160,6 +215,7 @@ SET name = EXCLUDED.name, description = EXCLUDED.description, objective = EXCLUD
 INSERT INTO public.content_drafts (
   id, organisation_id, title, content_type, summary, body, status, awo_status, version, 
   created_by, updated_by, campaign_id, due_at, reviewer_ids,
+  assigned_reviewer_id, review_deadline,
   scheduled_at, scheduled_platform, scheduled_timezone
 )
 VALUES
@@ -178,6 +234,7 @@ VALUES
     '00000000-0000-4000-c000-000000000001', 
     now() + interval '2 days', 
     '{}',
+    null, null,
     null, null, null
   ),
   (
@@ -187,14 +244,15 @@ VALUES
     'email', 
     'First newsletter drafts.', 
     'Hi team, here is what we are planning for Q3...', 
-    'needs_review', 
+    'in_review', 
     'not_requested', 
     1, 
-    '0eea9074-18f3-4934-9e20-b2bfde1fef05', 
+    '11111111-1111-4111-b111-111111111111', 
     '0eea9074-18f3-4934-9e20-b2bfde1fef05',
     '00000000-0000-4000-c000-000000000002', 
     now() + interval '5 days', 
     ARRAY['0eea9074-18f3-4934-9e20-b2bfde1fef05']::uuid[],
+    '0eea9074-18f3-4934-9e20-b2bfde1fef05', now() + interval '3 days',
     null, null, null
   ),
   (
@@ -212,6 +270,7 @@ VALUES
     '00000000-0000-4000-c000-000000000001', 
     now() - interval '1 day', 
     '{}',
+    null, null,
     now() + interval '1 day', 'instagram', 'UTC' -- Calendar Item 1
   ),
   (
@@ -229,10 +288,13 @@ VALUES
     '00000000-0000-4000-c000-000000000002', 
     now() + interval '3 days', 
     '{}',
+    null, null,
     now() + interval '3 days', 'x', 'UTC' -- Calendar Item 2
   )
 ON CONFLICT (id) DO UPDATE 
-SET title = EXCLUDED.title, body = EXCLUDED.body, status = EXCLUDED.status, scheduled_at = EXCLUDED.scheduled_at, scheduled_platform = EXCLUDED.scheduled_platform, scheduled_timezone = EXCLUDED.scheduled_timezone;
+SET title = EXCLUDED.title, body = EXCLUDED.body, status = EXCLUDED.status, 
+    assigned_reviewer_id = EXCLUDED.assigned_reviewer_id, review_deadline = EXCLUDED.review_deadline,
+    scheduled_at = EXCLUDED.scheduled_at, scheduled_platform = EXCLUDED.scheduled_platform, scheduled_timezone = EXCLUDED.scheduled_timezone;
 
 -- 8. Seed Reviews (At least 1 review)
 INSERT INTO public.content_draft_reviews (id, draft_id, organisation_id, action, actor_id, previous_status, new_status, comment)
@@ -242,7 +304,7 @@ VALUES (
   '00000000-0000-4000-b000-000000000001', 
   'approved', 
   '0eea9074-18f3-4934-9e20-b2bfde1fef05', 
-  'needs_review', 
+  'in_review', 
   'approved', 
   'Looks wonderful! Approved.'
 )

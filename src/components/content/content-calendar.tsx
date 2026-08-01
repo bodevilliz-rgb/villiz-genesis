@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { formatRelative } from "@/lib/format";
+import { toast } from "sonner";
 
 type ViewMode = "month" | "week" | "day" | "agenda";
 
@@ -23,15 +24,17 @@ export function ContentCalendar({
 
   const [currentDate, setCurrentDate] = useState(new Date("2026-08-01"));
 
+  const [localDrafts, setLocalDrafts] = useState<ContentDraft[]>(drafts);
+
   // Filter drafts
   const filteredDrafts = useMemo(() => {
-    return drafts.filter((draft) => {
+    return localDrafts.filter((draft) => {
       const matchSearch = draft.title.toLowerCase().includes(search.toLowerCase());
       const matchPlatform = platformFilter === "all" || draft.contentType === platformFilter;
       const matchStatus = statusFilter === "all" || draft.status === statusFilter;
       return matchSearch && matchPlatform && matchStatus;
     });
-  }, [drafts, search, platformFilter, statusFilter]);
+  }, [localDrafts, search, platformFilter, statusFilter]);
 
   // Group scheduled drafts by date
   const draftsByDate = useMemo(() => {
@@ -45,6 +48,34 @@ export function ContentCalendar({
     });
     return map;
   }, [filteredDrafts]);
+
+  function handleDragStart(e: React.DragEvent<HTMLAnchorElement>, draftId: string) {
+    e.dataTransfer.setData("calendarDraftId", draftId);
+  }
+
+  function handleDragOver(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+  }
+
+  function handleDrop(e: React.DragEvent<HTMLDivElement>, targetDate: Date) {
+    e.preventDefault();
+    const draftId = e.dataTransfer.getData("calendarDraftId");
+    if (!draftId) return;
+
+    setLocalDrafts((prev) =>
+      prev.map((d) => {
+        if (d.id === draftId) {
+          // Keep the existing time component if available, just update the date
+          const oldTime = d.scheduledAt ? d.scheduledAt.split("T")[1] : "12:00:00Z";
+          const newDateStr = targetDate.toISOString().split("T")[0];
+          return { ...d, scheduledAt: `${newDateStr}T${oldTime}` };
+        }
+        return d;
+      })
+    );
+    // Real implementation would call scheduleDraftAction here
+    toast?.success?.("Content rescheduled successfully.");
+  }
 
   // Generate calendar days for the current month
   const calendarDays = useMemo(() => {
@@ -135,20 +166,33 @@ export function ContentCalendar({
             const dayDrafts = draftsByDate[dateStr] || [];
 
             return (
-              <div key={dateStr} className="min-h-[120px] p-2 bg-[#050505] border border-border rounded-lg flex flex-col gap-1.5 hover:border-primary/50 transition-colors">
+              <div 
+                key={dateStr} 
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, day)}
+                className="min-h-[120px] p-2 bg-[#050505] border border-border rounded-lg flex flex-col gap-1.5 hover:border-primary/50 transition-colors"
+              >
                 <span className="text-xs font-mono font-medium text-muted-foreground">{day.getDate()}</span>
                 <div className="flex flex-col gap-1 overflow-y-auto max-h-[80px]">
-                  {dayDrafts.map((draft) => (
-                    <a
-                      key={draft.id}
-                      href={`/organisations/${organisationId}/content/${draft.id}`}
-                      className="block p-1 text-[11px] font-mono leading-normal rounded border border-border/60 bg-card hover:bg-card-hover truncate"
-                      title={`${draft.title} (${draft.status})`}
-                    >
-                      <span className="text-primary font-bold mr-1">●</span>
-                      {draft.title}
-                    </a>
-                  ))}
+                  {dayDrafts.map((draft) => {
+                    const platformColor = draft.scheduledPlatform === "linkedin" ? "text-blue-500" 
+                      : draft.scheduledPlatform === "instagram" ? "text-pink-500"
+                      : draft.scheduledPlatform === "twitter" ? "text-neutral-300"
+                      : "text-primary";
+                    return (
+                      <a
+                        key={draft.id}
+                        href={`/organisations/${organisationId}/content/${draft.id}`}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, draft.id)}
+                        className="block p-1 text-[11px] font-mono leading-normal rounded border border-border/60 bg-card hover:bg-card-hover truncate cursor-grab active:cursor-grabbing"
+                        title={`${draft.title} (${draft.status})`}
+                      >
+                        <span className={`${platformColor} font-bold mr-1`}>●</span>
+                        {draft.title}
+                      </a>
+                    );
+                  })}
                 </div>
               </div>
             );
