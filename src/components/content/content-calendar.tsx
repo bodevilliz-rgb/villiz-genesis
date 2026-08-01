@@ -1,11 +1,16 @@
 "use client";
 import { useState, useMemo } from "react";
 import type { ContentDraft } from "@/core/domain/entities/content";
+import { CONTENT_DRAFT_STATUS_TONE } from "@/components/content/draft-card";
+import { CONTENT_DRAFT_STATUS_LABELS } from "@/core/domain/entities/content";
+import { PUBLISHING_TRIGGER_TYPE_LABELS, type PublishingJob } from "@/core/domain/entities/publishing";
+import { PlatformBadge } from "@/components/publishing/platform-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { formatRelative } from "@/lib/format";
+import { routes } from "@/lib/routes";
 import { toast } from "sonner";
 import { reschedulePublishingJob } from "@/server/actions/publishing";
 
@@ -19,9 +24,12 @@ type ViewMode = "month" | "week" | "day" | "agenda";
 export function ContentCalendar({
   drafts,
   organisationId,
+  /** The latest publishing job per draft id, keyed by draft id — a plain object (not a Map) since it crosses the server/client boundary as a prop. Absent entries just render without job-level detail. */
+  jobsByDraftId = {},
 }: {
   drafts: ContentDraft[];
   organisationId: string;
+  jobsByDraftId?: Record<string, PublishingJob>;
 }) {
   const [viewMode, setViewMode] = useState<ViewMode>("month");
   const [search, setSearch] = useState("");
@@ -188,22 +196,25 @@ export function ContentCalendar({
                 <span className="text-xs font-mono font-medium text-muted-foreground">{day.getDate()}</span>
                 <div className="flex flex-col gap-1 overflow-y-auto max-h-[80px]">
                   {dayDrafts.map((draft) => {
-                    const platformColor = draft.scheduledPlatform === "linkedin" ? "text-blue-500"
-                      : draft.scheduledPlatform === "instagram" ? "text-pink-500"
-                      : draft.scheduledPlatform === "twitter" ? "text-neutral-300"
-                      : "text-primary";
+                    const job = jobsByDraftId[draft.id];
                     const draggable = isReschedulable(draft);
+                    // Failed items link straight to the job's own error/retry page — read-only status
+                    // (published, or anything not still-queued-scheduled) never allows drag-reschedule.
+                    const href =
+                      draft.status === "failed" && job
+                        ? routes.organisations.publishing.job(organisationId, job.id)
+                        : `/organisations/${organisationId}/content/${draft.id}`;
                     return (
                       <a
                         key={draft.id}
-                        href={`/organisations/${organisationId}/content/${draft.id}`}
+                        href={href}
                         draggable={draggable}
                         onDragStart={draggable ? (e) => handleDragStart(e, draft.id) : undefined}
-                        className={`block p-1 text-[11px] font-mono leading-normal rounded border border-border/60 bg-card hover:bg-card-hover truncate ${draggable ? "cursor-grab active:cursor-grabbing" : "cursor-default"}`}
+                        className={`flex items-center gap-1 p-1 text-[11px] font-mono leading-normal rounded border border-border/60 bg-card hover:bg-card-hover ${draggable ? "cursor-grab active:cursor-grabbing" : "cursor-default"}`}
                         title={`${draft.title} (${draft.status})${draggable ? "" : " — not reschedulable by drag"}`}
                       >
-                        <span className={`${platformColor} font-bold mr-1`}>●</span>
-                        {draft.title}
+                        {job ? <PlatformBadge platform={job.platform} size="sm" showLabel={false} /> : null}
+                        <span className="truncate">{draft.title}</span>
                       </a>
                     );
                   })}
@@ -219,20 +230,32 @@ export function ContentCalendar({
           {filteredDrafts.length === 0 ? (
             <p className="text-center text-xs text-subtle-foreground py-6">No scheduled content matching filters.</p>
           ) : (
-            filteredDrafts.map((draft) => (
-              <div key={draft.id} className="flex items-center justify-between p-3 border border-border rounded-lg bg-[#050505] hover:border-primary/50 transition-all">
-                <div className="flex flex-col gap-1">
-                  <span className="text-sm font-medium">{draft.title}</span>
-                  <div className="flex gap-2 text-[11px] font-mono text-subtle-foreground">
-                    <span>Platform: <span className="uppercase">{draft.scheduledPlatform || draft.contentType}</span></span>
-                    {draft.scheduledAt && <span>Time: {formatRelative(draft.scheduledAt)}</span>}
+            filteredDrafts.map((draft) => {
+              const job = jobsByDraftId[draft.id];
+              const href =
+                draft.status === "failed" && job
+                  ? routes.organisations.publishing.job(organisationId, job.id)
+                  : `/organisations/${organisationId}/content/${draft.id}`;
+              return (
+                <a
+                  key={draft.id}
+                  href={href}
+                  className="flex items-center justify-between p-3 border border-border rounded-lg bg-[#050505] hover:border-primary/50 transition-all"
+                >
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm font-medium">{draft.title}</span>
+                    <div className="flex items-center gap-2 text-[11px] font-mono text-subtle-foreground">
+                      {job ? <PlatformBadge platform={job.platform} size="sm" /> : null}
+                      {job ? <span>{PUBLISHING_TRIGGER_TYPE_LABELS[job.triggerType]}</span> : null}
+                      {draft.scheduledAt && <span>Time: {formatRelative(draft.scheduledAt)}</span>}
+                    </div>
                   </div>
-                </div>
-                <Badge tone={draft.status === "approved" || draft.status === "published" ? "positive" : "warning"}>
-                  {draft.status}
-                </Badge>
-              </div>
-            ))
+                  <Badge tone={CONTENT_DRAFT_STATUS_TONE[draft.status]}>
+                    {CONTENT_DRAFT_STATUS_LABELS[draft.status]}
+                  </Badge>
+                </a>
+              );
+            })
           )}
         </div>
       )}

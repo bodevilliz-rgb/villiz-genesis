@@ -80,8 +80,23 @@ export interface PublishingJob {
    */
   idempotencyKey: string;
   requestedBy: string;
+  /**
+   * Joined from profiles at read time — never resolve this from a raw
+   * `requestedBy` UUID displayed in the normal operator UI. `null` when the
+   * profile has been deleted (the FK is `on delete set null`) or when a
+   * mapper call genuinely has no join available (e.g. the claim/recovery
+   * RPCs, which are worker-only and never rendered).
+   */
+  requestedByProfile: { id: string; fullName: string | null; email: string } | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Set by `claim_next_publishing_job` to the worker process's own generated
+   * id (see `WORKER_ID` in scripts/publishing-worker.ts). Reflects only the
+   * most recent claim — a retry re-claims and overwrites this — so it is
+   * never a per-attempt historical record, only "who has this job now/last".
+   */
+  claimedBy: string | null;
   /** Null until a claim/retry sets it; drives worker polling ("find due jobs"). */
   nextAttemptAt: string | null;
   retryCount: number;
@@ -140,7 +155,8 @@ export interface PlatformAnalytics {
   totalAttempts: number;
   successfulAttempts: number;
   failedAttempts: number;
-  successRate: number;
+  /** Null when there are no resolved (completed or failed) attempts yet — never a misleading "0%". */
+  successRate: number | null;
   averagePublishTimeMs: number | null;
 }
 
@@ -148,7 +164,8 @@ export interface TriggerTypeAnalytics {
   triggerType: PublishingTriggerType;
   jobCount: number;
   averageDurationMs: number | null;
-  successRate: number;
+  /** Null when there are no terminal jobs of this trigger type yet. */
+  successRate: number | null;
 }
 
 /**
@@ -160,14 +177,15 @@ export interface TriggerTypeAnalytics {
 export interface PublishingAnalytics {
   /** completedAt - startedAt, successful (completed) attempts only. Null when there are none yet. */
   averagePublishTimeMs: number | null;
-  /** successful attempts / completed attempts (completed + failed) * 100. */
-  attemptSuccessRate: number;
-  /** jobs that eventually reached "published" / jobs that reached any terminal state * 100. */
-  jobSuccessRate: number;
-  /** failed attempts / completed attempts (completed + failed) * 100. */
-  failureRate: number;
+  /** successful attempts / completed attempts (completed + failed) * 100. Null when no attempt has resolved yet — never a misleading "0%". */
+  attemptSuccessRate: number | null;
+  /** jobs that eventually reached "published" / jobs that reached any terminal state * 100. Null when no job has reached a terminal state yet. */
+  jobSuccessRate: number | null;
+  /** failed attempts / completed attempts (completed + failed) * 100. Null when no attempt has resolved yet. */
+  failureRate: number | null;
   successfulRetries: number;
-  retrySuccessRate: number;
+  /** Null when no retry attempt has resolved yet. */
+  retrySuccessRate: number | null;
   scheduledPublications: number;
   immediatePublications: number;
   jobsQueued: number;

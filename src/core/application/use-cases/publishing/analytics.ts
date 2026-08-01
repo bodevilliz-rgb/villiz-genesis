@@ -9,8 +9,9 @@ import {
   type TriggerTypeAnalytics,
 } from "@/core/domain/entities/publishing";
 
-function percentage(numerator: number, denominator: number): number {
-  if (denominator === 0) return 0;
+/** Null when there's genuinely nothing to compute a rate from — the UI must never render that as a misleading "0%". */
+function percentage(numerator: number, denominator: number): number | null {
+  if (denominator === 0) return null;
   return Math.round((numerator / denominator) * 10000) / 100;
 }
 

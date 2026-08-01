@@ -19,8 +19,10 @@ function job(overrides: Partial<PublishingJob> = {}): PublishingJob {
     status: "published",
     idempotencyKey: `key-${jobSeq}`,
     requestedBy: "actor-1",
+    requestedByProfile: { id: "actor-1", fullName: "Actor One", email: "actor@villiz.com" },
     createdAt: "2026-08-01T10:00:00.000Z",
     updatedAt: "2026-08-01T10:00:05.000Z",
+    claimedBy: "worker-1",
     nextAttemptAt: null,
     retryCount: 0,
     maxRetries: 3,
@@ -62,10 +64,10 @@ describe("computePublishingAnalytics — empty state", () => {
   it("returns zeroed figures and null averages for no data at all", () => {
     const analytics = computePublishingAnalytics([], [], REFERENCE_DATE);
     expect(analytics.averagePublishTimeMs).toBeNull();
-    expect(analytics.attemptSuccessRate).toBe(0);
-    expect(analytics.jobSuccessRate).toBe(0);
-    expect(analytics.failureRate).toBe(0);
-    expect(analytics.retrySuccessRate).toBe(0);
+    expect(analytics.attemptSuccessRate).toBeNull();
+    expect(analytics.jobSuccessRate).toBeNull();
+    expect(analytics.failureRate).toBeNull();
+    expect(analytics.retrySuccessRate).toBeNull();
     expect(analytics.jobsQueued).toBe(0);
     expect(analytics.publishedToday).toBe(0);
     expect(analytics.platformBreakdown).toHaveLength(4);

@@ -53,6 +53,20 @@ export function formatRelative(value: string | Date | null | undefined): string 
   return formatter.format(seconds, "second");
 }
 
+/** Scales from milliseconds up to days — used anywhere a duration might span seconds (a mock publish attempt) or days (a scheduled job's total queue-to-published time). */
+export function formatDuration(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined || !Number.isFinite(ms) || ms < 0) return "—";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const minutes = seconds / 60;
+  if (minutes < 60) return `${minutes.toFixed(1)}m`;
+  const hours = minutes / 60;
+  if (hours < 24) return `${hours.toFixed(1)}h`;
+  const days = hours / 24;
+  return `${days.toFixed(1)}d`;
+}
+
 export function initials(name: string | null | undefined, fallback = "V"): string {
   if (!name) return fallback;
   const parts = name.trim().split(/\s+/).slice(0, 2);

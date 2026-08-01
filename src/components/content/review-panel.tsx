@@ -14,7 +14,6 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { Field } from "@/components/ui/field";
-import { PublishingPanel } from "@/components/content/publishing-panel";
 import {
   CONTENT_DRAFT_STATUS_LABELS,
   isContentDraftLocked,
@@ -242,13 +241,6 @@ export function ReviewPanel({
         {(draft.status === "approved" || draft.status === "archived") && canLead ? (
           <ReopenButton organisationId={organisationId} draftId={draft.id} />
         ) : null}
-
-        {["approved", "scheduled", "publishing", "failed", "published"].includes(draft.status) && (
-          <div className="mt-4 border-t border-border pt-4">
-            <h4 className="text-[13px] font-semibold text-foreground mb-3">Publishing Actions</h4>
-            <PublishingPanel organisationId={organisationId} draft={draft} canWrite={canWrite} />
-          </div>
-        )}
       </div>
     </div>
   );

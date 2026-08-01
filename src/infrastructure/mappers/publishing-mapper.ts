@@ -1,7 +1,18 @@
 import type { PublishingJob, PublishingAttempt } from "@/core/domain/entities/publishing";
 import type { PublishingJobRow, PublishingAttemptRow } from "../supabase/database.types";
 
-export function toPublishingJob(row: PublishingJobRow): PublishingJob {
+type ProfileRef = { id: string; full_name: string | null; email: string } | null;
+
+/** The bare generated row plus the `requested_by_profile` embed — present whenever a query uses JOB_SELECT (see supabase-publishing-repository.ts), absent for the worker-only claim/recovery RPCs. */
+export type PublishingJobRowWithRelations = PublishingJobRow & {
+  requested_by_profile?: ProfileRef;
+};
+
+function toProfileRef(ref: ProfileRef) {
+  return ref ? { id: ref.id, fullName: ref.full_name, email: ref.email } : null;
+}
+
+export function toPublishingJob(row: PublishingJobRowWithRelations): PublishingJob {
   return {
     id: row.id,
     organisationId: row.organisation_id,
@@ -12,8 +23,10 @@ export function toPublishingJob(row: PublishingJobRow): PublishingJob {
     status: row.status,
     idempotencyKey: row.idempotency_key,
     requestedBy: row.requested_by ?? "",
+    requestedByProfile: toProfileRef(row.requested_by_profile ?? null),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    claimedBy: row.claimed_by,
     nextAttemptAt: row.next_attempt_at,
     retryCount: row.retry_count,
     maxRetries: row.max_retries,

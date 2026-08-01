@@ -4,6 +4,7 @@ import type { Actor, OrganisationRole } from "@/core/domain/entities/identity";
 import { canWriteContent } from "@/core/domain/entities/identity";
 import {
   DEFAULT_MAX_PUBLISHING_RETRIES,
+  PUBLISHING_PLATFORM_LABELS,
   type PublishingAnalytics,
   type PublishingAttempt,
   type PublishingJob,
@@ -94,7 +95,7 @@ export async function createImmediatePublishingJob(
     draftId: input.draftId,
     actorId: deps.actor.id,
     eventType: "publishing_job_queued",
-    description: `Queued an immediate publish to ${input.platform}.`,
+    description: `Queued an immediate publish to ${PUBLISHING_PLATFORM_LABELS[input.platform]}.`,
     metadata: { jobId: job.id, platform: input.platform, triggerType: "immediate" },
   });
 
@@ -162,7 +163,7 @@ export async function createScheduledPublishingJob(
     draftId: input.draftId,
     actorId: deps.actor.id,
     eventType: "publishing_job_queued",
-    description: `Scheduled a publish to ${input.platform} for ${scheduledForDate.toISOString()}.`,
+    description: `Scheduled a publish to ${PUBLISHING_PLATFORM_LABELS[input.platform]} for ${scheduledForDate.toISOString()}.`,
     metadata: { jobId: job.id, platform: input.platform, triggerType: "scheduled", scheduledFor: scheduledForDate.toISOString() },
   });
 
@@ -216,7 +217,7 @@ export async function completePublishingAttempt(
     draftId: job.draftId,
     actorId: null,
     eventType: "publishing_attempt_completed",
-    description: `Published to ${job.platform}.`,
+    description: `Published to ${PUBLISHING_PLATFORM_LABELS[job.platform]}.`,
     metadata: { jobId: job.id, attemptId: attempt.id, externalUrl: result.externalUrl },
   });
 
@@ -227,7 +228,7 @@ export async function completePublishingAttempt(
         organisationId: job.organisationId,
         profileId: job.requestedBy,
         type: "publish_succeeded",
-        message: `Your ${job.platform} publish succeeded. ${result.externalUrl}`,
+        message: `Your ${PUBLISHING_PLATFORM_LABELS[job.platform]} publish succeeded. ${result.externalUrl}`,
       });
     } catch {
       // Logged by the worker's own structured logging around this call; swallow here by design.
@@ -251,7 +252,7 @@ export async function failPublishingAttempt(
     draftId: job.draftId,
     actorId: null,
     eventType: "publishing_attempt_failed",
-    description: `Publish to ${job.platform} failed: ${failure.errorMessage}`,
+    description: `Publish to ${PUBLISHING_PLATFORM_LABELS[job.platform]} failed: ${failure.errorMessage}`,
     metadata: { jobId: job.id, attemptId: attempt.id, errorCode: failure.errorCode },
   });
 
@@ -261,7 +262,7 @@ export async function failPublishingAttempt(
         organisationId: job.organisationId,
         profileId: job.requestedBy,
         type: "publish_failed",
-        message: `Your ${job.platform} publish failed: ${failure.errorMessage}`,
+        message: `Your ${PUBLISHING_PLATFORM_LABELS[job.platform]} publish failed: ${failure.errorMessage}`,
       });
     } catch {
       // Best-effort, see completePublishingAttempt's identical rationale.
@@ -292,7 +293,7 @@ export async function retryFailedPublishingJob(
     draftId: job.draftId,
     actorId: deps.actor.id,
     eventType: "publishing_job_retry_requested",
-    description: `Requested a retry of the ${job.platform} publish (attempt ${job.retryCount + 2}).`,
+    description: `Requested a retry of the ${PUBLISHING_PLATFORM_LABELS[job.platform]} publish (attempt ${job.retryCount + 2}).`,
     metadata: { jobId, platform: job.platform },
   });
 
@@ -324,7 +325,7 @@ export async function cancelPublishingJob(
     draftId: job.draftId,
     actorId: deps.actor.id,
     eventType: "publishing_job_cancelled",
-    description: `Cancelled the ${job.triggerType} publish to ${job.platform}.`,
+    description: `Cancelled the ${job.triggerType} publish to ${PUBLISHING_PLATFORM_LABELS[job.platform]}.`,
     metadata: { jobId, platform: job.platform },
   });
 

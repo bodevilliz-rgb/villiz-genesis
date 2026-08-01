@@ -29,7 +29,7 @@ export default async function DashboardPage() {
     notifications: context.notifications,
   };
 
-  const [, usage, dashboard, publishingAnalytics, activePublishingJobs] = await Promise.all([
+  const [organisations, usage, dashboard, publishingAnalytics, activePublishingJobs] = await Promise.all([
     context.organisations.listForActor(),
     context.usage.forAllVisibleOrganisations(),
     getDashboardHome({
@@ -116,6 +116,13 @@ export default async function DashboardPage() {
     { id: "staff-3", name: "Marie H.", role: "Creative Producer", activeCount: 0 },
   ];
 
+  // The Publishing Queue is inherently per-organisation, but this widget
+  // rolls up analytics across every organisation the actor can see. A deep
+  // link into "the relevant queue tab" is only unambiguous when there's
+  // exactly one organisation to link into — otherwise it degrades to plain,
+  // unlinked stats rather than guessing which account to send the actor to.
+  const singleOrganisationId = organisations.length === 1 ? (organisations[0]?.id ?? null) : null;
+
   // Convert turnaround minutes to days
   const avgTurnaroundMin = dashboard.reviewMetrics.averageTurnaroundMinutes;
   const avgReviewTimeStr = avgTurnaroundMin
@@ -154,7 +161,7 @@ export default async function DashboardPage() {
 
         {/* Column 2: Publishing & Activities */}
         <div className="flex flex-col gap-6">
-          <PublishingEngineWidget analytics={publishingAnalytics} />
+          <PublishingEngineWidget analytics={publishingAnalytics} organisationId={singleOrganisationId} />
           <PublishingQueue items={publishingTimeline} />
           <LiveActivityFeed items={activityItems} />
         </div>

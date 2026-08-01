@@ -9,11 +9,17 @@ import type {
 } from "@/core/application/ports/publishing-port";
 import type { PublishingJobStatus, PublishingPlatform } from "@/core/domain/entities/publishing";
 import type { GenesisClient } from "../supabase/server-client";
-import type { Json, PublishingAttemptRow, PublishingJobRow, PublishingSimulationModeDb } from "../supabase/database.types";
-import { toPublishingAttempt, toPublishingJob } from "../mappers/publishing-mapper";
+import type { Json, PublishingAttemptRow, PublishingSimulationModeDb } from "../supabase/database.types";
+import { toPublishingAttempt, toPublishingJob, type PublishingJobRowWithRelations } from "../mappers/publishing-mapper";
 import { translateError, unwrap } from "./errors";
 
 const JOB_STATUSES: PublishingJobStatus[] = ["queued", "processing", "published", "failed", "cancelled"];
+
+/** Joins the requester's profile so the UI never has to display a raw UUID for "requested by". */
+const JOB_SELECT = `
+  *,
+  requested_by_profile:profiles!publishing_jobs_requested_by_fkey(id, full_name, email)
+`;
 
 /**
  * Implements the full PublishingRepository port. Constructed once per
@@ -43,7 +49,7 @@ export class SupabasePublishingRepository implements PublishingRepository {
         max_retries: input.maxRetries,
         dev_simulation_mode: input.devSimulationMode,
       })
-      .select()
+      .select(JOB_SELECT)
       .single();
 
     if (insertResult.error) {
@@ -56,10 +62,10 @@ export class SupabasePublishingRepository implements PublishingRepository {
       if (insertResult.error.code === "23505") {
         const byKey = await this.client
           .from("publishing_jobs")
-          .select()
+          .select(JOB_SELECT)
           .eq("idempotency_key", input.idempotencyKey)
           .maybeSingle();
-        if (byKey.data) return toPublishingJob(byKey.data as unknown as PublishingJobRow);
+        if (byKey.data) return toPublishingJob(byKey.data as unknown as PublishingJobRowWithRelations);
 
         const active = await this.findActiveJobForDraftPlatform(input.draftId, input.platform);
         if (active) return active;
@@ -67,38 +73,38 @@ export class SupabasePublishingRepository implements PublishingRepository {
       translateError(insertResult.error, "Publishing job creation");
     }
 
-    return toPublishingJob(insertResult.data as unknown as PublishingJobRow);
+    return toPublishingJob(insertResult.data as unknown as PublishingJobRowWithRelations);
   }
 
   async findJobById(organisationId: string, jobId: string) {
     const { data, error } = await this.client
       .from("publishing_jobs")
-      .select()
+      .select(JOB_SELECT)
       .eq("organisation_id", organisationId)
       .eq("id", jobId)
       .maybeSingle();
 
     if (error) translateError(error, "Publishing job");
-    return data ? toPublishingJob(data as unknown as PublishingJobRow) : null;
+    return data ? toPublishingJob(data as unknown as PublishingJobRowWithRelations) : null;
   }
 
   async findActiveJobForDraftPlatform(draftId: string, platform: PublishingPlatform) {
     const { data, error } = await this.client
       .from("publishing_jobs")
-      .select()
+      .select(JOB_SELECT)
       .eq("draft_id", draftId)
       .eq("platform", platform)
       .in("status", ["queued", "processing"])
       .maybeSingle();
 
     if (error) translateError(error, "Publishing job");
-    return data ? toPublishingJob(data as unknown as PublishingJobRow) : null;
+    return data ? toPublishingJob(data as unknown as PublishingJobRowWithRelations) : null;
   }
 
   async listJobs(filters: PublishingQueueFilters) {
     let query = this.client
       .from("publishing_jobs")
-      .select()
+      .select(JOB_SELECT)
       .order("created_at", { ascending: false })
       .range(filters.offset, filters.offset + filters.limit - 1);
 
@@ -111,19 +117,19 @@ export class SupabasePublishingRepository implements PublishingRepository {
 
     const { data, error } = await query;
     if (error) translateError(error, "Publishing queue");
-    return (data ?? []).map((row) => toPublishingJob(row as unknown as PublishingJobRow));
+    return (data ?? []).map((row) => toPublishingJob(row as unknown as PublishingJobRowWithRelations));
   }
 
   async listJobsForDraft(organisationId: string, draftId: string) {
     const { data, error } = await this.client
       .from("publishing_jobs")
-      .select()
+      .select(JOB_SELECT)
       .eq("organisation_id", organisationId)
       .eq("draft_id", draftId)
       .order("created_at", { ascending: false });
 
     if (error) translateError(error, "Publishing jobs");
-    return (data ?? []).map((row) => toPublishingJob(row as unknown as PublishingJobRow));
+    return (data ?? []).map((row) => toPublishingJob(row as unknown as PublishingJobRowWithRelations));
   }
 
   async cancelJob(organisationId: string, jobId: string) {
@@ -133,10 +139,10 @@ export class SupabasePublishingRepository implements PublishingRepository {
       .eq("organisation_id", organisationId)
       .eq("id", jobId)
       .eq("status", "queued")
-      .select()
+      .select(JOB_SELECT)
       .single();
 
-    return toPublishingJob(unwrap(result, "Publishing job") as unknown as PublishingJobRow);
+    return toPublishingJob(unwrap(result, "Publishing job") as unknown as PublishingJobRowWithRelations);
   }
 
   async countJobsByStatus(organisationId: string): Promise<Record<PublishingJobStatus, number>> {
@@ -184,10 +190,10 @@ export class SupabasePublishingRepository implements PublishingRepository {
       .eq("organisation_id", organisationId)
       .eq("id", jobId)
       .eq("status", "failed")
-      .select()
+      .select(JOB_SELECT)
       .single();
 
-    return toPublishingJob(unwrap(result, "Publishing job") as unknown as PublishingJobRow);
+    return toPublishingJob(unwrap(result, "Publishing job") as unknown as PublishingJobRowWithRelations);
   }
 
   async markJobPublished(jobId: string) {
@@ -195,10 +201,10 @@ export class SupabasePublishingRepository implements PublishingRepository {
       .from("publishing_jobs")
       .update({ status: "published", completed_at: new Date().toISOString() })
       .eq("id", jobId)
-      .select()
+      .select(JOB_SELECT)
       .single();
 
-    return toPublishingJob(unwrap(result, "Publishing job") as unknown as PublishingJobRow);
+    return toPublishingJob(unwrap(result, "Publishing job") as unknown as PublishingJobRowWithRelations);
   }
 
   async markJobFailed(jobId: string) {
@@ -206,16 +212,16 @@ export class SupabasePublishingRepository implements PublishingRepository {
       .from("publishing_jobs")
       .update({ status: "failed", completed_at: new Date().toISOString() })
       .eq("id", jobId)
-      .select()
+      .select(JOB_SELECT)
       .single();
 
-    return toPublishingJob(unwrap(result, "Publishing job") as unknown as PublishingJobRow);
+    return toPublishingJob(unwrap(result, "Publishing job") as unknown as PublishingJobRowWithRelations);
   }
 
   async claimNextJob(workerId: string) {
     const { data, error } = await this.client.rpc("claim_next_publishing_job", { p_worker_id: workerId });
     if (error) translateError(error, "Publishing job claim");
-    const rows = (data ?? []) as unknown as PublishingJobRow[];
+    const rows = (data ?? []) as unknown as PublishingJobRowWithRelations[];
     const [row] = rows;
     if (!row) return null;
     return toPublishingJob(row);
@@ -226,7 +232,7 @@ export class SupabasePublishingRepository implements PublishingRepository {
       p_stale_after_seconds: staleAfterSeconds,
     });
     if (error) translateError(error, "Stale publishing job recovery");
-    const rows = (data ?? []) as unknown as PublishingJobRow[];
+    const rows = (data ?? []) as unknown as PublishingJobRowWithRelations[];
     return rows.map((row) => toPublishingJob(row));
   }
 
@@ -348,13 +354,13 @@ export class SupabasePublishingRepository implements PublishingRepository {
   }
 
   async listJobsForAnalytics(organisationId: string | undefined, input: { dateFrom?: string; dateTo?: string }) {
-    let query = this.client.from("publishing_jobs").select();
+    let query = this.client.from("publishing_jobs").select(JOB_SELECT);
     if (organisationId) query = query.eq("organisation_id", organisationId);
     if (input.dateFrom) query = query.gte("created_at", input.dateFrom);
     if (input.dateTo) query = query.lte("created_at", input.dateTo);
 
     const { data, error } = await query;
     if (error) translateError(error, "Publishing analytics");
-    return (data ?? []).map((row) => toPublishingJob(row as unknown as PublishingJobRow));
+    return (data ?? []).map((row) => toPublishingJob(row as unknown as PublishingJobRowWithRelations));
   }
 }

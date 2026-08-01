@@ -9,7 +9,7 @@ import { EmptyState } from "@/components/common/empty-state";
 import { Stat } from "@/components/common/stat";
 import { Button } from "@/components/ui/button";
 import { DraftSearchFilters } from "@/components/content/draft-search-filters";
-import { DraftCard } from "@/components/content/draft-card";
+import { DraftCard, type DraftPublishingSummary } from "@/components/content/draft-card";
 import { KnowledgeCoverage } from "@/components/content/knowledge-coverage";
 import { canWriteContent } from "@/core/domain/entities/identity";
 import { CONTENT_DRAFT_STATUS_LABELS, type ContentDraftStatus } from "@/core/domain/entities/content";
@@ -17,6 +17,7 @@ import { contentDraftStatusSchema, contentDraftTypeSchema } from "@/core/applica
 import { formatNumber } from "@/lib/format";
 import { routes } from "@/lib/routes";
 import { ContentCalendar } from "@/components/content/content-calendar";
+import type { PublishingJob } from "@/core/domain/entities/publishing";
 import { ContentPipelineBoard } from "@/components/content/content-pipeline-board";
 
 const STATUS_ORDER: ContentDraftStatus[] = ["draft", "in_review", "changes_requested", "approved", "scheduled", "published", "archived"];
@@ -68,6 +69,48 @@ export default async function ContentStudioPage({
   const isFiltered = Boolean(filters.q || filters.status || filters.type || filters.author);
   const hasAnyDrafts = overview.totalDrafts > 0;
 
+  async function fetchLatestJobForDraft(draftId: string): Promise<PublishingJob | null> {
+    const jobs = await context.publishing.listJobsForDraft(orgId, draftId);
+    return jobs.reduce<PublishingJob | null>(
+      (latest, job) => (!latest || new Date(job.createdAt) > new Date(latest.createdAt) ? job : latest),
+      null,
+    );
+  }
+
+  const queueDrafts = drafts.filter((d) => ["scheduled", "publishing", "failed", "published"].includes(d.status));
+  const queuePublishingByDraftId = new Map<string, DraftPublishingSummary>();
+  if (filters.view === "queue") {
+    await Promise.all(
+      queueDrafts.map(async (draft) => {
+        const latestJob = await fetchLatestJobForDraft(draft.id);
+        if (!latestJob) return;
+
+        const attempts = await context.publishing.listAttemptsForJob(orgId, latestJob.id);
+        const latestAttempt = attempts.reduce<(typeof attempts)[number] | null>(
+          (latest, attempt) => (!latest || attempt.attemptNumber > latest.attemptNumber ? attempt : latest),
+          null,
+        );
+
+        queuePublishingByDraftId.set(draft.id, {
+          job: latestJob,
+          latestErrorMessage: latestAttempt?.status === "failed" ? latestAttempt.errorMessage : null,
+          mockUrl: latestAttempt?.status === "completed" ? latestAttempt.externalUrl : null,
+        });
+      }),
+    );
+  }
+
+  const calendarJobsByDraftId: Record<string, PublishingJob> = {};
+  if (filters.view === "calendar") {
+    const scheduledDrafts = drafts.filter((d) => d.scheduledAt !== null);
+    await Promise.all(
+      scheduledDrafts.map(async (draft) => {
+        const latestJob = await fetchLatestJobForDraft(draft.id);
+        if (latestJob) calendarJobsByDraftId[draft.id] = latestJob;
+      }),
+    );
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -116,7 +159,7 @@ export default async function ContentStudioPage({
       </div>
 
       {filters.view === "calendar" ? (
-        <ContentCalendar drafts={drafts} organisationId={orgId} />
+        <ContentCalendar drafts={drafts} organisationId={orgId} jobsByDraftId={calendarJobsByDraftId} />
       ) : filters.view === "board" ? (
         <ContentPipelineBoard initialDrafts={drafts} organisationId={orgId} />
       ) : filters.view === "queue" ? (
@@ -125,11 +168,16 @@ export default async function ContentStudioPage({
             Publishing Queue
           </p>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {drafts.filter(d => ["scheduled", "publishing", "failed", "published"].includes(d.status)).length === 0 ? (
+            {queueDrafts.length === 0 ? (
               <p className="text-sm text-muted-foreground col-span-full">No items in the publishing queue.</p>
             ) : (
-              drafts.filter(d => ["scheduled", "publishing", "failed", "published"].includes(d.status)).map((draft) => (
-                <DraftCard key={draft.id} organisationId={orgId} draft={draft} />
+              queueDrafts.map((draft) => (
+                <DraftCard
+                  key={draft.id}
+                  organisationId={orgId}
+                  draft={draft}
+                  publishing={queuePublishingByDraftId.get(draft.id) ?? null}
+                />
               ))
             )}
           </div>

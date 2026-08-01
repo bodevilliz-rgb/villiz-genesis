@@ -1,4 +1,4 @@
-# Publishing Engine (Sprint 6A)
+# Publishing Engine (Sprint 6A, UX polish in 6A.1)
 
 A durable, worker-driven publishing pipeline. Once a draft is Approved, the
 operator queues (or schedules) a publish and the system — never a human —
@@ -192,13 +192,118 @@ All computed by `computePublishingAnalytics()`
 
 ## Publishing Queue UI
 
-`/organisations/[orgId]/publishing` — six views: Queued, Scheduled,
+`/organisations/[orgId]/publishing` — six tabs: Queued, Scheduled,
 Publishing, Failed, Published, Cancelled (derived client-side from job
 status + due/not-due, per the "no separate scheduled status" note above),
-plus platform filtering and the analytics summary. Each job row links to
-`/organisations/[orgId]/publishing/[jobId]` — the full attempt timeline,
-oldest first, one row per immutable attempt with its exact timestamps and
-duration.
+plus the analytics summary and a filter bar (search, platform, trigger type,
+queued-date range). Each job card links to
+`/organisations/[orgId]/publishing/[jobId]` — the full job detail page.
+
+### Operator guide — reading a queue card
+
+Every card (`PublishingJobRow`, `src/components/publishing/publishing-job-row.tsx`)
+shows, top to bottom:
+
+- **Content title** (the draft's own title, links to the job detail page) and,
+  directly under it, the **organisation** and **campaign** (if the draft has one).
+- A row of badges: **status**, **publishing destination** (see "Platform
+  destination vs. content title" below), **trigger type**
+  (Immediate/Scheduled/Retry), and a **Retry N/M** badge once a job has been
+  retried at least once.
+- A status-specific detail line: an indeterminate spinner + "Publishing to
+  X — attempt N, started …" while `processing`; "Waiting for the worker to
+  pick this up" while `queued` and due; a countdown + timezone while `queued`
+  and not yet due (a genuinely scheduled item).
+- A timing grid: Queued, Scheduled-for/Due, Started, Completed/Failed,
+  Duration, Attempts, Requested by (a resolved name, never a raw UUID).
+- The latest error, if `failed`.
+- Actions valid for the *current* status only — see "Retry workflow" below.
+
+### Job detail page guide
+
+`/organisations/[orgId]/publishing/[jobId]` has five sections, in order:
+
+1. **Summary** — the same card described above, reused so the queue and the
+   detail page can never disagree about a job's state.
+2. **Progress** — a four-step timeline of *this job's current/latest
+   attempt only* (Queued → Claimed by worker → Publishing to `<platform>` →
+   Completed/Failed), each step showing its own elapsed time since the
+   previous one. This is distinct from "Attempt history" below — it never
+   lists prior retried attempts, only the current cycle.
+3. **Attempt history** — every attempt ever recorded for this job, oldest
+   first, each an immutable row (a retry never overwrites a previous
+   attempt's status, timestamps, or error).
+4. **Audit events** — every audited action tied to this specific job
+   (queued, retried, cancelled, completed, failed), each attributed to the
+   actor who caused it or "System (background worker)" for automated steps.
+5. **Technical details** — collapsed by default (`<details>`): internal job
+   ID, draft ID, organisation ID, idempotency key, last-claimed-by worker ID,
+   and the latest attempt's raw provider metadata. Never shown in the normal
+   operator UI outside this section.
+
+### Platform destination vs. content title
+
+A draft's **title** and a job's **publishing destination** are two
+independent facts — a draft called "Instagram Promo Post" can genuinely be
+published to LinkedIn, if that's what the operator selected when queuing it.
+Every surface that shows a platform (queue card, job detail, Dashboard,
+Content Studio, Calendar) renders it via the one shared `PlatformBadge`
+component (`src/components/publishing/platform-badge.tsx`), which always
+takes its platform from the persisted `PublishingJob.platform` field —
+never inferred from the draft's title, content type, or campaign. The badge
+also carries an explicit `role="img"` accessible name of the form
+"Publishing destination: LinkedIn", so this distinction holds for screen
+readers too, not just sighted operators.
+
+### Retry workflow
+
+A **failed** job with `retryCount < maxRetries` shows a **Retry Publish**
+button. Clicking it:
+
+1. Immediately flips the job back to `queued` (visible on the next page
+   load/revalidation — the previously-failed job disappears from the Failed
+   tab and reappears in Queued).
+2. The worker picks it up on its next poll tick and creates a **new**
+   attempt row — attempt 1 (the original failure) is never touched. The job
+   detail page's "Attempt history" then shows both: Attempt 1 (Failed, with
+   its original error preserved) and Attempt 2 (labelled "Retry of attempt
+   1"), each with its own independent outcome.
+3. Analytics (Job Success Rate, Retry Success Rate, Successful Retries,
+   Failed — Needs Attention) update to reflect the new state on the next
+   page load, since every figure is recomputed from persisted rows, never
+   cached client-side.
+
+The **Retry Publish** button itself disables and shows "Retrying…" for the
+duration of the click (via `useFormStatus`/`SubmitButton`), so a double-click
+cannot submit the retry twice.
+
+### Failure troubleshooting (operator-facing)
+
+- **A failed job shows no Retry Publish button.** It has reached
+  `maxRetries` (default 3). This needs an operator decision — accept the
+  failure, or investigate the recorded error code/message in the job
+  detail page's Attempt history — rather than another automated retry.
+- **A retry appears to have done nothing.** Give the worker one poll cycle
+  (`PUBLISHING_WORKER_POLL_INTERVAL_MS`, default 2s) — clicking Retry only
+  requeues the job; the worker (a separate process) still has to claim and
+  process it. Refresh the job detail page after a few seconds.
+- **The error message is generic ("Simulated provider failure").** Expected
+  in this simulated environment — no real platform API is integrated yet
+  (see "Mock publisher simulation controls" above). A real adapter would
+  surface its own provider-specific error code/message through the same
+  `errorCode`/`errorMessage` fields, with no UI change required.
+
+### Interpreting analytics (zero-data states)
+
+Job Success Rate, Attempt Success Rate, Retry Success Rate, and Failure Rate
+are **percentages of a specific denominator** (e.g. jobs that reached a
+terminal state, or attempts that resolved) — when that denominator is zero,
+the analytics engine (`computePublishingAnalytics`) returns `null`, and the
+UI renders **"No data yet"**, never a misleading "0%" that would read as "a
+real result that happens to be zero." Durations (Average Publish Time) use
+the existing `"—"` convention for the same reason. Hovering the ⓘ next to
+Job/Attempt/Retry Success Rate and Average Publish Time shows exactly what
+each figure measures.
 
 ## Content Studio and Calendar integration
 
@@ -206,6 +311,15 @@ Content Studio's own status counts and the draft detail page already read
 `content_drafts.status`, which the publishing use-cases update in lock-step
 at every transition (`publishing` → `published`/`failed`) — so Content
 Studio needed no separate data-source change to stay correct.
+
+The Content Studio "Publishing Queue" tab and the Content Calendar both now
+join each shown draft to its latest `PublishingJob` (fetched once per
+scheduled/published/failed/queued draft) to render the real
+`PlatformBadge`, trigger type, and — for a **failed** draft — link straight
+to that job's detail/error page instead of the draft editor, since that is
+where the actionable retry lives. A **published** draft's calendar/queue
+entry is never draggable and carries no write affordance beyond navigation,
+satisfying "published items are read-only."
 
 The Content Calendar's drag-and-drop only allows dragging a draft whose
 status is `scheduled` (anything `publishing`/`published`/`failed` is not
@@ -251,12 +365,22 @@ automated retry.
 
 ## Known limitations
 
-- The Content Studio draft detail page currently renders the Publishing
-  Actions panel twice (once directly, once nested inside the review panel
-  component it also uses) — cosmetic duplication, not a correctness issue,
-  since both instances are the same component wired to the same engine.
-  Pre-dates Sprint 6A's publishing work; not fixed here since it touches
-  page layout beyond this sprint's scope.
+- ~~The Content Studio draft detail page currently renders the Publishing
+  Actions panel twice~~ — **fixed in Sprint 6A.1**: `ReviewPanel` no longer
+  renders its own `PublishingPanel`; the draft page's direct render is the
+  sole instance (regression-tested in `tests/review-panel-publishing-panel.test.tsx`).
+- A job's `claimedBy` (surfaced in the Progress timeline and Technical
+  details as "worker ID") reflects only the **most recent** claim — a retry
+  re-claims and overwrites it, so it is not a per-attempt historical record.
+  Persisting a true per-attempt worker ID would need a new column on
+  `publishing_attempts`, out of scope for a UX-polish sprint.
+- The background worker process (`npm run worker:publishing`) does not
+  hot-reload — it loads its modules once at startup and keeps running that
+  in-memory snapshot. If you edit code that the worker imports (e.g. an
+  audit-event description string) while a worker is already running, restart
+  it to see the change reflected in newly-created attempts/audit events;
+  otherwise you'll see old and new wording mixed in the same job's history,
+  which is confusing during a demo but not a data-correctness bug.
 - The Schedule form's timezone selector is a label only — the underlying
   `scheduledAt` value is whatever the browser's `datetime-local` input
   produces (implicitly the browser's local time), not actually converted

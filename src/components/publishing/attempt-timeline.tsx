@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { PUBLISHING_ATTEMPT_STATUS_LABELS, type PublishingAttempt } from "@/core/domain/entities/publishing";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, formatDuration } from "@/lib/format";
 
 const STATUS_TONE: Record<PublishingAttempt["status"], "muted" | "accent" | "positive" | "danger"> = {
   queued: "muted",
@@ -8,11 +8,6 @@ const STATUS_TONE: Record<PublishingAttempt["status"], "muted" | "accent" | "pos
   completed: "positive",
   failed: "danger",
 };
-
-function formatDuration(ms: number | null): string {
-  if (ms === null) return "—";
-  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
-}
 
 /** One row per immutable attempt row, oldest first — the exact append-only history no update can ever rewrite. */
 export function AttemptTimeline({ attempts }: { attempts: PublishingAttempt[] }) {
