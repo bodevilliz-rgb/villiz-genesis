@@ -496,10 +496,27 @@ async function main() {
             if (error) throw error;
             return data!;
           },
-          updateProfile: async (id, fields) => {
-            const { data, error } = await client.from("profiles").update(fields).eq("id", id).select("id, email, full_name, role, is_active").single();
+          // profiles_guard_self_escalation blocks any UPDATE that changes
+          // role/is_active unless app.is_platform_admin() is true — which
+          // is never true for a service-role connection (auth.uid() has no
+          // JWT `sub` claim to read). A plain `.update()` here always hits
+          // that guard and fails with 42501. bootstrap_activate_profile
+          // (see the migration of the same name) is the one-time, narrowly
+          // scoped RPC that performs exactly this update instead — it only
+          // ever runs while zero active admins exist anywhere in the
+          // project, so `fields` (the specific diff) doesn't matter here:
+          // the RPC always sets the complete, correct bootstrap-owned
+          // target state, which is a safe no-op for any field that was
+          // already correct.
+          updateProfile: async (id) => {
+            const { data, error } = await client.rpc("bootstrap_activate_profile", {
+              p_user_id: id,
+              p_email: email,
+              p_full_name: STAFF_FULL_NAME,
+              p_role: STAFF_ROLE,
+            });
             if (error) throw error;
-            return data!;
+            return data as ProfileRecord;
           },
         },
         { authUserId, email, fullName: STAFF_FULL_NAME, role: STAFF_ROLE, confirm },
