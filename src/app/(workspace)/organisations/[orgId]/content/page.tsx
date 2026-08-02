@@ -20,7 +20,16 @@ import { ContentCalendar } from "@/components/content/content-calendar";
 import type { PublishingJob } from "@/core/domain/entities/publishing";
 import { ContentPipelineBoard } from "@/components/content/content-pipeline-board";
 
-const STATUS_ORDER: ContentDraftStatus[] = ["draft", "in_review", "changes_requested", "approved", "scheduled", "published", "archived"];
+/**
+ * Derived from CONTENT_DRAFT_STATUS_LABELS's own declaration order (a
+ * Record<ContentDraftStatus, string>, so every status is guaranteed present)
+ * rather than a hand-maintained list — the previous hardcoded list omitted
+ * needs_review, rejected, publishing, failed, and awaiting_client, so a
+ * draft sitting in any of those statuses never got a Stat tile. Adding a
+ * status to ContentDraftStatus without giving it a label is a compile
+ * error, so this can't silently drift out of sync again.
+ */
+const STATUS_ORDER: ContentDraftStatus[] = Object.keys(CONTENT_DRAFT_STATUS_LABELS) as ContentDraftStatus[];
 
 export default async function ContentStudioPage({
   params,

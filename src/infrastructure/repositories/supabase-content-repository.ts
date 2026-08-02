@@ -1,6 +1,6 @@
 import "server-only";
 import type { ContentDraftWriteModel, ContentRepository } from "@/core/application/ports/content-port";
-import type { ContentDraftStatus, ContentDraftType } from "@/core/domain/entities/content";
+import { CONTENT_DRAFT_STATUS_LABELS, type ContentDraftStatus, type ContentDraftType } from "@/core/domain/entities/content";
 import type { DashboardActivityItem } from "@/core/domain/entities/dashboard";
 import type { GenesisClient } from "../supabase/server-client";
 import {
@@ -33,15 +33,17 @@ const GENERATION_REQUEST_SELECT = `
   requested_by_profile:profiles(id, full_name, email)
 `;
 
-const DRAFT_STATUSES: ContentDraftStatus[] = [
-  "draft",
-  "in_review",
-  "changes_requested",
-  "approved",
-  "scheduled",
-  "published",
-  "archived",
-];
+/**
+ * Derived from CONTENT_DRAFT_STATUS_LABELS (a Record<ContentDraftStatus, string>,
+ * so TypeScript already forces every status to have an entry) rather than a
+ * hand-maintained list — a hardcoded list here previously omitted
+ * needs_review, rejected, publishing, failed, and awaiting_client, which
+ * made countDraftsByStatus() silently undercount and getContentOverview()
+ * report totalDrafts as 0 for any organisation whose only drafts were in one
+ * of those statuses. This can't drift again: adding a status to
+ * ContentDraftStatus without adding its label is a compile error.
+ */
+export const DRAFT_STATUSES = Object.keys(CONTENT_DRAFT_STATUS_LABELS) as ContentDraftStatus[];
 
 const ACTIVITY_VERSION_SELECT = `
   id, draft_id, organisation_id, version, title, created_at,
