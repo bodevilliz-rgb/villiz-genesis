@@ -21,7 +21,9 @@ export function toOrganisation(row: OrganisationRow): Organisation {
 }
 
 export function toOrganisationMember(
-  row: OrganisationMemberRow & { profiles: Pick<ProfileRow, "id" | "email" | "full_name" | "avatar_url" | "job_title" | "is_active"> | null },
+  row: OrganisationMemberRow & {
+    profiles: Pick<ProfileRow, "id" | "email" | "full_name" | "avatar_url" | "job_title" | "is_active" | "role"> | null;
+  },
 ): OrganisationMember {
   return {
     organisationId: row.organisation_id,
@@ -35,6 +37,7 @@ export function toOrganisationMember(
       avatarUrl: row.profiles?.avatar_url ?? null,
       jobTitle: row.profiles?.job_title ?? null,
       isActive: row.profiles?.is_active ?? false,
+      platformRole: row.profiles?.role,
     },
   };
 }

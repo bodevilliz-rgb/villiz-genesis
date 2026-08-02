@@ -5,6 +5,7 @@ import { CONTENT_DRAFT_STATUS_LABELS, type ContentDraft, type ContentDraftStatus
 import {
   canApproveOwnAuthorship,
   findReviewTransition,
+  isSoleOwnerPilotOrganisation,
   type ReviewActionType,
   type ReviewHistoryEntry,
   type ReviewQueueFilters,
@@ -22,6 +23,7 @@ import {
   requestDraftChangesSchema,
   submitForReviewSchema,
 } from "@/core/application/dto/review-dto";
+import { isCloudEnvironment, isCloudPilotSelfApprovalEnabled } from "@/lib/cloud-pilot-config";
 
 interface ReviewDeps {
   actor: Actor;
@@ -92,7 +94,24 @@ async function applyTransition(
   await requireRole(deps, input.organisationId, check);
 
   if (opts.checkSelfApproval && !canApproveOwnAuthorship(deps.actor.id, draft.createdBy?.id ?? null)) {
-    throw new ForbiddenError("You cannot approve your own draft. Ask another Lead or Reviewer to make this decision.");
+    // CLOUD_PILOT_SELF_APPROVAL: the ordinary rule is only ever bypassed
+    // when all four independent conditions hold — the flag is on, this is
+    // genuinely the cloud environment, the current actor's platform role is
+    // owner, and the organisation itself has no one else who could approve
+    // (isSoleOwnerPilotOrganisation). Each condition is cheap-to-expensive
+    // ordered so the one I/O call (listMembers) only runs when the first
+    // three already passed. When the flag is off (the default, and every
+    // non-cloud environment), this branch is unreachable and the throw
+    // below fires exactly as it always has.
+    const cloudPilotBypass =
+      isCloudPilotSelfApprovalEnabled() &&
+      isCloudEnvironment() &&
+      deps.actor.role === "owner" &&
+      isSoleOwnerPilotOrganisation(await deps.organisations.listMembers(input.organisationId));
+
+    if (!cloudPilotBypass) {
+      throw new ForbiddenError("You cannot approve your own draft. Ask another Lead or Reviewer to make this decision.");
+    }
   }
 
   if (transition.commentRequired && !blank(input.comment)) {

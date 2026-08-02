@@ -1,4 +1,5 @@
 import type { ContentDraftStatus, ContentDraftType } from "./content";
+import type { OrganisationMember } from "./organisation";
 
 /**
  * Every kind of event the review workflow can record. Distinct from
@@ -107,6 +108,29 @@ export function findReviewTransition(from: ContentDraftStatus, to: ContentDraftS
  */
 export function canApproveOwnAuthorship(actorId: string, draftAuthorId: string | null): boolean {
   return draftAuthorId !== actorId;
+}
+
+/**
+ * Cloud Pilot Sprint — the one condition behind the CLOUD_PILOT_SELF_APPROVAL
+ * flag (see src/lib/cloud-pilot-config.ts) that isn't a simple boolean: does
+ * this specific organisation genuinely have no one but its sole Owner who
+ * could ever approve a draft? Pure and self-contained — takes the
+ * organisation's membership list, decides nothing about the flag, the
+ * environment, or the current actor's own role. The use-case
+ * (applyTransition in use-cases/review/index.ts) is the only caller, and it
+ * ANDs this together with the flag/environment/actor.role checks — all four
+ * must hold before self-approval is ever permitted.
+ *
+ * "Exactly one active owner" and "no other reviewers exist" are both
+ * required: the moment a second admin/owner or any reviewer joins this
+ * organisation, this returns false and the ordinary
+ * canApproveOwnAuthorship rule above is the only one that applies again —
+ * no flag flip needed to close the hole back up.
+ */
+export function isSoleOwnerPilotOrganisation(members: OrganisationMember[]): boolean {
+  const activeOwners = members.filter((member) => member.profile.platformRole === "owner" && member.profile.isActive);
+  const otherReviewers = members.filter((member) => member.role === "reviewer");
+  return activeOwners.length === 1 && otherReviewers.length === 0;
 }
 
 /**

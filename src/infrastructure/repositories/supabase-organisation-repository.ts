@@ -127,7 +127,7 @@ export class SupabaseOrganisationRepository implements OrganisationRepository {
     const { data, error } = await this.client
       .from("organisation_members")
       .select(
-        `*, profiles!organisation_members_profile_id_fkey(id, email, full_name, avatar_url, job_title, is_active)`,
+        `*, profiles!organisation_members_profile_id_fkey(id, email, full_name, avatar_url, job_title, is_active, role)`,
       )
       .eq("organisation_id", organisationId);
 

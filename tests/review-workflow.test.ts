@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   approveDraft,
   assignReviewer,
@@ -9,7 +9,7 @@ import {
   submitForReview,
 } from "@/core/application/use-cases/review";
 import { ForbiddenError, ValidationError } from "@/core/domain/errors";
-import type { Actor, OrganisationRole } from "@/core/domain/entities/identity";
+import type { Actor, OrganisationRole, PlatformRole } from "@/core/domain/entities/identity";
 import type { ContentDraft } from "@/core/domain/entities/content";
 import type { ReviewHistoryEntry } from "@/core/domain/entities/review";
 import type { ContentRepository } from "@/core/application/ports/content-port";
@@ -48,7 +48,7 @@ function profileRef(id: string, fullName: string) {
   return { id, fullName, email: `${id}@villiz.com` };
 }
 
-function member(profileId: string, role: OrganisationRole): OrganisationMember {
+function member(profileId: string, role: OrganisationRole, platformRole?: PlatformRole, isActive = true): OrganisationMember {
   return {
     organisationId: ORG_ID,
     profileId,
@@ -60,7 +60,8 @@ function member(profileId: string, role: OrganisationRole): OrganisationMember {
       fullName: profileId,
       avatarUrl: null,
       jobTitle: null,
-      isActive: true,
+      isActive,
+      platformRole,
     },
   };
 }
@@ -78,6 +79,7 @@ function createHarness(input: {
   draft: ContentDraft;
   viewerRole: OrganisationRole | null;
   members: OrganisationMember[];
+  actorOverrides?: Partial<Actor>;
 }) {
   let draft = input.draft;
   const history: ReviewHistoryEntry[] = [];
@@ -131,7 +133,7 @@ function createHarness(input: {
 
   return {
     deps: {
-      actor: actor(),
+      actor: actor(input.actorOverrides),
       content: content as ContentRepository,
       reviews: reviews as ReviewRepository,
       organisations: organisations as OrganisationRepository,
@@ -233,6 +235,117 @@ describe("approveDraft — self-approval prevention", () => {
       members: [],
     });
     await expect(approveDraft(deps, request)).rejects.toBeInstanceOf(ForbiddenError);
+  });
+});
+
+/**
+ * CLOUD_PILOT_SELF_APPROVAL — every one of the four gates (flag, cloud
+ * environment, actor.role === "owner", isSoleOwnerPilotOrganisation) is
+ * tested independently as the one thing NOT satisfied, proving the bypass
+ * only ever fires when all four hold simultaneously. Restores process.env
+ * after every test so this can never leak into an unrelated test file.
+ */
+describe("approveDraft — CLOUD_PILOT_SELF_APPROVAL bypass", () => {
+  const CLOUD_URL = "https://pxygyzgzkqjludwxtgbz.supabase.co";
+  const LOCAL_URL = "http://127.0.0.1:54321";
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  const selfAuthoredDraft = () => baseDraft({ status: "needs_review", createdBy: profileRef(ACTOR_ID, "Actor One") });
+  const soleOwnerMembers = () => [member(ACTOR_ID, "lead", "owner")];
+
+  it("flag off (the default): still forbidden even though every other condition holds", async () => {
+    delete process.env.CLOUD_PILOT_SELF_APPROVAL;
+    process.env.NEXT_PUBLIC_SUPABASE_URL = CLOUD_URL;
+    const { deps } = createHarness({
+      draft: selfAuthoredDraft(),
+      viewerRole: "lead",
+      members: soleOwnerMembers(),
+      actorOverrides: { role: "owner" },
+    });
+    await expect(approveDraft(deps, request)).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it("flag on but environment is local: still forbidden", async () => {
+    process.env.CLOUD_PILOT_SELF_APPROVAL = "true";
+    process.env.NEXT_PUBLIC_SUPABASE_URL = LOCAL_URL;
+    const { deps } = createHarness({
+      draft: selfAuthoredDraft(),
+      viewerRole: "lead",
+      members: soleOwnerMembers(),
+      actorOverrides: { role: "owner" },
+    });
+    await expect(approveDraft(deps, request)).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it("flag on, cloud environment, but actor's platform role is not owner: still forbidden", async () => {
+    process.env.CLOUD_PILOT_SELF_APPROVAL = "true";
+    process.env.NEXT_PUBLIC_SUPABASE_URL = CLOUD_URL;
+    const { deps } = createHarness({
+      draft: selfAuthoredDraft(),
+      viewerRole: "lead",
+      members: [member(ACTOR_ID, "lead", "admin")],
+      actorOverrides: { role: "admin" },
+    });
+    await expect(approveDraft(deps, request)).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it("flag on, cloud environment, owner role, but another reviewer exists on the organisation: still forbidden", async () => {
+    process.env.CLOUD_PILOT_SELF_APPROVAL = "true";
+    process.env.NEXT_PUBLIC_SUPABASE_URL = CLOUD_URL;
+    const { deps } = createHarness({
+      draft: selfAuthoredDraft(),
+      viewerRole: "lead",
+      members: [member(ACTOR_ID, "lead", "owner"), member(REVIEWER_ID, "reviewer", "member")],
+      actorOverrides: { role: "owner" },
+    });
+    await expect(approveDraft(deps, request)).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it("flag on, cloud environment, owner role, but two active owners exist: still forbidden", async () => {
+    process.env.CLOUD_PILOT_SELF_APPROVAL = "true";
+    process.env.NEXT_PUBLIC_SUPABASE_URL = CLOUD_URL;
+    const { deps } = createHarness({
+      draft: selfAuthoredDraft(),
+      viewerRole: "lead",
+      members: [member(ACTOR_ID, "lead", "owner"), member(REVIEWER_2_ID, "contributor", "owner")],
+      actorOverrides: { role: "owner" },
+    });
+    await expect(approveDraft(deps, request)).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it("flag on, cloud environment, owner role, an inactive second owner does not count against sole-owner status", async () => {
+    process.env.CLOUD_PILOT_SELF_APPROVAL = "true";
+    process.env.NEXT_PUBLIC_SUPABASE_URL = CLOUD_URL;
+    const { deps, getDraft } = createHarness({
+      draft: selfAuthoredDraft(),
+      viewerRole: "lead",
+      members: [member(ACTOR_ID, "lead", "owner"), member(REVIEWER_2_ID, "contributor", "owner", false)],
+      actorOverrides: { role: "owner" },
+    });
+    await approveDraft(deps, request);
+    expect(getDraft().status).toBe("approved");
+  });
+
+  it("all four conditions hold: the sole Owner may approve their own draft, and the ordinary decision/history path runs exactly as any other approval", async () => {
+    process.env.CLOUD_PILOT_SELF_APPROVAL = "true";
+    process.env.NEXT_PUBLIC_SUPABASE_URL = CLOUD_URL;
+    const { deps, getDraft, getHistory } = createHarness({
+      draft: selfAuthoredDraft(),
+      viewerRole: "lead",
+      members: soleOwnerMembers(),
+      actorOverrides: { role: "owner" },
+    });
+
+    await approveDraft(deps, request);
+
+    expect(getDraft().status).toBe("approved");
+    expect(getHistory()).toHaveLength(1);
+    expect(getHistory()[0]!.action).toBe("approved");
+    expect(getHistory()[0]!.newStatus).toBe("approved");
   });
 });
 

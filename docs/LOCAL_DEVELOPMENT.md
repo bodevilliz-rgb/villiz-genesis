@@ -119,6 +119,9 @@ SUPABASE_SERVICE_ROLE_KEY=<cloud service role key>
 BLOTATO_API_KEY=<blotato api key>
 BLOTATO_ENABLED=true
 BLOTATO_LIVE_PUBLISHING_ENABLED=true
+
+# Optional. See "Cloud pilot self-approval" below before turning this on.
+CLOUD_PILOT_SELF_APPROVAL=true
 ```
 
 `dev:cloud` and `worker:publishing:cloud` both refuse to start if
@@ -137,6 +140,31 @@ cloud:check` first — it verifies Supabase reachability, that the core tables
 and the `organisation-media` storage bucket exist, and that the Blotato
 credential itself works, entirely via read-only requests (it never inserts,
 updates, deletes, or calls Blotato's `POST /posts`).
+
+#### Cloud pilot self-approval
+
+The ordinary review workflow forbids a draft's own author from approving it
+(see `canApproveOwnAuthorship` in `src/core/domain/entities/review.ts`) —
+correct everywhere there's a second person who could review instead. The
+cloud pilot currently has exactly one staff member, the bootstrapped Owner,
+which makes that rule impossible to satisfy and blocks end-to-end publishing
+entirely.
+
+Setting `CLOUD_PILOT_SELF_APPROVAL=true` in `.env.cloud.local` lets the Owner
+approve their own draft, but only when **all four** of these hold at once —
+`src/core/application/use-cases/review/index.ts`'s `applyTransition` checks
+every one of them on every self-approval attempt:
+
+1. the flag is set to `true`,
+2. `NEXT_PUBLIC_SUPABASE_URL` is a real cloud address (never local),
+3. the approving actor's platform role is `owner`, and
+4. the organisation has exactly one active Owner and no other Reviewer
+   (`isSoleOwnerPilotOrganisation` in `src/core/domain/entities/review.ts`).
+
+The moment a second admin/owner or any reviewer joins the organisation,
+condition 4 stops holding and the ordinary rule applies again automatically —
+no need to remember to turn the flag back off. Leave it unset (the default)
+anywhere the ordinary rule should always apply, including `.env.local`.
 
 ## Shutting down
 

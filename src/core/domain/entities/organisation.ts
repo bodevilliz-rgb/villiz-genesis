@@ -1,4 +1,4 @@
-import type { OrganisationRole } from "./identity";
+import type { OrganisationRole, PlatformRole } from "./identity";
 
 export type OrganisationStatus = "prospect" | "active" | "paused" | "offboarded";
 
@@ -38,6 +38,14 @@ export interface OrganisationMember {
     avatarUrl: string | null;
     jobTitle: string | null;
     isActive: boolean;
+    /**
+     * Optional: the platform-wide role (owner/admin/member), distinct from
+     * this member's organisation-scoped `role` above (lead/contributor/
+     * reviewer). Undefined for any caller not fetching it (existing test
+     * fixtures, older call sites) — only the cloud pilot's self-approval
+     * bypass check (isSoleOwnerPilotOrganisation, review.ts) reads it.
+     */
+    platformRole?: PlatformRole;
   };
 }
 
