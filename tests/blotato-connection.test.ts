@@ -49,6 +49,13 @@ function fakeClient(overrides: Partial<BlotatoClient> = {}): BlotatoClient {
   return {
     listAccounts: async () => [summary()],
     publishPost: async () => ({ postSubmissionId: "submission-1" }),
+    getPostStatus: async (postSubmissionId) => ({
+      postSubmissionId,
+      status: "published",
+      scheduledTime: null,
+      publicUrl: null,
+      errorMessage: null,
+    }),
     ...overrides,
   };
 }

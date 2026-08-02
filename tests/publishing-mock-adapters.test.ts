@@ -21,6 +21,13 @@ const fakeBlotatoDeps: BlotatoPublisherDeps = {
   blotatoClient: {
     listAccounts: async () => [],
     publishPost: async () => ({ postSubmissionId: "fake-submission" }),
+    getPostStatus: async (postSubmissionId) => ({
+      postSubmissionId,
+      status: "published",
+      scheduledTime: null,
+      publicUrl: null,
+      errorMessage: null,
+    }),
   },
   livePublishingEnabled: false,
 };

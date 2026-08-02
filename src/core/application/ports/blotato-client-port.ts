@@ -14,6 +14,21 @@ export interface BlotatoPublishResult {
 }
 
 /**
+ * The response shape of GET /v2/posts/{postSubmissionId} — per
+ * https://help.blotato.com/api/openapi-reference/publishing. "in-progress"
+ * and "scheduled" are both non-terminal from this app's point of view (an
+ * immediate Publish Now never sets Blotato's own schedule); only
+ * "published" and "failed" are outcomes BlotatoPublisherBase will settle on.
+ */
+export interface BlotatoPostStatus {
+  postSubmissionId: string;
+  status: "in-progress" | "scheduled" | "published" | "failed";
+  scheduledTime: string | null;
+  publicUrl: string | null;
+  errorMessage: string | null;
+}
+
+/**
  * The real Blotato REST API (https://backend.blotato.com/v2), abstracted so
  * every use-case and publisher depends on this interface only — never on a
  * concrete `fetch` implementation. Mirrors the same reasoning as
@@ -26,4 +41,6 @@ export interface BlotatoClient {
   listAccounts(): Promise<BlotatoAccountSummary[]>;
   /** POST /posts — never called while BLOTATO_LIVE_PUBLISHING_ENABLED=false; see BlotatoPublisherBase. */
   publishPost(input: BlotatoPublishInput): Promise<BlotatoPublishResult>;
+  /** GET /posts/{postSubmissionId} — polled by BlotatoPublisherBase after publishPost() until Blotato reports a terminal status, so a merely-accepted submission is never mistaken for a successful publish. */
+  getPostStatus(postSubmissionId: string): Promise<BlotatoPostStatus>;
 }

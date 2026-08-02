@@ -1,5 +1,5 @@
 import "server-only";
-import type { BlotatoClient, BlotatoPublishInput, BlotatoPublishResult } from "@/core/application/ports/blotato-client-port";
+import type { BlotatoClient, BlotatoPostStatus, BlotatoPublishInput, BlotatoPublishResult } from "@/core/application/ports/blotato-client-port";
 import type { BlotatoAccountSummary } from "@/core/domain/entities/blotato";
 import { InfrastructureError } from "@/core/domain/errors";
 
@@ -86,5 +86,21 @@ export class HttpBlotatoClient implements BlotatoClient {
 
     const body = (await response.json()) as PublishPostResponseBody;
     return { postSubmissionId: body.postSubmissionId };
+  }
+
+  async getPostStatus(postSubmissionId: string): Promise<BlotatoPostStatus> {
+    const response = await fetch(`${BASE_URL}/posts/${encodeURIComponent(postSubmissionId)}`, {
+      method: "GET",
+      headers: this.headers(),
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      throw new InfrastructureError(
+        `Blotato returned ${response.status} checking post status: ${await readErrorDetail(response)}`,
+      );
+    }
+
+    return (await response.json()) as BlotatoPostStatus;
   }
 }

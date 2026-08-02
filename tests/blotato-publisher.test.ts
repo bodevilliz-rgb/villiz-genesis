@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { BlotatoLinkedInPublisher } from "@/infrastructure/publishers/blotato/blotato-linkedin-publisher";
 import { BlotatoXPublisher } from "@/infrastructure/publishers/blotato/blotato-x-publisher";
-import type { BlotatoPublisherDeps } from "@/infrastructure/publishers/blotato/blotato-publisher-base";
+import type { BlotatoPublisherDeps, BlotatoDryRunPreview } from "@/infrastructure/publishers/blotato/blotato-publisher-base";
 import type { BlotatoAccountRepository } from "@/core/application/ports/blotato-account-port";
-import type { BlotatoClient } from "@/core/application/ports/blotato-client-port";
+import type { BlotatoClient, BlotatoPostStatus } from "@/core/application/ports/blotato-client-port";
 import type { BlotatoAccount } from "@/core/domain/entities/blotato";
 import type { PublishInput } from "@/core/application/ports/publisher-port";
 
@@ -47,10 +47,22 @@ function fakeRepository(overrides: Partial<BlotatoAccountRepository> = {}): Blot
   };
 }
 
+function publishedStatus(overrides: Partial<BlotatoPostStatus> = {}): BlotatoPostStatus {
+  return {
+    postSubmissionId: "submission-1",
+    status: "published",
+    scheduledTime: null,
+    publicUrl: "https://blotato-cdn.example.com/post/submission-1",
+    errorMessage: null,
+    ...overrides,
+  };
+}
+
 function fakeClient(overrides: Partial<BlotatoClient> = {}): BlotatoClient {
   return {
     listAccounts: async () => [],
     publishPost: async () => ({ postSubmissionId: "submission-1" }),
+    getPostStatus: async (postSubmissionId) => publishedStatus({ postSubmissionId }),
     ...overrides,
   };
 }
@@ -154,5 +166,125 @@ describe("BlotatoPublisherBase — live publishing enabled", () => {
     );
 
     await expect(publisher.publish(input())).rejects.toThrow("Blotato returned 500 posting");
+  });
+
+  it("logs a redacted dry-run preview before calling the real publishPost, containing no media URLs and a masked account id", async () => {
+    const previews: BlotatoDryRunPreview[] = [];
+    const publisher = new BlotatoLinkedInPublisher(
+      deps({
+        livePublishingEnabled: true,
+        blotatoAccounts: fakeRepository({ findMostRecentForPlatform: async () => storedAccount({ id: "blotato-account-1234567890" }) }),
+        assetMimeTypes: ["image/png"],
+        onBeforePublish: (preview) => previews.push(preview),
+      }),
+    );
+
+    await publisher.publish(input({ body: "Hello world", assetUrls: ["https://cdn.example.com/a.png"] }));
+
+    expect(previews).toHaveLength(1);
+    expect(previews[0]).toEqual({
+      platform: "linkedin",
+      accountIdRedacted: "blot...7890",
+      caption: "Hello world",
+      mediaUrlsCount: 1,
+      mediaMimeTypes: ["image/png"],
+    });
+    expect(JSON.stringify(previews[0])).not.toContain("cdn.example.com");
+    expect(JSON.stringify(previews[0])).not.toContain("blotato-account-1234567890");
+  });
+});
+
+describe("BlotatoPublisherBase — final-status polling", () => {
+  it("only reports success once Blotato's GET /posts/{id} confirms 'published'", async () => {
+    const statusCalls: string[] = [];
+    const getPostStatus = vi.fn(async (id: string) => {
+      statusCalls.push(id);
+      // First check: still processing. Second check: confirmed published.
+      return statusCalls.length === 1
+        ? publishedStatus({ postSubmissionId: id, status: "in-progress", publicUrl: null })
+        : publishedStatus({ postSubmissionId: id, publicUrl: "https://blotato-cdn.example.com/post/1" });
+    });
+
+    const publisher = new BlotatoLinkedInPublisher(
+      deps({
+        livePublishingEnabled: true,
+        blotatoAccounts: fakeRepository({ findMostRecentForPlatform: async () => storedAccount() }),
+        blotatoClient: fakeClient({ publishPost: async () => ({ postSubmissionId: "submission-42" }), getPostStatus }),
+        statusPollIntervalMs: 0,
+      }),
+    );
+
+    const result = await publisher.publish(input());
+
+    expect(getPostStatus).toHaveBeenCalledTimes(2);
+    expect(getPostStatus).toHaveBeenCalledWith("submission-42");
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.externalUrl).toBe("https://blotato-cdn.example.com/post/1");
+      expect(result.externalPostId).toBe("submission-42");
+    }
+  });
+
+  it("marks Failed with Blotato's own errorMessage when the polled status is 'failed' — this is the exact production bug: media-less posts get accepted then fail asynchronously", async () => {
+    const getPostStatus = vi.fn(async (id: string) =>
+      publishedStatus({ postSubmissionId: id, status: "failed", publicUrl: null, errorMessage: "Publishing on instagram requires an image or a video" }),
+    );
+
+    const publisher = new BlotatoLinkedInPublisher(
+      deps({
+        livePublishingEnabled: true,
+        blotatoAccounts: fakeRepository({ findMostRecentForPlatform: async () => storedAccount() }),
+        blotatoClient: fakeClient({ publishPost: async () => ({ postSubmissionId: "submission-42" }), getPostStatus }),
+        statusPollIntervalMs: 0,
+      }),
+    );
+
+    const result = await publisher.publish(input());
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.errorCode).toBe("blotato_publish_failed");
+      expect(result.errorMessage).toBe("Publishing on instagram requires an image or a video");
+    }
+  });
+
+  it("never reports success if Blotato never reaches a terminal status before the poll budget is exhausted", async () => {
+    const getPostStatus = vi.fn(async (id: string) => publishedStatus({ postSubmissionId: id, status: "in-progress", publicUrl: null }));
+
+    const publisher = new BlotatoLinkedInPublisher(
+      deps({
+        livePublishingEnabled: true,
+        blotatoAccounts: fakeRepository({ findMostRecentForPlatform: async () => storedAccount() }),
+        blotatoClient: fakeClient({ publishPost: async () => ({ postSubmissionId: "submission-42" }), getPostStatus }),
+        statusPollIntervalMs: 0,
+        statusPollMaxAttempts: 3,
+      }),
+    );
+
+    const result = await publisher.publish(input());
+
+    expect(getPostStatus).toHaveBeenCalledTimes(3);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.errorCode).toBe("blotato_status_timeout");
+      expect(result.errorMessage).toContain("submission-42");
+    }
+  });
+
+  it("stores postSubmissionId in metadata regardless of the eventual outcome", async () => {
+    const publisher = new BlotatoLinkedInPublisher(
+      deps({
+        livePublishingEnabled: true,
+        blotatoAccounts: fakeRepository({ findMostRecentForPlatform: async () => storedAccount() }),
+        blotatoClient: fakeClient({
+          publishPost: async () => ({ postSubmissionId: "submission-99" }),
+          getPostStatus: async (id) => publishedStatus({ postSubmissionId: id, status: "failed", errorMessage: "boom" }),
+        }),
+        statusPollIntervalMs: 0,
+      }),
+    );
+
+    const result = await publisher.publish(input());
+    expect(result.metadata).toMatchObject({ postSubmissionId: "submission-99" });
   });
 });

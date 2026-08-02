@@ -27,10 +27,14 @@ import { SupabaseContentRepository } from "../src/infrastructure/repositories/su
 import { SupabaseAuditRepository } from "../src/infrastructure/repositories/supabase-audit-repository";
 import { SupabaseNotificationRepository } from "../src/infrastructure/repositories/supabase-notification-repository";
 import { SupabaseBlotatoAccountRepository } from "../src/infrastructure/repositories/supabase-blotato-account-repository";
+import { SupabaseMediaRepository } from "../src/infrastructure/repositories/supabase-media-repository";
+import { SupabaseStoragePort } from "../src/infrastructure/ports/supabase-storage-port";
 import { HttpBlotatoClient } from "../src/infrastructure/blotato/http-blotato-client";
 import { blotatoConfig } from "../src/infrastructure/blotato/blotato-config";
 import { resolvePublisher } from "../src/infrastructure/publishers/publisher-factory";
 import { resolveEffectiveSimulationMode } from "../src/infrastructure/publishers/simulation-mode";
+import { resolvePublishMediaUrls } from "../src/core/application/use-cases/publishing/media";
+import { redactMediaUrl } from "../src/core/domain/entities/publishing-media";
 import {
   claimNextPublishingJob,
   completePublishingAttempt,
@@ -87,10 +91,27 @@ async function processJob(job: PublishingJob, deps: ReturnType<typeof buildDeps>
     return;
   }
 
+  const media = await resolvePublishMediaUrls(
+    { media: deps.media, storage: deps.storage },
+    { organisationId: job.organisationId, draftId: job.draftId },
+  );
+  log("media_resolved", {
+    jobId: job.id,
+    draftId: job.draftId,
+    mediaUrlsCount: media.mediaUrls.length,
+    mediaMimeTypes: media.mimeTypes,
+    redactedMediaUrls: media.mediaUrls.map(redactMediaUrl),
+    skippedCrossOrganisation: media.skipped.crossOrganisation,
+    skippedUnsupportedType: media.skipped.unsupportedType,
+    skippedUnreachableUrl: media.skipped.unreachableUrl,
+  });
+
   const publisher = resolvePublisher(job.platform, {
     blotatoAccounts: deps.blotatoAccounts,
     blotatoClient: deps.blotatoClient,
     livePublishingEnabled: deps.blotatoLivePublishingEnabled,
+    assetMimeTypes: media.mimeTypes,
+    onBeforePublish: (preview) => log("blotato_dry_run_preview", { jobId: job.id, draftId: job.draftId, ...preview }),
   });
   const effectiveMode = resolveEffectiveSimulationMode(job.devSimulationMode);
 
@@ -103,7 +124,7 @@ async function processJob(job: PublishingJob, deps: ReturnType<typeof buildDeps>
     platform: job.platform,
     title: draft.title,
     body: draft.body,
-    assetUrls: [],
+    assetUrls: media.mediaUrls,
     devSimulationMode: effectiveMode,
   });
 
@@ -145,6 +166,8 @@ function buildDeps(client: ReturnType<typeof createAdminClient>) {
     blotatoAccounts: new SupabaseBlotatoAccountRepository(client),
     blotatoClient: new HttpBlotatoClient(blotato.apiKey),
     blotatoLivePublishingEnabled: blotato.livePublishingEnabled,
+    media: new SupabaseMediaRepository(client),
+    storage: new SupabaseStoragePort(client),
   };
 }
 
