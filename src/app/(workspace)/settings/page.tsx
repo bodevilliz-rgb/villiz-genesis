@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { requireContext } from "@/server/container";
 import { PageHeader } from "@/components/common/page-header";
 import { ProfileForm } from "@/components/common/profile-form";
@@ -6,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { PLATFORM_ROLE_LABELS } from "@/core/domain/entities/identity";
 import { formatDate } from "@/lib/format";
+import { routes } from "@/lib/routes";
 
 export const metadata: Metadata = { title: "Settings" };
 
@@ -46,6 +48,18 @@ export default async function SettingsPage() {
             <span className="text-muted-foreground">Member since</span>
             <span>{formatDate(context.actor.createdAt)}</span>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Publishing</CardTitle>
+          <CardDescription>The Blotato connection and connected social accounts used to publish content.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Link href={routes.settingsPublishing} className="text-[13px] font-medium text-primary hover:underline">
+            Open Publishing Settings →
+          </Link>
         </CardContent>
       </Card>
     </div>

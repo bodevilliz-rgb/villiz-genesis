@@ -351,17 +351,63 @@ will close out anything past the staleness threshold
 decision (accept the failure, or manually investigate) rather than another
 automated retry.
 
-## Replacing a mock adapter with a real provider (future work)
+## Blotato integration (Sprint 6B)
 
-1. Implement `PublisherPort` (`publish(input): Promise<PublisherResult>`)
-   against the real platform API.
-2. Add one case to `resolvePublisher()` in
-   `src/infrastructure/publishers/publisher-factory.ts` for that platform.
-3. Nothing else changes — the worker, the use-cases, the domain model, and
-   the UI all depend only on `PublisherPort`, never on a concrete adapter.
-4. Remove that platform from `resolveEffectiveSimulationMode()`'s reach (a
-   real adapter should not honour `dev_simulation_mode` at all) by having the
-   real adapter simply ignore `input.devSimulationMode`.
+`resolvePublisher()` in `src/infrastructure/publishers/publisher-factory.ts`
+now registers `Blotato*Publisher` classes (`src/infrastructure/publishers/blotato/`)
+instead of `Mock*Publisher` — this is the "replacing a mock adapter with a
+real provider" step the previous version of this document described as
+future work. It shipped exactly the way that section said it would: one
+class per platform implementing `PublisherPort`, registered in the same
+factory, with nothing else in the worker, use-cases, domain model, or UI
+changed.
+
+**The safety switch.** `BLOTATO_LIVE_PUBLISHING_ENABLED` (default `false`,
+read once via `src/infrastructure/blotato/blotato-config.ts`) gates the one
+thing that matters: whether `BlotatoPublisherBase.publish()` ever calls
+Blotato's real `POST /posts` endpoint. While it's `false`:
+
+- Every publish is simulated by the exact same `simulatePublish()` function
+  every `Mock*Publisher` used before Sprint 6B
+  (`src/infrastructure/publishers/simulated-publish.ts`) — same fixed delay,
+  same `dev_simulation_mode` handling, same deterministic
+  `mock-<platform>-<n>` external id. Nothing about the worker, retry flow,
+  analytics, or dev-simulation UI changed by this switch existing.
+- Reading — verifying the API key and listing connected accounts — is
+  **not** gated by this flag and always hits the real Blotato API. Those are
+  read-only operations with no publishing side effect, so there's nothing
+  for the flag to protect against.
+
+**Connecting accounts.** `/settings/publishing` (Publishing Settings) has a
+"Test Connection" button, visible to every authenticated staff member but
+only actionable by a platform administrator
+(`app.is_platform_admin()`, enforced at the RLS layer, not just in the UI).
+Clicking it runs `testBlotatoConnection()`
+(`core/application/use-cases/blotato.ts`), which:
+
+1. Calls `GET https://backend.blotato.com/v2/users/me/accounts` via
+   `HttpBlotatoClient` (`blotato-api-key` header — not a Bearer token).
+2. Reports reachability, every connected account, and which of this app's 4
+   platforms (LinkedIn, Facebook, Instagram, X — Blotato calls the last one
+   "twitter", see `mapBlotatoPlatform`/`toBlotatoPlatform` in
+   `core/domain/entities/blotato.ts`) have at least one account connected.
+3. On success, upserts every account into `blotato_accounts`
+   (platform-wide, not organisation-scoped — see the migration's own
+   comment for why) so `BlotatoPublisherBase` can resolve an `accountId` for
+   a real publish without requiring another Test Connection click first.
+
+**The live publish path**, exercised only once
+`BLOTATO_LIVE_PUBLISHING_ENABLED=true`: `BlotatoPublisherBase` resolves the
+most-recently-verified stored account for the job's platform
+(`findMostRecentForPlatform`), calls `POST /posts` with that `accountId`,
+and treats the returned `postSubmissionId` as success — Blotato publishes
+asynchronously and does not return a direct post permalink synchronously, so
+`externalUrl` points at the Blotato dashboard (`https://my.blotato.com`),
+not a specific post. A platform with no connected account returns a normal
+`PublisherResult` failure (`blotato_no_connected_account`), not a thrown
+exception — that's an expected, operator-actionable outcome ("connect an
+account, then retry"), the same distinction the domain's own `PublisherResult`
+comment already draws between expected failures and infrastructure faults.
 
 ## Known limitations
 
@@ -392,3 +438,17 @@ automated retry.
   gets reset on the next `dev:local` restart. Manually re-approve the draft
   (or use a non-seeded draft) after a restart if you're resuming a publishing
   test.
+- **(Sprint 6B)** `blotato_accounts` has no concept of which client
+  organisation an account belongs to — Blotato itself has none either.
+  `BlotatoPublisherBase` resolves an account by platform only
+  (`findMostRecentForPlatform`), so an organisation with two connected
+  LinkedIn accounts cannot be disambiguated once live publishing is
+  enabled. Only matters once `BLOTATO_LIVE_PUBLISHING_ENABLED=true`, which
+  this sprint does not ship.
+- **(Sprint 6B)** `BlotatoPublisherBase`'s live path treats a `201` from
+  `POST /posts` as an immediate success once the `postSubmissionId` is
+  returned. Blotato actually publishes asynchronously — a submission that
+  is accepted can still fail downstream (visible at
+  `https://my.blotato.com/failed`), and this app has no mechanism yet to
+  poll for that outcome and correct a job it already marked Published.
+  Building that poll loop was out of scope while live publishing stays off.

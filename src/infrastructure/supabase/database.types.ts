@@ -57,6 +57,18 @@ export type AuditEventRow = {
   created_at: string;
 };
 
+export type BlotatoAccountRow = {
+  id: string;
+  blotato_account_id: string;
+  platform: string;
+  fullname: string | null;
+  username: string | null;
+  first_connected_at: string;
+  last_verified_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type BrandKitAssetRow = {
   brand_kit_id: string;
   asset_id: string;
@@ -740,6 +752,7 @@ export type Database = {
           Fk<"audit_events_organisation_id_fkey", "organisation_id", "organisations">,
         ]
       >;
+      blotato_accounts: Table<BlotatoAccountRow>;
       brand_kit_assets: Table<
         BrandKitAssetRow,
         Partial<BrandKitAssetRow>,

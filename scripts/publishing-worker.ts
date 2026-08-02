@@ -26,6 +26,9 @@ import { SupabasePublishingRepository } from "../src/infrastructure/repositories
 import { SupabaseContentRepository } from "../src/infrastructure/repositories/supabase-content-repository";
 import { SupabaseAuditRepository } from "../src/infrastructure/repositories/supabase-audit-repository";
 import { SupabaseNotificationRepository } from "../src/infrastructure/repositories/supabase-notification-repository";
+import { SupabaseBlotatoAccountRepository } from "../src/infrastructure/repositories/supabase-blotato-account-repository";
+import { HttpBlotatoClient } from "../src/infrastructure/blotato/http-blotato-client";
+import { blotatoConfig } from "../src/infrastructure/blotato/blotato-config";
 import { resolvePublisher } from "../src/infrastructure/publishers/publisher-factory";
 import { resolveEffectiveSimulationMode } from "../src/infrastructure/publishers/simulation-mode";
 import {
@@ -84,7 +87,11 @@ async function processJob(job: PublishingJob, deps: ReturnType<typeof buildDeps>
     return;
   }
 
-  const publisher = resolvePublisher(job.platform);
+  const publisher = resolvePublisher(job.platform, {
+    blotatoAccounts: deps.blotatoAccounts,
+    blotatoClient: deps.blotatoClient,
+    livePublishingEnabled: deps.blotatoLivePublishingEnabled,
+  });
   const effectiveMode = resolveEffectiveSimulationMode(job.devSimulationMode);
 
   const result = await publisher.publish({
@@ -129,11 +136,15 @@ async function processJob(job: PublishingJob, deps: ReturnType<typeof buildDeps>
 }
 
 function buildDeps(client: ReturnType<typeof createAdminClient>) {
+  const blotato = blotatoConfig();
   return {
     publishing: new SupabasePublishingRepository(client),
     content: new SupabaseContentRepository(client),
     audits: new SupabaseAuditRepository(client),
     notifications: new SupabaseNotificationRepository(client),
+    blotatoAccounts: new SupabaseBlotatoAccountRepository(client),
+    blotatoClient: new HttpBlotatoClient(blotato.apiKey),
+    blotatoLivePublishingEnabled: blotato.livePublishingEnabled,
   };
 }
 

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "villiz-genesis-dev",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["scripts/dev-local.js"],
+      "port": 3001
+    }
+  ]
+}

@@ -4,7 +4,26 @@ import { MockFacebookPublisher } from "@/infrastructure/publishers/mock/mock-fac
 import { MockInstagramPublisher } from "@/infrastructure/publishers/mock/mock-instagram-publisher";
 import { MockXPublisher } from "@/infrastructure/publishers/mock/mock-x-publisher";
 import { resolvePublisher } from "@/infrastructure/publishers/publisher-factory";
+import { BlotatoLinkedInPublisher } from "@/infrastructure/publishers/blotato/blotato-linkedin-publisher";
+import { BlotatoFacebookPublisher } from "@/infrastructure/publishers/blotato/blotato-facebook-publisher";
+import { BlotatoInstagramPublisher } from "@/infrastructure/publishers/blotato/blotato-instagram-publisher";
+import { BlotatoXPublisher } from "@/infrastructure/publishers/blotato/blotato-x-publisher";
+import type { BlotatoPublisherDeps } from "@/infrastructure/publishers/blotato/blotato-publisher-base";
 import type { PublishInput } from "@/core/application/ports/publisher-port";
+
+/** publisher-factory now resolves Blotato*Publisher (Sprint 6B) — a fake, never-called-live BlotatoPublisherDeps is enough for resolution/instanceof checks. */
+const fakeBlotatoDeps: BlotatoPublisherDeps = {
+  blotatoAccounts: {
+    upsertAccounts: async () => [],
+    listAccounts: async () => [],
+    findMostRecentForPlatform: async () => null,
+  },
+  blotatoClient: {
+    listAccounts: async () => [],
+    publishPost: async () => ({ postSubmissionId: "fake-submission" }),
+  },
+  livePublishingEnabled: false,
+};
 
 const ORG_ID = "00000000-0000-4000-8000-000000000001";
 const DRAFT_ID = "00000000-0000-4000-8000-000000000002";
@@ -76,17 +95,24 @@ describe("MockPublisherBase — simulation modes", () => {
 });
 
 describe("publisher-factory — resolvePublisher", () => {
-  it("resolves the correct concrete adapter for each of the 4 supported platforms", () => {
-    expect(resolvePublisher("linkedin")).toBeInstanceOf(MockLinkedInPublisher);
-    expect(resolvePublisher("facebook")).toBeInstanceOf(MockFacebookPublisher);
-    expect(resolvePublisher("instagram")).toBeInstanceOf(MockInstagramPublisher);
-    expect(resolvePublisher("x")).toBeInstanceOf(MockXPublisher);
+  it("resolves the correct concrete Blotato adapter for each of the 4 supported platforms (Sprint 6B replaced Mock*Publisher in the registry)", () => {
+    expect(resolvePublisher("linkedin", fakeBlotatoDeps)).toBeInstanceOf(BlotatoLinkedInPublisher);
+    expect(resolvePublisher("facebook", fakeBlotatoDeps)).toBeInstanceOf(BlotatoFacebookPublisher);
+    expect(resolvePublisher("instagram", fakeBlotatoDeps)).toBeInstanceOf(BlotatoInstagramPublisher);
+    expect(resolvePublisher("x", fakeBlotatoDeps)).toBeInstanceOf(BlotatoXPublisher);
   });
 
   it("every resolved publisher reports the platform it was resolved for", () => {
-    expect(resolvePublisher("linkedin").platform).toBe("linkedin");
-    expect(resolvePublisher("facebook").platform).toBe("facebook");
-    expect(resolvePublisher("instagram").platform).toBe("instagram");
-    expect(resolvePublisher("x").platform).toBe("x");
+    expect(resolvePublisher("linkedin", fakeBlotatoDeps).platform).toBe("linkedin");
+    expect(resolvePublisher("facebook", fakeBlotatoDeps).platform).toBe("facebook");
+    expect(resolvePublisher("instagram", fakeBlotatoDeps).platform).toBe("instagram");
+    expect(resolvePublisher("x", fakeBlotatoDeps).platform).toBe("x");
+  });
+
+  it("with live publishing disabled (the shipped default), every resolved publisher behaves exactly like the mock it replaced", async () => {
+    const publisher = resolvePublisher("linkedin", fakeBlotatoDeps);
+    const result = await publisher.publish(input({ attemptId: "attempt-factory-check" }));
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.externalPostId).toMatch(/^mock-linkedin-\d+$/);
   });
 });
