@@ -13,7 +13,7 @@ import { ReviewHistoryTimeline } from "@/components/content/review-history-timel
 import { GenerationReadinessPanel } from "@/components/content/generation-readiness-panel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { canApproveContent, canEditOrganisation, canWriteContent } from "@/core/domain/entities/identity";
+import { canEditOrganisation, canWriteContent } from "@/core/domain/entities/identity";
 import { isContentDraftLocked } from "@/core/domain/entities/content";
 import { routes } from "@/lib/routes";
 
@@ -63,7 +63,6 @@ export default async function DraftDetailPage({
   }
 
   const canWrite = canWriteContent(context.actor, viewerRole);
-  const canApprove = canApproveContent(context.actor, viewerRole);
   const canLead = canEditOrganisation(context.actor, viewerRole);
 
   return (
@@ -110,7 +109,6 @@ export default async function DraftDetailPage({
                 eligibleReviewers={eligibleReviewers}
                 actorId={context.actor.id}
                 canWrite={canWrite}
-                canApprove={canApprove}
                 canLead={canLead}
               />
             </CardContent>

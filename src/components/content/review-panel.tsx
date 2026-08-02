@@ -182,7 +182,6 @@ export function ReviewPanel({
   eligibleReviewers,
   actorId,
   canWrite,
-  canApprove,
   canLead,
 }: {
   organisationId: string;
@@ -190,10 +189,22 @@ export function ReviewPanel({
   eligibleReviewers: EligibleReviewer[];
   actorId: string;
   canWrite: boolean;
-  canApprove: boolean;
   canLead: boolean;
 }) {
   const isSelfAuthored = draft.createdBy?.id === actorId;
+  const isAssignedReviewer = draft.assignedReviewer?.id === actorId;
+  /**
+   * submitForReview() lands a fresh submission on "needs_review", not
+   * "in_review" — CONTENT_DRAFT_STATUS_LABELS displays both as "In review",
+   * so the two are already treated as the same state everywhere else in the
+   * UI. The decision buttons must recognise both too, or a draft fresh out
+   * of Submit for Review shows no Approve/Reject/Request Changes controls
+   * even though the backend's review engine already accepts decisions from
+   * either status (see REVIEW_TRANSITIONS' "needs_review" rows).
+   */
+  const isAwaitingReviewDecision = draft.status === "in_review" || draft.status === "needs_review";
+  /** Buttons are visible only to the reviewer this draft was actually assigned to, or an Account Lead — not just anyone with org-wide reviewer permission. */
+  const canDecide = isAssignedReviewer || canLead;
 
   return (
     <div className="flex flex-col gap-4">
@@ -224,8 +235,8 @@ export function ReviewPanel({
           <SubmitForReviewButton organisationId={organisationId} draftId={draft.id} />
         ) : null}
 
-        {draft.status === "in_review" ? (
-          canApprove ? (
+        {isAwaitingReviewDecision ? (
+          canDecide ? (
             isSelfAuthored ? (
               <p className="text-[12px] text-subtle-foreground">
                 You cannot approve, request changes on, or archive your own draft. Ask another Lead or Reviewer.

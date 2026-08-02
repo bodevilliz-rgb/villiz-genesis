@@ -53,7 +53,6 @@ describe("ReviewPanel — no embedded PublishingPanel", () => {
         eligibleReviewers={[]}
         actorId="actor-1"
         canWrite={true}
-        canApprove={true}
         canLead={true}
       />,
     );
@@ -63,5 +62,76 @@ describe("ReviewPanel — no embedded PublishingPanel", () => {
     expect(screen.queryByText(/^schedule$/i)).toBeNull();
     // The review-decision surface it IS responsible for should still be there.
     expect(screen.getByText(/reopen review/i)).toBeInTheDocument();
+  });
+});
+
+/**
+ * Sprint 6C regression: submitForReview() lands a fresh submission on
+ * "needs_review", not "in_review" — both display as "In review" (see
+ * CONTENT_DRAFT_STATUS_LABELS), so a real submitted draft always has status
+ * "needs_review" and the panel must still show Approve/Reject/Request
+ * changes for it. It previously checked draft.status === "in_review" only,
+ * which silently hid the buttons for every draft that had just gone through
+ * Submit for review.
+ */
+function needsReviewDraft(assignedReviewerId: string | null): ContentDraft {
+  return {
+    ...approvedDraft(),
+    status: "needs_review",
+    createdBy: { id: "author-1", fullName: "Author One", email: "author@villiz.com" },
+    assignedReviewer: assignedReviewerId
+      ? { id: assignedReviewerId, fullName: "Assigned Reviewer", email: "reviewer@villiz.com" }
+      : null,
+  };
+}
+
+describe("ReviewPanel — decision buttons on a freshly submitted (needs_review) draft", () => {
+  it("shows Approve / Request changes / Reject to the reviewer this draft was assigned to", () => {
+    render(
+      <ReviewPanel
+        organisationId="00000000-0000-4000-8000-000000000001"
+        draft={needsReviewDraft("reviewer-1")}
+        eligibleReviewers={[]}
+        actorId="reviewer-1"
+        canWrite={false}
+        canLead={false}
+      />,
+    );
+
+    expect(screen.getByText("Approve")).toBeInTheDocument();
+    expect(screen.getByText("Request changes")).toBeInTheDocument();
+    expect(screen.getByText("Reject")).toBeInTheDocument();
+  });
+
+  it("shows the decision buttons to an Account Lead even when the draft is assigned to someone else", () => {
+    render(
+      <ReviewPanel
+        organisationId="00000000-0000-4000-8000-000000000001"
+        draft={needsReviewDraft("someone-else")}
+        eligibleReviewers={[]}
+        actorId="lead-1"
+        canWrite={true}
+        canLead={true}
+      />,
+    );
+
+    expect(screen.getByText("Approve")).toBeInTheDocument();
+  });
+
+  it("hides the decision buttons from a viewer who is neither the assigned reviewer nor an Account Lead", () => {
+    render(
+      <ReviewPanel
+        organisationId="00000000-0000-4000-8000-000000000001"
+        draft={needsReviewDraft("someone-else")}
+        eligibleReviewers={[]}
+        actorId="bystander-1"
+        canWrite={false}
+        canLead={false}
+      />,
+    );
+
+    expect(screen.queryByText("Approve")).toBeNull();
+    expect(screen.queryByText("Reject")).toBeNull();
+    expect(screen.getByText(/waiting on a lead or reviewer/i)).toBeInTheDocument();
   });
 });
