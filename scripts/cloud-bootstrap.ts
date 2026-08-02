@@ -34,6 +34,17 @@ const ORGANISATION_NAME = "Villiz Pixels";
  */
 const ORGANISATION_SLUG = "villiz-pixels";
 
+/**
+ * This script bootstraps exactly one staff owner account — whichever email
+ * you pass via --email — for the Villiz Pixels cloud pilot. full_name and
+ * role are fixed for the same reason ORGANISATION_NAME/ORGANISATION_SLUG are:
+ * this is a narrow, single-purpose bootstrap, not a general user-management
+ * tool.
+ */
+const STAFF_FULL_NAME = "Bode Villiz";
+const STAFF_ROLE = "owner";
+const MEMBERSHIP_ROLE = "lead";
+
 const green = (text: string) => `\x1b[32m${text}\x1b[0m`;
 const red = (text: string) => `\x1b[31m${text}\x1b[0m`;
 const yellow = (text: string) => `\x1b[33m${text}\x1b[0m`;
@@ -130,6 +141,194 @@ export async function ensureOrganisation(
   };
 }
 
+export interface AuthUserRecord {
+  id: string;
+  email: string;
+}
+
+export interface EnsureAuthUserDeps {
+  /** List + filter client-side — the admin API has no direct getUserByEmail. Read-only, must never throw for "not found" (return null instead). */
+  findAuthUserByEmail: (email: string) => Promise<AuthUserRecord | null>;
+  /** auth.admin.createUser — only ever called when no existing user was found. */
+  createAuthUser: (email: string) => Promise<AuthUserRecord>;
+}
+
+export type EnsureAuthUserOutcome = "found" | "created" | "would_create";
+
+export interface EnsureAuthUserResult {
+  authUser: AuthUserRecord | null;
+  outcome: EnsureAuthUserOutcome;
+  message: string;
+}
+
+/**
+ * Resolves the Auth user for the operator email, creating it only if it
+ * genuinely doesn't exist yet. The lookup itself is a read and is always
+ * safe to run — including in dry-run mode — so dry runs can report an
+ * accurate "found" vs "would create" without ever calling createUser.
+ */
+export async function ensureAuthUser(deps: EnsureAuthUserDeps, email: string, confirm: boolean): Promise<EnsureAuthUserResult> {
+  const existing = await deps.findAuthUserByEmail(email);
+  if (existing) {
+    return { authUser: existing, outcome: "found", message: `Auth user for ${email} already exists (${existing.id}) — reusing.` };
+  }
+
+  if (!confirm) {
+    return { authUser: null, outcome: "would_create", message: `Auth user for ${email} not found — would create it.` };
+  }
+
+  const created = await deps.createAuthUser(email);
+  return { authUser: created, outcome: "created", message: `Created auth user for ${email} (${created.id}).` };
+}
+
+export interface ProfileRecord {
+  id: string;
+  email: string | null;
+  full_name: string | null;
+  role: string;
+  is_active: boolean;
+}
+
+export interface EnsureStaffProfileDeps {
+  /** SELECT ... FROM profiles WHERE id = $1 — by primary key, never by email (that's the bug this fixes). Read-only. */
+  findProfileById: (id: string) => Promise<ProfileRecord | null>;
+  /** INSERT INTO profiles — only called when no row exists for this id. */
+  createProfile: (input: { id: string; email: string; full_name: string; role: string }) => Promise<ProfileRecord>;
+  /** UPDATE profiles SET ... WHERE id = $1 — only ever touches the fields passed in `fields`; every other column is left alone. */
+  updateProfile: (id: string, fields: Partial<{ email: string; full_name: string; role: string; is_active: boolean }>) => Promise<ProfileRecord>;
+}
+
+export interface EnsureStaffProfileInput {
+  authUserId: string;
+  email: string;
+  fullName: string;
+  role: string;
+  confirm: boolean;
+}
+
+export type EnsureStaffProfileOutcome = "created" | "found_complete" | "updated" | "would_create" | "would_update";
+
+export interface EnsureStaffProfileResult {
+  profileId: string | null;
+  outcome: EnsureStaffProfileOutcome;
+  message: string;
+}
+
+/**
+ * The fix for "duplicate key value violates unique constraint profiles_pkey":
+ * looks up the profile by primary key (the Auth user's id), never by email.
+ * A profile row is reused whenever one exists for that id — it is only ever
+ * inserted when truly absent. If it exists but is missing/wrong on the
+ * fields this bootstrap owns (email, full_name, role, is_active), only
+ * those fields are updated; every other column (avatar_url, job_title,
+ * last_seen_at, etc.) is left exactly as it was.
+ */
+export async function ensureStaffProfile(deps: EnsureStaffProfileDeps, input: EnsureStaffProfileInput): Promise<EnsureStaffProfileResult> {
+  const existing = await deps.findProfileById(input.authUserId);
+
+  if (!existing) {
+    if (!input.confirm) {
+      return {
+        profileId: null,
+        outcome: "would_create",
+        message: `Profile for ${input.email} not found by id (${input.authUserId}) — would create it (role: ${input.role}).`,
+      };
+    }
+    const created = await deps.createProfile({ id: input.authUserId, email: input.email, full_name: input.fullName, role: input.role });
+    return {
+      profileId: created.id,
+      outcome: "created",
+      message: `Profile created for ${input.email} (${created.id}), role: ${input.role}.`,
+    };
+  }
+
+  const fieldsToUpdate: Partial<{ email: string; full_name: string; role: string; is_active: boolean }> = {};
+  if (existing.email !== input.email) fieldsToUpdate.email = input.email;
+  if (existing.full_name !== input.fullName) fieldsToUpdate.full_name = input.fullName;
+  if (existing.role !== input.role) fieldsToUpdate.role = input.role;
+  if (existing.is_active !== true) fieldsToUpdate.is_active = true;
+
+  if (Object.keys(fieldsToUpdate).length === 0) {
+    return {
+      profileId: existing.id,
+      outcome: "found_complete",
+      message: `Profile for ${input.email} already exists and is complete (${existing.id}) — reusing.`,
+    };
+  }
+
+  const changedFields = Object.keys(fieldsToUpdate).join(", ");
+  if (!input.confirm) {
+    return {
+      profileId: existing.id,
+      outcome: "would_update",
+      message: `Profile for ${input.email} exists (${existing.id}) but needs updating: ${changedFields} — would update.`,
+    };
+  }
+
+  const updated = await deps.updateProfile(existing.id, fieldsToUpdate);
+  return {
+    profileId: updated.id,
+    outcome: "updated",
+    message: `Profile for ${input.email} updated (${updated.id}): ${changedFields}.`,
+  };
+}
+
+export interface MembershipRecord {
+  organisation_id: string;
+  profile_id: string;
+  role: string;
+}
+
+export interface EnsureOrganisationMembershipDeps {
+  /** SELECT ... FROM organisation_members WHERE organisation_id = $1 AND profile_id = $2 — read-only. */
+  findMembership: (organisationId: string, profileId: string) => Promise<MembershipRecord | null>;
+  /** INSERT INTO organisation_members — only called when no row exists for this (organisation_id, profile_id) pair. */
+  createMembership: (input: { organisation_id: string; profile_id: string; role: string }) => Promise<void>;
+  /** UPDATE organisation_members SET role = $3 WHERE organisation_id = $1 AND profile_id = $2. */
+  updateMembershipRole: (organisationId: string, profileId: string, role: string) => Promise<void>;
+}
+
+export interface EnsureOrganisationMembershipInput {
+  organisationId: string;
+  profileId: string;
+  role: string;
+  confirm: boolean;
+}
+
+export type EnsureOrganisationMembershipOutcome = "created" | "found_complete" | "updated" | "would_create" | "would_update";
+
+export interface EnsureOrganisationMembershipResult {
+  outcome: EnsureOrganisationMembershipOutcome;
+  message: string;
+}
+
+/** Idempotent on the (organisation_id, profile_id) pair — reuses an existing membership, updating its role only if it's wrong, and never inserts a duplicate. */
+export async function ensureOrganisationMembership(
+  deps: EnsureOrganisationMembershipDeps,
+  input: EnsureOrganisationMembershipInput,
+): Promise<EnsureOrganisationMembershipResult> {
+  const existing = await deps.findMembership(input.organisationId, input.profileId);
+
+  if (!existing) {
+    if (!input.confirm) {
+      return { outcome: "would_create", message: `Would link profile to organisation as '${input.role}'.` };
+    }
+    await deps.createMembership({ organisation_id: input.organisationId, profile_id: input.profileId, role: input.role });
+    return { outcome: "created", message: `Linked profile to organisation as '${input.role}'.` };
+  }
+
+  if (existing.role === input.role) {
+    return { outcome: "found_complete", message: `Membership already exists with role '${input.role}' — reusing.` };
+  }
+
+  if (!input.confirm) {
+    return { outcome: "would_update", message: `Membership exists with role '${existing.role}' — would update to '${input.role}'.` };
+  }
+
+  await deps.updateMembershipRole(input.organisationId, input.profileId, input.role);
+  return { outcome: "updated", message: `Membership role updated from '${existing.role}' to '${input.role}'.` };
+}
+
 async function main() {
   console.log(blue("=== Cloud Bootstrap (organisation + staff profile) ==="));
 
@@ -197,70 +396,116 @@ async function main() {
     fail(error instanceof Error ? error.message : String(error));
   }
 
-  // Step 2: staff profile, idempotent by email — creates the auth user first if needed.
+  // Step 2: Auth user, idempotent by email, then staff profile, idempotent by primary key (id).
   console.log(blue("\nStep 2/3: Staff profile"));
-  const { data: existingProfiles, error: profileLookupError } = await client
-    .from("profiles")
-    .select("id, email")
-    .eq("email", email)
-    .limit(1);
-  if (profileLookupError) fail(`Failed to look up profile: ${profileLookupError.message}`);
-
   let profileId: string;
-  if (existingProfiles && existingProfiles.length > 0) {
-    profileId = existingProfiles[0]!.id;
-    console.log(green(`✔ Profile for ${email} already exists (${profileId}) — skipping.`));
-  } else if (!confirm) {
-    console.log(yellow(`Would look up or create an auth user for ${email}, then create a profile row (role: owner).`));
-    profileId = "[not created — dry run]";
-  } else {
-    // The admin API has no direct getUserByEmail — list and filter
-    // client-side. Cloud pilot user counts are small; a single unpaginated
-    // page is sufficient here.
-    const { data: listedUsers, error: listUsersError } = await client.auth.admin.listUsers();
-    if (listUsersError) fail(`Failed to list auth users: ${listUsersError.message}`);
-    let authUser = listedUsers!.users.find((u) => u.email?.toLowerCase() === email.toLowerCase()) ?? null;
+  try {
+    const authUserResult = await ensureAuthUser(
+      {
+        findAuthUserByEmail: async (lookupEmail) => {
+          // The admin API has no direct getUserByEmail — list and filter
+          // client-side. Cloud pilot user counts are small; a single
+          // unpaginated page is sufficient here.
+          const { data, error } = await client.auth.admin.listUsers();
+          if (error) throw error;
+          const match = data.users.find((u) => u.email?.toLowerCase() === lookupEmail.toLowerCase());
+          return match ? { id: match.id, email: match.email! } : null;
+        },
+        createAuthUser: async (createEmail) => {
+          const { data, error } = await client.auth.admin.createUser({ email: createEmail, email_confirm: true });
+          if (error) throw error;
+          return { id: data.user.id, email: data.user.email! };
+        },
+      },
+      email,
+      confirm,
+    );
+    console.log(authUserResult.outcome === "would_create" ? yellow(authUserResult.message) : green(`✔ ${authUserResult.message}`));
 
-    if (!authUser) {
-      const { data: created, error: createUserError } = await client.auth.admin.createUser({ email, email_confirm: true });
-      if (createUserError) fail(`Failed to create auth user: ${createUserError.message}`);
-      authUser = created.user;
-      console.log(green(`✔ Created auth user for ${email}.`));
+    if (!authUserResult.authUser) {
+      console.log(yellow(`Would create profile for ${email} (role: ${STAFF_ROLE}) once the auth user exists.`));
+      profileId = "[not created — dry run]";
     } else {
-      console.log(green(`✔ Auth user for ${email} already exists — reusing.`));
+      const authUserId = authUserResult.authUser.id;
+      const profileResult = await ensureStaffProfile(
+        {
+          findProfileById: async (id) => {
+            const { data, error } = await client.from("profiles").select("id, email, full_name, role, is_active").eq("id", id).maybeSingle();
+            if (error) throw error;
+            return data ?? null;
+          },
+          createProfile: async (input) => {
+            const { data, error } = await client
+              .from("profiles")
+              .insert({ id: input.id, email: input.email, full_name: input.full_name, role: input.role, is_active: true })
+              .select("id, email, full_name, role, is_active")
+              .single();
+            if (error) throw error;
+            return data!;
+          },
+          updateProfile: async (id, fields) => {
+            const { data, error } = await client.from("profiles").update(fields).eq("id", id).select("id, email, full_name, role, is_active").single();
+            if (error) throw error;
+            return data!;
+          },
+        },
+        { authUserId, email, fullName: STAFF_FULL_NAME, role: STAFF_ROLE, confirm },
+      );
+      console.log(
+        profileResult.outcome === "would_create" || profileResult.outcome === "would_update"
+          ? yellow(profileResult.message)
+          : green(`✔ ${profileResult.message}`),
+      );
+      profileId = profileResult.profileId ?? "[not created — dry run]";
     }
-
-    const { data: createdProfile, error: createProfileError } = await client
-      .from("profiles")
-      .insert({ id: authUser.id, email, role: "owner", is_active: true })
-      .select("id")
-      .single();
-    if (createProfileError) fail(`Failed to create profile: ${createProfileError.message}`);
-    profileId = createdProfile!.id;
-    console.log(green(`✔ Created profile for ${email} (${profileId}), role: owner.`));
+  } catch (error) {
+    fail(error instanceof Error ? error.message : String(error));
   }
 
   // Step 3: link profile to organisation, idempotent on the (organisation_id, profile_id) pair.
   console.log(blue("\nStep 3/3: Organisation membership"));
-  if (!confirm) {
-    console.log(yellow("Would link the profile to the organisation as 'lead' (if both were created above)."));
+  const DRY_RUN_PLACEHOLDER = "[not created — dry run]";
+  if (organisationId === DRY_RUN_PLACEHOLDER || profileId === DRY_RUN_PLACEHOLDER) {
+    // Neither id is real yet (nothing to look up or link against) — this is
+    // only reachable in dry-run mode, since confirm mode always resolves
+    // both ids above or exits via fail() first.
+    console.log(yellow(`Would link the profile to the organisation as '${MEMBERSHIP_ROLE}' (once both are created above).`));
   } else {
-    const { data: existingMembership, error: membershipLookupError } = await client
-      .from("organisation_members")
-      .select("organisation_id, profile_id")
-      .eq("organisation_id", organisationId)
-      .eq("profile_id", profileId)
-      .limit(1);
-    if (membershipLookupError) fail(`Failed to look up organisation membership: ${membershipLookupError.message}`);
-
-    if (existingMembership && existingMembership.length > 0) {
-      console.log(green("✔ Membership already exists — skipping."));
-    } else {
-      const { error: createMembershipError } = await client
-        .from("organisation_members")
-        .insert({ organisation_id: organisationId, profile_id: profileId, role: "lead" });
-      if (createMembershipError) fail(`Failed to create organisation membership: ${createMembershipError.message}`);
-      console.log(green("✔ Linked profile to organisation as 'lead'."));
+    try {
+      const membershipResult = await ensureOrganisationMembership(
+        {
+          findMembership: async (organisationIdArg, profileIdArg) => {
+            const { data, error } = await client
+              .from("organisation_members")
+              .select("organisation_id, profile_id, role")
+              .eq("organisation_id", organisationIdArg)
+              .eq("profile_id", profileIdArg)
+              .maybeSingle();
+            if (error) throw error;
+            return data ?? null;
+          },
+          createMembership: async (input) => {
+            const { error } = await client.from("organisation_members").insert(input);
+            if (error) throw error;
+          },
+          updateMembershipRole: async (organisationIdArg, profileIdArg, role) => {
+            const { error } = await client
+              .from("organisation_members")
+              .update({ role })
+              .eq("organisation_id", organisationIdArg)
+              .eq("profile_id", profileIdArg);
+            if (error) throw error;
+          },
+        },
+        { organisationId, profileId, role: MEMBERSHIP_ROLE, confirm },
+      );
+      console.log(
+        membershipResult.outcome === "would_create" || membershipResult.outcome === "would_update"
+          ? yellow(membershipResult.message)
+          : green(`✔ ${membershipResult.message}`),
+      );
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
     }
   }
 
