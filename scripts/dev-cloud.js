@@ -37,7 +37,12 @@ const CLOUD_ENV_PATH = path.join(REPO_ROOT, '.env.cloud.local');
 // an unset key left over for its automatic .env.local load to silently
 // fill in from the LOCAL file sitting right next to it on disk.
 const CLOUD_SAFE_DEFAULTS = {
-  ALLOWED_EMAIL_DOMAINS: 'villiz.com',
+  // Gmail is temporarily enabled only for the cloud pilot while Villiz staff
+  // accounts are still using Gmail. Production should eventually revert to
+  // villiz.com only. This is a default only — set ALLOWED_EMAIL_DOMAINS in
+  // .env.cloud.local to override it (see the loop below, which never
+  // clobbers an already-set value).
+  ALLOWED_EMAIL_DOMAINS: 'villiz.com,gmail.com',
   // Never inherit the local dev-login shortcut into a cloud run, regardless
   // of what .env.local happens to have it set to.
   ENABLE_DEV_LOGIN: 'false',
