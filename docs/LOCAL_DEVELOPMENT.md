@@ -90,6 +90,54 @@ It logs one structured JSON line per event (`job_claimed`, `attempt_started`,
 `Ctrl+C` stops it gracefully — any attempt already in flight finishes before
 the process exits.
 
+## Cloud pilot environment (Sprint 6E)
+
+`dev:local` and `worker:publishing` only ever talk to local Supabase — that
+guarantee is enforced by a startup check that refuses to run against
+anything else. The cloud pilot is a **separate, parallel** set of commands
+that only ever talk to the hosted Supabase cloud project, enforced by the
+mirror-image check (refuses to run against anything that looks local). The
+two never share an env file and neither can fall back to the other's:
+
+```bash
+npm run dev:cloud                 # Next.js against the cloud project, port 3001
+npm run worker:publishing:cloud   # background worker against the cloud project
+npm run cloud:check               # read-only health check (no writes, no live post)
+npm run cloud:bootstrap -- --email you@villiz.com --confirm   # one-time org + staff profile
+```
+
+All four load `.env.cloud.local` only — never `.env.local`. Create it in the
+repo root (gitignored, never commit it):
+
+```
+NEXT_PUBLIC_SITE_URL=http://localhost:3001
+NEXT_PUBLIC_SUPABASE_URL=https://<your-project-ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<cloud anon/publishable key>
+SUPABASE_URL=https://<your-project-ref>.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=<cloud service role key>
+
+BLOTATO_API_KEY=<blotato api key>
+BLOTATO_ENABLED=true
+BLOTATO_LIVE_PUBLISHING_ENABLED=true
+```
+
+`dev:cloud` and `worker:publishing:cloud` both refuse to start if
+`NEXT_PUBLIC_SUPABASE_URL` isn't a real HTTPS address, or if it points at
+`localhost`/`127.0.0.1` — the same class of guard `dev-local.js` already
+enforces, just inverted. Neither ever starts local Supabase Docker, runs a
+migration or reset, or applies `supabase/seed.sql` — a brand-new cloud
+project has none of local dev's seed data, and `cloud:bootstrap` is the only
+command that creates anything there (one organisation, one staff profile),
+and only after you pass `--confirm` explicitly; without it, it prints what it
+would do and writes nothing.
+
+`BLOTATO_LIVE_PUBLISHING_ENABLED=true` in the cloud file means Publish Now
+against that environment calls the real Blotato API. Run `npm run
+cloud:check` first — it verifies Supabase reachability, that the core tables
+and the `organisation-media` storage bucket exist, and that the Blotato
+credential itself works, entirely via read-only requests (it never inserts,
+updates, deletes, or calls Blotato's `POST /posts`).
+
 ## Shutting down
 
 `Ctrl+C` stops the Next.js dev server. Local Supabase's Docker containers keep

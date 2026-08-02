@@ -18,8 +18,12 @@
     "db:test": "./scripts/db-test.sh",
     "db:types:check": "python3 scripts/gen-db-types.py --check",
     "dev:local": "node scripts/dev-local.js",
+    "dev:cloud": "node scripts/dev-cloud.js",
     "preview:check": "node scripts/preview-check.js",
     "worker:publishing": "NODE_OPTIONS=--conditions=react-server npx tsx scripts/publishing-worker.ts",
+    "worker:publishing:cloud": "NODE_OPTIONS=--conditions=react-server npx tsx scripts/worker-publishing-cloud.ts",
+    "cloud:check": "NODE_OPTIONS=--conditions=react-server npx tsx scripts/cloud-check.ts",
+    "cloud:bootstrap": "NODE_OPTIONS=--conditions=react-server npx tsx scripts/cloud-bootstrap.ts",
     "verify": "npm run typecheck && npm run lint && npm run test && npm run build"
   },
   "dependencies": {

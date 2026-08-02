@@ -7,6 +7,8 @@ build
 npm-debug.log*
 .env
 .env*.local
+# Explicit: the cloud pilot credentials file (already covered by .env*.local above).
+.env.cloud.local
 .env*.backup
 *.env.backup
 .vercel

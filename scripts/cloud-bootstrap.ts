@@ -1,0 +1,180 @@
+/**
+ * npm run cloud:bootstrap -- --email you@villiz.com --confirm
+ *
+ * Creates ONLY the two things a brand-new cloud project has zero of and
+ * genuinely cannot function without: one "Villiz Pixels" organisation, and
+ * one staff profile (with an auth user, if one doesn't already exist) tied
+ * to the email you pass. It never touches content_drafts, campaigns,
+ * media_assets, publishing_jobs, or anything else supabase/seed.sql seeds
+ * locally — local seed data is never copied into the cloud project.
+ *
+ * Idempotent: re-running it after the org/profile already exist reports
+ * "already exists" and changes nothing.
+ *
+ * Requires explicit confirmation: without --confirm, this prints exactly
+ * what it WOULD do and exits without writing anything. --email is always
+ * required — there is no default operator email.
+ */
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { createClient } from "@supabase/supabase-js";
+
+const REPO_ROOT = path.resolve(__dirname, "..");
+const CLOUD_ENV_PATH = path.join(REPO_ROOT, ".env.cloud.local");
+const ORGANISATION_NAME = "Villiz Pixels";
+
+const green = (text: string) => `\x1b[32m${text}\x1b[0m`;
+const red = (text: string) => `\x1b[31m${text}\x1b[0m`;
+const yellow = (text: string) => `\x1b[33m${text}\x1b[0m`;
+const blue = (text: string) => `\x1b[34m${text}\x1b[0m`;
+
+function fail(message: string): never {
+  console.error(red(`✘ ${message}`));
+  process.exit(1);
+}
+
+function parseArgs(argv: string[]) {
+  const emailIndex = argv.indexOf("--email");
+  const email = emailIndex >= 0 ? argv[emailIndex + 1] : undefined;
+  const confirm = argv.includes("--confirm");
+  return { email, confirm };
+}
+
+async function main() {
+  console.log(blue("=== Cloud Bootstrap (organisation + staff profile) ==="));
+
+  const { email, confirm } = parseArgs(process.argv.slice(2));
+  if (!email) {
+    fail("Usage: npm run cloud:bootstrap -- --email you@villiz.com --confirm");
+  }
+
+  if (!existsSync(CLOUD_ENV_PATH)) {
+    fail(".env.cloud.local is missing. This script never falls back to .env.local — create it first.");
+  }
+  process.loadEnvFile(CLOUD_ENV_PATH);
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceRoleKey) {
+    fail(".env.cloud.local is missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.");
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(supabaseUrl);
+  } catch {
+    fail(`NEXT_PUBLIC_SUPABASE_URL ("${supabaseUrl}") is not a valid URL.`);
+  }
+  const localHostnames = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
+  if (parsed.protocol !== "https:" || localHostnames.has(parsed.hostname.toLowerCase()) || parsed.hostname.endsWith(".local")) {
+    fail(`NEXT_PUBLIC_SUPABASE_URL ("${supabaseUrl}") does not look like a real cloud Supabase project. Refusing to run.`);
+  }
+  console.log(`Target: ${green(parsed.hostname)}`);
+  console.log(`Operator email: ${green(email)}`);
+  console.log(`Mode: ${confirm ? red("LIVE — will write") : yellow("DRY RUN — no writes")}\n`);
+
+  const client = createClient(supabaseUrl, serviceRoleKey, { auth: { autoRefreshToken: false, persistSession: false } });
+
+  // Step 1: organisation, idempotent by name.
+  console.log(blue("Step 1/3: Villiz Pixels organisation"));
+  const { data: existingOrgs, error: orgLookupError } = await client
+    .from("organisations")
+    .select("id, name")
+    .eq("name", ORGANISATION_NAME)
+    .limit(1);
+  if (orgLookupError) fail(`Failed to look up organisation: ${orgLookupError.message}`);
+
+  let organisationId: string;
+  if (existingOrgs && existingOrgs.length > 0) {
+    organisationId = existingOrgs[0]!.id;
+    console.log(green(`✔ Organisation "${ORGANISATION_NAME}" already exists (${organisationId}) — skipping.`));
+  } else if (!confirm) {
+    console.log(yellow(`Would create organisation "${ORGANISATION_NAME}".`));
+    organisationId = "[not created — dry run]";
+  } else {
+    const { data: created, error: createOrgError } = await client
+      .from("organisations")
+      .insert({ name: ORGANISATION_NAME, status: "active" })
+      .select("id")
+      .single();
+    if (createOrgError) fail(`Failed to create organisation: ${createOrgError.message}`);
+    organisationId = created!.id;
+    console.log(green(`✔ Created organisation "${ORGANISATION_NAME}" (${organisationId}).`));
+  }
+
+  // Step 2: staff profile, idempotent by email — creates the auth user first if needed.
+  console.log(blue("\nStep 2/3: Staff profile"));
+  const { data: existingProfiles, error: profileLookupError } = await client
+    .from("profiles")
+    .select("id, email")
+    .eq("email", email)
+    .limit(1);
+  if (profileLookupError) fail(`Failed to look up profile: ${profileLookupError.message}`);
+
+  let profileId: string;
+  if (existingProfiles && existingProfiles.length > 0) {
+    profileId = existingProfiles[0]!.id;
+    console.log(green(`✔ Profile for ${email} already exists (${profileId}) — skipping.`));
+  } else if (!confirm) {
+    console.log(yellow(`Would look up or create an auth user for ${email}, then create a profile row (role: owner).`));
+    profileId = "[not created — dry run]";
+  } else {
+    // The admin API has no direct getUserByEmail — list and filter
+    // client-side. Cloud pilot user counts are small; a single unpaginated
+    // page is sufficient here.
+    const { data: listedUsers, error: listUsersError } = await client.auth.admin.listUsers();
+    if (listUsersError) fail(`Failed to list auth users: ${listUsersError.message}`);
+    let authUser = listedUsers!.users.find((u) => u.email?.toLowerCase() === email.toLowerCase()) ?? null;
+
+    if (!authUser) {
+      const { data: created, error: createUserError } = await client.auth.admin.createUser({ email, email_confirm: true });
+      if (createUserError) fail(`Failed to create auth user: ${createUserError.message}`);
+      authUser = created.user;
+      console.log(green(`✔ Created auth user for ${email}.`));
+    } else {
+      console.log(green(`✔ Auth user for ${email} already exists — reusing.`));
+    }
+
+    const { data: createdProfile, error: createProfileError } = await client
+      .from("profiles")
+      .insert({ id: authUser.id, email, role: "owner", is_active: true })
+      .select("id")
+      .single();
+    if (createProfileError) fail(`Failed to create profile: ${createProfileError.message}`);
+    profileId = createdProfile!.id;
+    console.log(green(`✔ Created profile for ${email} (${profileId}), role: owner.`));
+  }
+
+  // Step 3: link profile to organisation, idempotent on the (organisation_id, profile_id) pair.
+  console.log(blue("\nStep 3/3: Organisation membership"));
+  if (!confirm) {
+    console.log(yellow("Would link the profile to the organisation as 'lead' (if both were created above)."));
+  } else {
+    const { data: existingMembership, error: membershipLookupError } = await client
+      .from("organisation_members")
+      .select("organisation_id, profile_id")
+      .eq("organisation_id", organisationId)
+      .eq("profile_id", profileId)
+      .limit(1);
+    if (membershipLookupError) fail(`Failed to look up organisation membership: ${membershipLookupError.message}`);
+
+    if (existingMembership && existingMembership.length > 0) {
+      console.log(green("✔ Membership already exists — skipping."));
+    } else {
+      const { error: createMembershipError } = await client
+        .from("organisation_members")
+        .insert({ organisation_id: organisationId, profile_id: profileId, role: "lead" });
+      if (createMembershipError) fail(`Failed to create organisation membership: ${createMembershipError.message}`);
+      console.log(green("✔ Linked profile to organisation as 'lead'."));
+    }
+  }
+
+  console.log(blue("\n=== Bootstrap complete ==="));
+  if (!confirm) {
+    console.log(yellow("This was a dry run — nothing was written. Re-run with --confirm to apply."));
+  }
+}
+
+main().catch((error) => {
+  console.error(red(`✘ Cloud bootstrap crashed: ${error instanceof Error ? error.message : String(error)}`));
+  process.exit(1);
+});
