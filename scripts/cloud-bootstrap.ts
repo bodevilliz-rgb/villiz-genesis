@@ -55,6 +55,59 @@ function fail(message: string): never {
   process.exit(1);
 }
 
+/**
+ * Supabase/PostgREST errors (PostgrestError, AuthError, StorageError) are
+ * plain objects, not Error instances — `String(error)` or `${error}` on one
+ * of those produces the literally useless "[object Object]", which is
+ * exactly what hid the real cause of a previous bootstrap failure here
+ * (see tests/cloud-bootstrap.test.ts's "formatSupabaseError" suite for the
+ * exact shape that triggered it).
+ *
+ * Only ever reads a fixed, known-safe set of fields — message/code/details/
+ * hint/status/statusCode. It never spreads or JSON.stringifies the whole
+ * error object, so a key, token, or header attached to the error for
+ * unrelated reasons can never leak through it.
+ */
+export function formatSupabaseError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  // A bare string throw carries no hidden keys/tokens to leak — pass it
+  // through directly, same as the previous String(error) behaviour.
+  if (typeof error === "string" && error.length > 0) {
+    return error;
+  }
+
+  if (error && typeof error === "object") {
+    const shape = error as Record<string, unknown>;
+    const parts: string[] = [];
+
+    if (typeof shape.message === "string" && shape.message.length > 0) {
+      parts.push(shape.message);
+    }
+    if (typeof shape.code === "string" || typeof shape.code === "number") {
+      parts.push(`code=${shape.code}`);
+    }
+    const status = shape.status ?? shape.statusCode;
+    if (typeof status === "string" || typeof status === "number") {
+      parts.push(`status=${status}`);
+    }
+    if (typeof shape.details === "string" && shape.details.length > 0) {
+      parts.push(`details=${shape.details}`);
+    }
+    if (typeof shape.hint === "string" && shape.hint.length > 0) {
+      parts.push(`hint=${shape.hint}`);
+    }
+
+    if (parts.length > 0) {
+      return parts.join(" | ");
+    }
+  }
+
+  return "Unknown error (a non-Error, non-object, non-string value was thrown)";
+}
+
 function parseArgs(argv: string[]) {
   const emailIndex = argv.indexOf("--email");
   const email = emailIndex >= 0 ? argv[emailIndex + 1] : undefined;
@@ -131,7 +184,7 @@ export async function ensureOrganisation(
     // error message alone (e.g. a constraint violation) gives no context
     // once it's bubbled up through main()'s generic fail() handler.
     throw new Error(
-      `Failed to create organisation "${input.name}" (slug: "${input.slug}"): ${error instanceof Error ? error.message : String(error)}`,
+      `Failed to create organisation "${input.name}" (slug: "${input.slug}"): ${formatSupabaseError(error)}`,
     );
   }
   return {
@@ -393,7 +446,7 @@ async function main() {
     console.log(result.outcome === "would_create" ? yellow(result.message) : green(`✔ ${result.message}`));
     organisationId = result.organisationId ?? "[not created — dry run]";
   } catch (error) {
-    fail(error instanceof Error ? error.message : String(error));
+    fail(formatSupabaseError(error));
   }
 
   // Step 2: Auth user, idempotent by email, then staff profile, idempotent by primary key (id).
@@ -459,7 +512,7 @@ async function main() {
       profileId = profileResult.profileId ?? "[not created — dry run]";
     }
   } catch (error) {
-    fail(error instanceof Error ? error.message : String(error));
+    fail(formatSupabaseError(error));
   }
 
   // Step 3: link profile to organisation, idempotent on the (organisation_id, profile_id) pair.
@@ -505,7 +558,7 @@ async function main() {
           : green(`✔ ${membershipResult.message}`),
       );
     } catch (error) {
-      fail(error instanceof Error ? error.message : String(error));
+      fail(formatSupabaseError(error));
     }
   }
 
@@ -538,7 +591,7 @@ function isDirectRun(): boolean {
 
 if (isDirectRun()) {
   main().catch((error) => {
-    console.error(red(`✘ Cloud bootstrap crashed: ${error instanceof Error ? error.message : String(error)}`));
+    console.error(red(`✘ Cloud bootstrap crashed: ${formatSupabaseError(error)}`));
     process.exit(1);
   });
 }

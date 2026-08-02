@@ -4,6 +4,7 @@ import {
   ensureAuthUser,
   ensureStaffProfile,
   ensureOrganisationMembership,
+  formatSupabaseError,
   type EnsureOrganisationDeps,
   type OrganisationRecord,
   type EnsureAuthUserDeps,
@@ -13,6 +14,80 @@ import {
   type EnsureOrganisationMembershipDeps,
   type MembershipRecord,
 } from "../scripts/cloud-bootstrap";
+
+/**
+ * Regression coverage for "[object Object]" hiding the real error: a
+ * PostgrestError (what @supabase/supabase-js actually throws for a failed
+ * update/insert) is a plain object, never `instanceof Error`, so
+ * `String(error)`/`${error}` on one collapses to "[object Object]" — which is
+ * exactly what happened when the profiles_guard_self_escalation trigger
+ * rejected a profile update in production (error shape reproduced below is
+ * the literal one returned by that failure).
+ */
+describe("formatSupabaseError", () => {
+  it("formats a real PostgrestError shape (the exact trigger-rejection error hit in production)", () => {
+    const postgrestError = {
+      message: "Only platform administrators can change role or activation state",
+      code: "42501",
+      details: null,
+      hint: null,
+    };
+
+    const formatted = formatSupabaseError(postgrestError);
+
+    expect(formatted).not.toBe("[object Object]");
+    expect(formatted).toContain("Only platform administrators can change role or activation state");
+    expect(formatted).toContain("code=42501");
+  });
+
+  it("formats message + details + hint together when all three are present", () => {
+    const formatted = formatSupabaseError({
+      message: "duplicate key value violates unique constraint",
+      code: "23505",
+      details: "Key (id)=(user-1) already exists.",
+      hint: "Use an UPDATE instead of an INSERT.",
+    });
+
+    expect(formatted).toContain("duplicate key value violates unique constraint");
+    expect(formatted).toContain("code=23505");
+    expect(formatted).toContain("details=Key (id)=(user-1) already exists.");
+    expect(formatted).toContain("hint=Use an UPDATE instead of an INSERT.");
+  });
+
+  it("formats an HTTP-style status field when message/code are absent", () => {
+    const formatted = formatSupabaseError({ status: 401, statusText: "Unauthorized" });
+    expect(formatted).toContain("status=401");
+  });
+
+  it("returns the plain message for a real Error instance, unaffected by the object-handling branch", () => {
+    expect(formatSupabaseError(new Error("plain failure"))).toBe("plain failure");
+  });
+
+  it("never returns '[object Object]' for a bare plain object with no known fields", () => {
+    const formatted = formatSupabaseError({ someUnrelatedField: "x" });
+    expect(formatted).not.toBe("[object Object]");
+  });
+
+  it("handles non-object, non-Error thrown values without crashing", () => {
+    expect(formatSupabaseError("a bare string throw")).not.toBe("[object Object]");
+    expect(formatSupabaseError(null)).not.toBe("[object Object]");
+    expect(formatSupabaseError(undefined)).not.toBe("[object Object]");
+  });
+
+  it("never leaks unrelated fields such as tokens, keys, or headers that happen to be on the error object", () => {
+    const errorWithSecrets = {
+      message: "unauthorized",
+      code: "401",
+      apikey: "sb_secret_1234567890",
+      authorization: "Bearer sb_secret_abcdef",
+    };
+
+    const formatted = formatSupabaseError(errorWithSecrets);
+
+    expect(formatted).not.toContain("sb_secret_1234567890");
+    expect(formatted).not.toContain("Bearer sb_secret_abcdef");
+  });
+});
 
 /**
  * Regression coverage for the cloud bootstrap "null value in column slug"
