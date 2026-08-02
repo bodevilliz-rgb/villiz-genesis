@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   approveDraft,
   assignReviewer,
+  canBypassSelfApprovalForCloudPilot,
   getReviewHistory,
   rejectDraft,
   reopenReview,
@@ -346,6 +347,96 @@ describe("approveDraft — CLOUD_PILOT_SELF_APPROVAL bypass", () => {
     expect(getHistory()).toHaveLength(1);
     expect(getHistory()[0]!.action).toBe("approved");
     expect(getHistory()[0]!.newStatus).toBe("approved");
+  });
+});
+
+/**
+ * Direct coverage of canBypassSelfApprovalForCloudPilot (use-cases/review/
+ * index.ts) — the exact function applyTransition calls to actually enforce
+ * the bypass, and the draft detail page calls to compute the
+ * canSelfApproveInCloudPilot prop it passes to ReviewPanel. Testing it
+ * directly proves the server remains the real authority regardless of what
+ * the UI does with the resulting boolean.
+ */
+describe("canBypassSelfApprovalForCloudPilot — direct coverage of the shared bypass function", () => {
+  const CLOUD_URL = "https://pxygyzgzkqjludwxtgbz.supabase.co";
+  const LOCAL_URL = "http://127.0.0.1:54321";
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  function fakeOrganisations(members: OrganisationMember[]): OrganisationRepository {
+    const organisations: Partial<OrganisationRepository> = {
+      async listMembers() {
+        return members;
+      },
+    };
+    return organisations as OrganisationRepository;
+  }
+
+  it("returns false when CLOUD_PILOT_SELF_APPROVAL is off, even with every other condition satisfied", async () => {
+    delete process.env.CLOUD_PILOT_SELF_APPROVAL;
+    process.env.NEXT_PUBLIC_SUPABASE_URL = CLOUD_URL;
+
+    const result = await canBypassSelfApprovalForCloudPilot(
+      { actor: actor({ role: "owner" }), organisations: fakeOrganisations([member(ACTOR_ID, "lead", "owner")]) },
+      ORG_ID,
+    );
+
+    expect(result).toBe(false);
+  });
+
+  it("returns false outside the cloud environment", async () => {
+    process.env.CLOUD_PILOT_SELF_APPROVAL = "true";
+    process.env.NEXT_PUBLIC_SUPABASE_URL = LOCAL_URL;
+
+    const result = await canBypassSelfApprovalForCloudPilot(
+      { actor: actor({ role: "owner" }), organisations: fakeOrganisations([member(ACTOR_ID, "lead", "owner")]) },
+      ORG_ID,
+    );
+
+    expect(result).toBe(false);
+  });
+
+  it("returns false when the actor's platform role is not owner", async () => {
+    process.env.CLOUD_PILOT_SELF_APPROVAL = "true";
+    process.env.NEXT_PUBLIC_SUPABASE_URL = CLOUD_URL;
+
+    const result = await canBypassSelfApprovalForCloudPilot(
+      { actor: actor({ role: "admin" }), organisations: fakeOrganisations([member(ACTOR_ID, "lead", "admin")]) },
+      ORG_ID,
+    );
+
+    expect(result).toBe(false);
+  });
+
+  it("returns false when the organisation is not a sole-owner organisation (another reviewer exists)", async () => {
+    process.env.CLOUD_PILOT_SELF_APPROVAL = "true";
+    process.env.NEXT_PUBLIC_SUPABASE_URL = CLOUD_URL;
+
+    const result = await canBypassSelfApprovalForCloudPilot(
+      {
+        actor: actor({ role: "owner" }),
+        organisations: fakeOrganisations([member(ACTOR_ID, "lead", "owner"), member(REVIEWER_ID, "reviewer", "member")]),
+      },
+      ORG_ID,
+    );
+
+    expect(result).toBe(false);
+  });
+
+  it("returns true only when all four conditions hold", async () => {
+    process.env.CLOUD_PILOT_SELF_APPROVAL = "true";
+    process.env.NEXT_PUBLIC_SUPABASE_URL = CLOUD_URL;
+
+    const result = await canBypassSelfApprovalForCloudPilot(
+      { actor: actor({ role: "owner" }), organisations: fakeOrganisations([member(ACTOR_ID, "lead", "owner")]) },
+      ORG_ID,
+    );
+
+    expect(result).toBe(true);
   });
 });
 

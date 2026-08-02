@@ -4,7 +4,7 @@ import { History } from "lucide-react";
 import { requireContext } from "@/server/container";
 import { getDraft, getLatestGenerationRequest } from "@/core/application/use-cases/content";
 import { getGenerationReadiness } from "@/core/application/use-cases/generation";
-import { getReviewHistory, listEligibleReviewers } from "@/core/application/use-cases/review";
+import { canBypassSelfApprovalForCloudPilot, getReviewHistory, listEligibleReviewers } from "@/core/application/use-cases/review";
 import { PageHeader } from "@/components/common/page-header";
 import { DraftForm } from "@/components/content/draft-form";
 import { ReviewPanel } from "@/components/content/review-panel";
@@ -41,16 +41,18 @@ export default async function DraftDetailPage({
 
   if (!draft) notFound();
 
-  const [categories, campaigns, latestRequest, readiness, reviewHistory, eligibleReviewers, allAssets, attachedAssets] = await Promise.all([
-    context.membrain.listCategories(orgId),
-    context.campaigns.listCampaigns({ organisationId: orgId, limit: 100, offset: 0 }),
-    getLatestGenerationRequest(deps, orgId, draftId),
-    getGenerationReadiness(deps, orgId, draftId),
-    getReviewHistory(deps, orgId, draftId),
-    listEligibleReviewers(deps, orgId),
-    context.media.listAssets(orgId),
-    context.media.listAssetsForDraft(draftId),
-  ]);
+  const [categories, campaigns, latestRequest, readiness, reviewHistory, eligibleReviewers, allAssets, attachedAssets, canSelfApproveInCloudPilot] =
+    await Promise.all([
+      context.membrain.listCategories(orgId),
+      context.campaigns.listCampaigns({ organisationId: orgId, limit: 100, offset: 0 }),
+      getLatestGenerationRequest(deps, orgId, draftId),
+      getGenerationReadiness(deps, orgId, draftId),
+      getReviewHistory(deps, orgId, draftId),
+      listEligibleReviewers(deps, orgId),
+      context.media.listAssets(orgId),
+      context.media.listAssetsForDraft(draftId),
+      canBypassSelfApprovalForCloudPilot({ actor: context.actor, organisations: context.organisations }, orgId),
+    ]);
 
   const signedUrls: Record<string, string> = {};
   for (const asset of allAssets) {
@@ -110,6 +112,7 @@ export default async function DraftDetailPage({
                 actorId={context.actor.id}
                 canWrite={canWrite}
                 canLead={canLead}
+                canSelfApproveInCloudPilot={canSelfApproveInCloudPilot}
               />
             </CardContent>
           </Card>

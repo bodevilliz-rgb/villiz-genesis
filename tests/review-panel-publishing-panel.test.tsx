@@ -135,3 +135,70 @@ describe("ReviewPanel — decision buttons on a freshly submitted (needs_review)
     expect(screen.getByText(/waiting on a lead or reviewer/i)).toBeInTheDocument();
   });
 });
+
+/**
+ * Regression coverage for the CLOUD_PILOT_SELF_APPROVAL UI fix: ReviewPanel
+ * used to hide DecisionForm for any self-authored draft unconditionally,
+ * with no awareness of the server-side bypass — so even when
+ * canBypassSelfApprovalForCloudPilot() (use-cases/review/index.ts) would
+ * genuinely allow the approval, the buttons never appeared and no request
+ * was ever sent. canSelfApproveInCloudPilot is computed server-side by that
+ * exact function and passed down as a plain boolean prop; ReviewPanel does
+ * not re-derive or duplicate any of the four bypass conditions itself.
+ */
+describe("ReviewPanel — canSelfApproveInCloudPilot prop", () => {
+  it("self-authored + canSelfApproveInCloudPilot=true: shows DecisionForm, not the warning", () => {
+    render(
+      <ReviewPanel
+        organisationId="00000000-0000-4000-8000-000000000001"
+        draft={needsReviewDraft("author-1")}
+        eligibleReviewers={[]}
+        actorId="author-1"
+        canWrite={true}
+        canLead={true}
+        canSelfApproveInCloudPilot={true}
+      />,
+    );
+
+    expect(screen.getByText("Approve")).toBeInTheDocument();
+    expect(screen.getByText("Request changes")).toBeInTheDocument();
+    expect(screen.getByText("Reject")).toBeInTheDocument();
+    expect(screen.queryByText(/you cannot approve, request changes on, or archive your own draft/i)).toBeNull();
+  });
+
+  it("self-authored + canSelfApproveInCloudPilot=false (the default, and every local-development case): shows the warning, not DecisionForm", () => {
+    render(
+      <ReviewPanel
+        organisationId="00000000-0000-4000-8000-000000000001"
+        draft={needsReviewDraft("author-1")}
+        eligibleReviewers={[]}
+        actorId="author-1"
+        canWrite={true}
+        canLead={true}
+        // canSelfApproveInCloudPilot omitted — defaults to false, matching
+        // every existing caller and local dev, which never sets the flag.
+      />,
+    );
+
+    expect(screen.queryByText("Approve")).toBeNull();
+    expect(screen.queryByText("Reject")).toBeNull();
+    expect(screen.getByText(/you cannot approve, request changes on, or archive your own draft/i)).toBeInTheDocument();
+  });
+
+  it("non-self-authored: shows DecisionForm regardless of canSelfApproveInCloudPilot (multi-user organisations unaffected)", () => {
+    render(
+      <ReviewPanel
+        organisationId="00000000-0000-4000-8000-000000000001"
+        draft={needsReviewDraft("reviewer-1")}
+        eligibleReviewers={[]}
+        actorId="reviewer-1"
+        canWrite={false}
+        canLead={false}
+        canSelfApproveInCloudPilot={false}
+      />,
+    );
+
+    expect(screen.getByText("Approve")).toBeInTheDocument();
+    expect(screen.queryByText(/you cannot approve, request changes on, or archive your own draft/i)).toBeNull();
+  });
+});

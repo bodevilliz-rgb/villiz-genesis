@@ -183,6 +183,7 @@ export function ReviewPanel({
   actorId,
   canWrite,
   canLead,
+  canSelfApproveInCloudPilot = false,
 }: {
   organisationId: string;
   draft: ContentDraft;
@@ -190,8 +191,22 @@ export function ReviewPanel({
   actorId: string;
   canWrite: boolean;
   canLead: boolean;
+  /**
+   * Computed server-side by canBypassSelfApprovalForCloudPilot
+   * (use-cases/review/index.ts) — the exact same function
+   * applyTransition uses to actually enforce the CLOUD_PILOT_SELF_APPROVAL
+   * bypass. This prop only controls whether this component reveals
+   * DecisionForm; the server remains the real authority, so a stale or
+   * wrong value here can only ever hide a control the server would allow,
+   * never grant one the server would reject. Defaults to false so every
+   * existing caller (and local development, which never sets the flag)
+   * is completely unaffected.
+   */
+  canSelfApproveInCloudPilot?: boolean;
 }) {
   const isSelfAuthored = draft.createdBy?.id === actorId;
+  /** The one place isSelfAuthored's ordinary block is relaxed — see the canSelfApproveInCloudPilot prop doc above. */
+  const blocksSelfApproval = isSelfAuthored && !canSelfApproveInCloudPilot;
   const isAssignedReviewer = draft.assignedReviewer?.id === actorId;
   /**
    * submitForReview() lands a fresh submission on "needs_review", not
@@ -237,7 +252,7 @@ export function ReviewPanel({
 
         {isAwaitingReviewDecision ? (
           canDecide ? (
-            isSelfAuthored ? (
+            blocksSelfApproval ? (
               <p className="text-[12px] text-subtle-foreground">
                 You cannot approve, request changes on, or archive your own draft. Ask another Lead or Reviewer.
               </p>

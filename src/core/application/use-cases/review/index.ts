@@ -44,6 +44,32 @@ const blank = (value: string | undefined | null): string | null => {
   return trimmed ? trimmed : null;
 };
 
+/**
+ * The single source of truth for the CLOUD_PILOT_SELF_APPROVAL bypass —
+ * applyTransition's self-approval check below calls this directly (it is
+ * the actual security boundary), and the draft detail page calls the exact
+ * same function to compute the `canSelfApproveInCloudPilot` prop it passes
+ * to ReviewPanel (which only controls whether the UI reveals the decision
+ * buttons). One implementation means the UI can never drift from what the
+ * server will actually allow — there is nowhere else this logic is
+ * duplicated.
+ *
+ * All four conditions must hold: the flag is on, this is genuinely the
+ * cloud environment, the current actor's platform role is owner, and the
+ * organisation has no one else who could approve instead
+ * (isSoleOwnerPilotOrganisation). Ordered cheapest-first so the one I/O call
+ * (listMembers) only runs once the first three already passed.
+ */
+export async function canBypassSelfApprovalForCloudPilot(
+  deps: { actor: Actor; organisations: OrganisationRepository },
+  organisationId: string,
+): Promise<boolean> {
+  if (!isCloudPilotSelfApprovalEnabled()) return false;
+  if (!isCloudEnvironment()) return false;
+  if (deps.actor.role !== "owner") return false;
+  return isSoleOwnerPilotOrganisation(await deps.organisations.listMembers(organisationId));
+}
+
 async function requireRole(
   deps: ReviewDeps,
   organisationId: string,
@@ -94,21 +120,7 @@ async function applyTransition(
   await requireRole(deps, input.organisationId, check);
 
   if (opts.checkSelfApproval && !canApproveOwnAuthorship(deps.actor.id, draft.createdBy?.id ?? null)) {
-    // CLOUD_PILOT_SELF_APPROVAL: the ordinary rule is only ever bypassed
-    // when all four independent conditions hold — the flag is on, this is
-    // genuinely the cloud environment, the current actor's platform role is
-    // owner, and the organisation itself has no one else who could approve
-    // (isSoleOwnerPilotOrganisation). Each condition is cheap-to-expensive
-    // ordered so the one I/O call (listMembers) only runs when the first
-    // three already passed. When the flag is off (the default, and every
-    // non-cloud environment), this branch is unreachable and the throw
-    // below fires exactly as it always has.
-    const cloudPilotBypass =
-      isCloudPilotSelfApprovalEnabled() &&
-      isCloudEnvironment() &&
-      deps.actor.role === "owner" &&
-      isSoleOwnerPilotOrganisation(await deps.organisations.listMembers(input.organisationId));
-
+    const cloudPilotBypass = await canBypassSelfApprovalForCloudPilot(deps, input.organisationId);
     if (!cloudPilotBypass) {
       throw new ForbiddenError("You cannot approve your own draft. Ask another Lead or Reviewer to make this decision.");
     }
