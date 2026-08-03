@@ -16,3 +16,5 @@ npm-debug.log*
 next-env.d.ts
 supabase/.temp
 supabase/.branches
+.env.local.backup
+.env.local
