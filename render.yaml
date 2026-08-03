@@ -1,0 +1,45 @@
+# Sprint 8.0 — Render Background Worker for the publishing pipeline.
+#
+# This is the ONLY deployment target for scripts/worker-publishing-cloud.ts
+# (npm run worker:publishing:cloud) — a continuous background worker with no
+# public web endpoint, deployed from the same GitHub repository as the
+# Vercel web app. See docs/RENDER_WORKER.md for the full setup walkthrough,
+# required environment variables, and health/heartbeat strategy.
+#
+# Every secret below is `sync: false` — Render requires setting those values
+# by hand in its dashboard (Environment tab). Nothing sensitive is ever
+# committed to this file or this repository.
+services:
+  - type: worker
+    name: villiz-publishing-worker
+    runtime: node
+    plan: starter
+    region: oregon
+    branch: main
+    autoDeploy: true
+    buildCommand: npm ci
+    startCommand: npm run worker:publishing:cloud
+    envVars:
+      # Pins Render's build image to Node 22, matching package.json's
+      # engines.node (>=22.0.0) and this repo's .nvmrc.
+      - key: NODE_VERSION
+        value: "22"
+
+      # --- Secrets: set these in the Render dashboard, never here. ---
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: BLOTATO_API_KEY
+        sync: false
+
+      # --- Non-secret configuration: safe literal defaults. ---
+      # Master Blotato integration switch.
+      - key: BLOTATO_ENABLED
+        value: "true"
+      # The live-publishing safety switch. Stays "false" (simulated
+      # publishes only) until the hosted smoke test in
+      # docs/HOSTED_SMOKE_TEST.md is deliberately ready to go live —
+      # change this value (or override it in the dashboard) only then.
+      - key: BLOTATO_LIVE_PUBLISHING_ENABLED
+        value: "false"

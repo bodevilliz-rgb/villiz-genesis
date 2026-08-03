@@ -10,9 +10,20 @@
  * why the shared runtime was extracted specifically to make this guarantee
  * possible.
  *
- * Never falls back: if .env.cloud.local is missing, or a required variable
- * is missing from it, or the Supabase URL looks local, this process exits
- * before calling runWorker() at all.
+ * Two supported ways to supply configuration, both ending in the same
+ * validation below:
+ *   1. Local cloud-pilot use: a real .env.cloud.local file in the repo root
+ *      (see docs/LOCAL_DEVELOPMENT.md) — loaded if present.
+ *   2. A real hosting platform (Sprint 8.0 — Render): the platform injects
+ *      environment variables directly into process.env; there is no
+ *      .env.cloud.local file on disk at all, and none should be created
+ *      there. This is why the file is loaded only when it exists rather than
+ *      required to exist — Render's dashboard/render.yaml env vars are
+ *      already process.env by the time this script runs.
+ *
+ * Never falls back to a local Supabase URL either way: if a required
+ * variable is missing from whichever source supplied it, or the Supabase
+ * URL looks local, this process exits before calling runWorker() at all.
  */
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -38,16 +49,15 @@ function redactedHostname(rawUrl: string): string {
 }
 
 function main() {
-  if (!existsSync(CLOUD_ENV_PATH)) {
-    fail(
-      ".env.cloud.local is missing. This worker never falls back to .env.local — create .env.cloud.local in the repo root first (see docs/LOCAL_DEVELOPMENT.md).",
-    );
+  if (existsSync(CLOUD_ENV_PATH)) {
+    process.loadEnvFile(CLOUD_ENV_PATH);
   }
-  process.loadEnvFile(CLOUD_ENV_PATH);
 
   const missing = REQUIRED_VARS.filter((key) => !process.env[key] || process.env[key]!.trim() === "");
   if (missing.length > 0) {
-    fail(`.env.cloud.local is missing required variable(s): ${missing.join(", ")}.`);
+    fail(
+      `Missing required variable(s): ${missing.join(", ")}. Either create .env.cloud.local in the repo root (local cloud-pilot use — see docs/LOCAL_DEVELOPMENT.md) or set them directly in your hosting platform's environment (production — see docs/RENDER_WORKER.md).`,
+    );
   }
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;

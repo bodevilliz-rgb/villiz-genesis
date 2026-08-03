@@ -1,5 +1,14 @@
 # Deployment
 
+> **Historical (Sprint 1).** Written when this app had a single `social_accounts`/
+> `scheduled_posts` schema and no review workflow, publishing engine, or background
+> worker. The schema and bootstrap flow described below no longer match the current
+> app. For the actual production deployment procedure (Vercel + Supabase Cloud +
+> Render worker), see [PRODUCTION_DEPLOYMENT.md](./PRODUCTION_DEPLOYMENT.md),
+> [RENDER_WORKER.md](./RENDER_WORKER.md), and
+> [AUTH_PRODUCTION_SETUP.md](./AUTH_PRODUCTION_SETUP.md). Kept for history, not
+> as a guide to follow.
+
 Three stages: database, hosting, first user. Budget about twenty minutes.
 
 ---

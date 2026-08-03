@@ -113,9 +113,10 @@ export function PrePublishDialog({ organisationId, draft, open, onOpenChange, on
         </div>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Back to Draft</Button>
-          <Button 
-            variant={report && report.score >= 80 ? "primary" : "secondary"} 
+          <Button variant="ghost" size="lg" onClick={() => onOpenChange(false)}>Back to Draft</Button>
+          <Button
+            variant={report && report.score >= 80 ? "primary" : "secondary"}
+            size="lg"
             disabled={loading || !report}
             onClick={onConfirmPublish}
           >

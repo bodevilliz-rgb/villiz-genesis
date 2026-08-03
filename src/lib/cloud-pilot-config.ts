@@ -20,7 +20,10 @@ export function isCloudPilotSelfApprovalEnabled(): boolean {
   return process.env.CLOUD_PILOT_SELF_APPROVAL === "true";
 }
 
-const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
+// `new URL(...).hostname` returns an IPv6 literal with its brackets intact
+// (e.g. "[::1]", not "::1") — both forms are listed so the loopback address
+// is actually caught either way.
+const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"]);
 
 /**
  * The same "is this a real cloud Supabase project" predicate dev-cloud.js,

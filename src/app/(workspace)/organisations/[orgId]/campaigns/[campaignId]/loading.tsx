@@ -3,10 +3,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 export default function CampaignDetailLoading() {
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex min-w-0 flex-col gap-2">
           <Skeleton className="h-3 w-24" />
-          <Skeleton className="h-6 w-72" />
+          <Skeleton className="h-6 w-72 max-w-full" />
         </div>
         <Skeleton className="h-9 w-40 shrink-0" />
       </div>

@@ -172,7 +172,7 @@ export function ReviewWorkspaceClient({
             <form action={submitAction}>
               <input type="hidden" name="organisationId" value={draft.organisationId} />
               <input type="hidden" name="draftId" value={draft.id} />
-              <SubmitButton variant="primary" size="sm">
+              <SubmitButton variant="primary" size="lg">
                 Submit for Review
               </SubmitButton>
             </form>
@@ -180,12 +180,12 @@ export function ReviewWorkspaceClient({
 
           {/* Lead/Assigned reviewer action decisions */}
           {draft.status === "in_review" && (
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <form action={decisionAction}>
                 <input type="hidden" name="organisationId" value={draft.organisationId} />
                 <input type="hidden" name="draftId" value={draft.id} />
                 <input type="hidden" name="decision" value="approve" />
-                <SubmitButton variant="primary" size="sm">
+                <SubmitButton variant="primary" size="lg">
                   Approve
                 </SubmitButton>
               </form>
@@ -194,7 +194,7 @@ export function ReviewWorkspaceClient({
                 <input type="hidden" name="organisationId" value={draft.organisationId} />
                 <input type="hidden" name="draftId" value={draft.id} />
                 <input type="hidden" name="decision" value="request_changes" />
-                <SubmitButton variant="secondary" size="sm">
+                <SubmitButton variant="secondary" size="lg">
                   Request Changes
                 </SubmitButton>
               </form>
@@ -203,7 +203,7 @@ export function ReviewWorkspaceClient({
                 <input type="hidden" name="organisationId" value={draft.organisationId} />
                 <input type="hidden" name="draftId" value={draft.id} />
                 <input type="hidden" name="decision" value="reject" />
-                <SubmitButton variant="danger" size="sm">
+                <SubmitButton variant="danger" size="lg">
                   Reject
                 </SubmitButton>
               </form>
@@ -216,7 +216,7 @@ export function ReviewWorkspaceClient({
               <form action={reopenAction}>
                 <input type="hidden" name="organisationId" value={draft.organisationId} />
                 <input type="hidden" name="draftId" value={draft.id} />
-                <SubmitButton variant="secondary" size="sm">
+                <SubmitButton variant="secondary" size="lg">
                   Reopen Review
                 </SubmitButton>
               </form>
@@ -229,7 +229,7 @@ export function ReviewWorkspaceClient({
               <input type="hidden" name="organisationId" value={draft.organisationId} />
               <input type="hidden" name="draftId" value={draft.id} />
               <input type="hidden" name="isArchive" value="true" />
-              <SubmitButton variant="ghost" size="sm" className="text-danger hover:bg-danger/10">
+              <SubmitButton variant="ghost" size="lg" className="text-danger hover:bg-danger/10">
                 <Trash2 className="h-4 w-4" />
               </SubmitButton>
             </form>
@@ -238,7 +238,7 @@ export function ReviewWorkspaceClient({
               <input type="hidden" name="organisationId" value={draft.organisationId} />
               <input type="hidden" name="draftId" value={draft.id} />
               <input type="hidden" name="isArchive" value="false" />
-              <SubmitButton variant="secondary" size="sm">
+              <SubmitButton variant="secondary" size="lg">
                 Restore Draft
               </SubmitButton>
             </form>

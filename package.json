@@ -25,6 +25,7 @@
     "cloud:check": "NODE_OPTIONS=--conditions=react-server npx tsx scripts/cloud-check.ts",
     "cloud:bootstrap": "NODE_OPTIONS=--conditions=react-server npx tsx scripts/cloud-bootstrap.ts",
     "reliability:test": "NODE_OPTIONS=--conditions=react-server npx tsx scripts/reliability-test.ts",
+    "production:check": "NODE_OPTIONS=--conditions=react-server npx tsx scripts/production-check.ts",
     "verify": "npm run typecheck && npm run lint && npm run test && npm run build"
   },
   "dependencies": {
@@ -74,6 +75,6 @@
     "vitest": "^3.2.7"
   },
   "engines": {
-    "node": ">=20.11.0"
+    "node": ">=22.0.0"
   }
 }

@@ -168,7 +168,7 @@ export function PublishingPanel({
                 </Select>
               </Field>
 
-              <Button type="button" onClick={(e) => handlePublishIntercept(e, "schedule")}>Schedule</Button>
+              <Button type="button" size="lg" onClick={(e) => handlePublishIntercept(e, "schedule")}>Schedule</Button>
             </form>
           )}
 
@@ -204,7 +204,7 @@ export function PublishingPanel({
                 </Field>
               )}
 
-              <Button type="button" variant="secondary" className="w-full" onClick={(e) => handlePublishIntercept(e, "publish")}>
+              <Button type="button" variant="secondary" size="lg" className="w-full" onClick={(e) => handlePublishIntercept(e, "publish")}>
                 Publish Now
               </Button>
             </form>

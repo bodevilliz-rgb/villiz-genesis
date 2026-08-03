@@ -64,7 +64,7 @@ export default async function OrganisationLayout({
 
         <div className="-mx-1 overflow-x-auto">
           <div className="flex min-w-max gap-1 px-1">
-            <SidebarNav items={nav} />
+            <SidebarNav items={nav} orientation="horizontal" />
           </div>
         </div>
       </div>
