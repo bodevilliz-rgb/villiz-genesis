@@ -24,6 +24,7 @@
     "worker:publishing:cloud": "NODE_OPTIONS=--conditions=react-server npx tsx scripts/worker-publishing-cloud.ts",
     "cloud:check": "NODE_OPTIONS=--conditions=react-server npx tsx scripts/cloud-check.ts",
     "cloud:bootstrap": "NODE_OPTIONS=--conditions=react-server npx tsx scripts/cloud-bootstrap.ts",
+    "reliability:test": "NODE_OPTIONS=--conditions=react-server npx tsx scripts/reliability-test.ts",
     "verify": "npm run typecheck && npm run lint && npm run test && npm run build"
   },
   "dependencies": {

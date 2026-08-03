@@ -409,6 +409,19 @@ exception — that's an expected, operator-actionable outcome ("connect an
 account, then retry"), the same distinction the domain's own `PublisherResult`
 comment already draws between expected failures and infrastructure faults.
 
+## Reliability testing (Sprint 7.1)
+
+`npm run reliability:test` is a separate, automated go/no-go check that
+exercises this engine end-to-end (draft → review → publish → retry →
+analytics → organisation isolation) using the same real use-cases described
+above, run in an isolated test environment — never against a live Blotato
+post. It also hardened the worker itself: `scripts/publishing-worker-core.ts`'s
+poll loop now catches a transient claim error (e.g. a `fetch failed`) instead
+of letting it become an unhandled rejection that silently killed the whole
+worker process, and retries with bounded exponential backoff instead. See
+[docs/RELIABILITY_TESTING.md](./RELIABILITY_TESTING.md) for the full design,
+what it checks, and how to add a new check.
+
 ## Known limitations
 
 - ~~The Content Studio draft detail page currently renders the Publishing

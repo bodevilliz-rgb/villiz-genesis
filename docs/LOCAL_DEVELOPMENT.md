@@ -240,6 +240,22 @@ other checks run regardless.
 respond and contain expected markers — it does not replace opening a browser
 and looking. The browser is the source of truth.
 
+### Publishing reliability checks
+
+```bash
+npm run reliability:test
+```
+
+A separate, publishing-focused check (Sprint 7.1) that goes deeper than
+`preview:check` on one subsystem: it proves draft/review/publish/retry/
+analytics/organisation-isolation behaviour still holds, using isolated
+fixtures and fakes — never a live Blotato post. Most of it runs with no
+Docker/Supabase requirement at all; four checks that need a real Postgres
+connection (worker claim exclusivity, restart recovery, the duplicate-publish
+unique constraint, and organisation isolation) auto-detect the local Supabase
+stack and cleanly SKIP if it isn't running via `dev:local` above. See
+[docs/RELIABILITY_TESTING.md](./RELIABILITY_TESTING.md).
+
 ## Manual database reset
 
 `npm run dev:local` never resets data. When you actually want a clean slate

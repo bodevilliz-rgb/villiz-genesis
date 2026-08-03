@@ -52,7 +52,65 @@ import type { PublishingJob } from "../src/core/domain/entities/publishing";
 const POLL_INTERVAL_MS = Number(process.env.PUBLISHING_WORKER_POLL_INTERVAL_MS ?? 2000);
 const STALE_RECOVERY_INTERVAL_MS = Number(process.env.PUBLISHING_WORKER_STALE_RECOVERY_INTERVAL_MS ?? 60_000);
 const STALE_AFTER_SECONDS = Number(process.env.PUBLISHING_WORKER_STALE_AFTER_SECONDS ?? 300);
+const POLL_BACKOFF_BASE_MS = Number(process.env.PUBLISHING_WORKER_BACKOFF_BASE_MS ?? 1000);
+const POLL_BACKOFF_MAX_MS = Number(process.env.PUBLISHING_WORKER_BACKOFF_MAX_MS ?? 30_000);
 const WORKER_ID = `worker-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+
+/**
+ * Sprint 7.1 resilience fix: a transient infrastructure error (observed in
+ * the cloud pilot as `TypeError: fetch failed`) thrown by claimNextPublishingJob
+ * previously propagated straight out of pollOnce's for(;;) loop. pollOnce is
+ * invoked as `void pollOnce(deps)` inside setInterval (runWorker, below), so
+ * that unhandled rejection terminated the entire worker process — Node
+ * treats an unhandled promise rejection as fatal by default. Only
+ * processJob (an already-claimed job failing to publish) was ever caught;
+ * the claim call itself was not.
+ *
+ * classifyPollError/nextBackoffMs/createBackoffController are pure and
+ * exported specifically so this behavior is unit-testable without a real
+ * Supabase connection or real timers (see
+ * tests/publishing-worker-resilience.test.ts).
+ */
+export function classifyPollError(error: unknown): "network" | "unknown" {
+  const message = error instanceof Error ? error.message : String(error);
+  return /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|socket hang up/i.test(message) ? "network" : "unknown";
+}
+
+/** Exponential backoff, doubling from a base and capped at a max — the same shape as any standard bounded-retry policy, deliberately nothing fancier. */
+export function nextBackoffMs(currentMs: number, baseMs: number, maxMs: number): number {
+  return currentMs <= 0 ? baseMs : Math.min(currentMs * 2, maxMs);
+}
+
+export interface BackoffController {
+  /** Resolves after `ms`, or immediately if cancel() is called first — so a worker backing off never delays graceful shutdown. */
+  wait(ms: number): Promise<void>;
+  cancel(): void;
+}
+
+export function createBackoffController(): BackoffController {
+  let pendingResolve: (() => void) | null = null;
+  return {
+    wait(ms: number): Promise<void> {
+      if (ms <= 0) return Promise.resolve();
+      return new Promise((resolve) => {
+        pendingResolve = resolve;
+        const timer = setTimeout(() => {
+          pendingResolve = null;
+          resolve();
+        }, ms);
+        // Never keep the process alive on this timer alone — the poll/stale-recovery
+        // intervals already do that; this just must not block a clean exit.
+        if (typeof timer.unref === "function") timer.unref();
+      });
+    },
+    cancel(): void {
+      if (pendingResolve) {
+        pendingResolve();
+        pendingResolve = null;
+      }
+    },
+  };
+}
 
 /** Exported so both entrypoint wrappers (local and cloud) can log a fatal startup error in the same shape as everything else this worker logs. */
 export function log(event: string, fields: Record<string, unknown> = {}) {
@@ -61,6 +119,8 @@ export function log(event: string, fields: Record<string, unknown> = {}) {
 }
 
 let shuttingDown = false;
+let currentBackoffMs = 0;
+const pollBackoff = createBackoffController();
 
 async function processJob(job: PublishingJob, deps: ReturnType<typeof buildDeps>) {
   const started = Date.now();
@@ -176,10 +236,36 @@ async function runStaleRecovery(deps: ReturnType<typeof buildDeps>) {
   }
 }
 
-async function pollOnce(deps: ReturnType<typeof buildDeps>) {
+export async function pollOnce(deps: ReturnType<typeof buildDeps>) {
   for (;;) {
     if (shuttingDown) return;
-    const job = await claimNextPublishingJob(deps, WORKER_ID);
+
+    let job: PublishingJob | null;
+    try {
+      job = await claimNextPublishingJob(deps, WORKER_ID);
+    } catch (error) {
+      // The claim call itself failing (e.g. a transient Supabase
+      // `TypeError: fetch failed`) is an infrastructure error, not a job
+      // failure — there is no job to blame it on. Catching it here (rather
+      // than letting it propagate out of this loop) is what keeps the
+      // worker alive: pollOnce runs as `void pollOnce(deps)` under
+      // setInterval, and an unhandled rejection there previously killed
+      // the whole process. Back off with growing delay rather than
+      // hammering a struggling database, but keep polling — never exit.
+      currentBackoffMs = nextBackoffMs(currentBackoffMs, POLL_BACKOFF_BASE_MS, POLL_BACKOFF_MAX_MS);
+      log("poll_error", {
+        errorCategory: classifyPollError(error),
+        error: error instanceof Error ? error.message : String(error),
+        backoffMs: currentBackoffMs,
+      });
+      await pollBackoff.wait(currentBackoffMs);
+      continue;
+    }
+
+    // A successful poll — whether or not it found a due job — proves the
+    // database is reachable again, so any accumulated backoff resets.
+    currentBackoffMs = 0;
+
     if (!job) return;
     try {
       await processJob(job, deps);
@@ -215,6 +301,11 @@ export async function runWorker(): Promise<void> {
     log("worker_shutting_down", { signal });
     clearInterval(staleRecoveryTimer);
     clearInterval(pollTimer);
+    // A pollOnce loop currently backing off after a poll_error would
+    // otherwise wait out the full backoff (up to POLL_BACKOFF_MAX_MS)
+    // before ever re-checking `shuttingDown` — cancelling it here is what
+    // makes shutdown interrupt that wait immediately instead.
+    pollBackoff.cancel();
     // Any in-flight attempt finishes naturally (we don't abort mid-publish);
     // the process exits once the current poll tick completes.
     setTimeout(() => process.exit(0), 250);
