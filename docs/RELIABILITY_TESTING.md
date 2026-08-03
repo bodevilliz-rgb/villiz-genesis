@@ -321,9 +321,9 @@ only an incomplete proof.
   `RELIABILITY_CHECK_BLOTATO_CONNECTION=true` is explicitly set, and only
   ever performs read-only calls — it is never required for a normal run and
   never affects the Core Reliability Score.
-- This sprint deliberately does not wire the suite into GitHub Actions —
-  the mission scoped that to a later sprint once the suite itself has
-  proven stable over repeated real runs.
+- ~~This sprint deliberately does not wire the suite into GitHub Actions~~ —
+  **done in Sprint 7.2**: see [docs/CI.md](./CI.md) for the `quality-gate.yml`
+  workflow and how to make it a required check via branch protection.
 
 ## Worker resilience (the real bug this sprint found and fixed)
 

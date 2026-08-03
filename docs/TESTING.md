@@ -10,6 +10,10 @@ npm run verify    # typecheck → lint → test → build
 
 Both exit non-zero on failure and are safe to wire into CI.
 
+`npm run test` (plus typecheck, lint, `npm run reliability:test`, and
+`npm run build`) now runs on every push/PR to `main` via GitHub Actions —
+see [docs/CI.md](./CI.md).
+
 ---
 
 ## Why the SQL suite exists

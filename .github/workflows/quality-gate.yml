@@ -1,0 +1,63 @@
+name: Quality Gate
+
+# Sprint 7.2 — Continuous Quality Gate.
+#
+# Runs the same checks a contributor is expected to run locally before
+# merging to main: typecheck, lint, the full vitest suite, the Sprint 7.1
+# publishing reliability suite, and a production build. Every step's own
+# exit code is what fails the job — nothing here silently swallows a
+# failure, and no step needs any repository secret or real Supabase/Blotato
+# credentials (see docs/RELIABILITY_TESTING.md's "Environment requirements"
+# — the DB-tier reliability checks simply SKIP without a local Supabase
+# stack, which is expected in CI and does not fail the run).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  quality-gate:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm run test
+
+      - name: Publishing reliability suite
+        run: npm run reliability:test
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload reliability reports
+        # Always upload, even if an earlier step failed, so a failing run
+        # still leaves a downloadable report to diagnose from.
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: reliability-report
+          path: |
+            reports/reliability/latest.json
+            reports/reliability/latest.md
+          if-no-files-found: warn
+          retention-days: 30
