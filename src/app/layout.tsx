@@ -11,6 +11,8 @@ export const metadata: Metadata = {
   },
   description: "Project Genesis — the operational platform Villiz runs client social media on.",
   robots: { index: false, follow: false },
+  manifest: "/manifest.webmanifest",
+  icons: { icon: "/icon.svg" },
 };
 
 export const viewport: Viewport = {

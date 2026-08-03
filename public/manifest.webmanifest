@@ -1,0 +1,17 @@
+{
+  "name": "Villiz Social Manager",
+  "short_name": "Villiz Social",
+  "description": "The operational platform Villiz runs client social media on.",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#080808",
+  "theme_color": "#08090a",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

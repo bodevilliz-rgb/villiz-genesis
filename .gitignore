@@ -9,6 +9,11 @@ npm-debug.log*
 .env*.local
 # Explicit: the cloud pilot credentials file (already covered by .env*.local above).
 .env.cloud.local
+# Explicit: a real production env file, if anyone ever creates one locally to
+# test Vercel/Render values — only .env.production.example (a template with
+# no real values) is ever meant to be tracked.
+.env.production
+.env.staging
 .env*.backup
 *.env.backup
 .vercel

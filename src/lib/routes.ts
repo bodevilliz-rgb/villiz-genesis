@@ -46,3 +46,16 @@ export const routes = {
     },
   },
 } as const;
+
+/**
+ * Sprint 8.0 — extracted from src/app/auth/callback/route.ts so its
+ * same-origin-only redirect guard is directly unit-testable. Behaviour is
+ * unchanged: a `next` query param is only honoured if it's a same-origin
+ * relative path (starts with exactly one `/`) — anything else (a full URL,
+ * a protocol-relative `//evil.com`, or nothing at all) falls back to the
+ * dashboard, so the magic-link callback can never be turned into an open
+ * redirect.
+ */
+export function resolveSafeNextPath(requested: string | null): string {
+  return requested && requested.startsWith("/") && !requested.startsWith("//") ? requested : routes.dashboard;
+}

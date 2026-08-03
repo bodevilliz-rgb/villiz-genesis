@@ -152,7 +152,7 @@ export default async function ContentStudioPage({
       />
 
       {/* View Tab Switcher */}
-      <div className="flex gap-2 border-b border-border pb-3">
+      <div className="flex gap-2 overflow-x-auto border-b border-border pb-3">
         <Button asChild variant={(!filters.view || filters.view === "list") ? "primary" : "secondary"} size="sm">
           <Link href={`/organisations/${orgId}/content?view=list`}>List View</Link>
         </Button>

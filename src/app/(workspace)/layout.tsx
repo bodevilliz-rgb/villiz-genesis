@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireContext } from "@/server/container";
 import { SidebarNav, type NavItem } from "@/components/shell/sidebar-nav";
+import { MobileNav } from "@/components/shell/mobile-nav";
 import { UserMenu } from "@/components/shell/user-menu";
 import { OrganisationSwitcher } from "@/components/shell/organisation-switcher";
 import { routes } from "@/lib/routes";
@@ -75,24 +76,30 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-border bg-background/85 px-4 py-3 backdrop-blur lg:hidden">
-          <Link href={routes.dashboard} className="flex items-center gap-2">
-            <span aria-hidden className="size-2 rounded-full bg-primary" />
-            <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-              Villiz Social
-            </span>
-          </Link>
-          <div className="w-40">
+        <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-border bg-background/85 px-2 py-2 backdrop-blur lg:hidden">
+          <div className="flex min-w-0 items-center gap-1">
+            <MobileNav
+              navGroups={[
+                { label: "Mission", items: MISSION_NAV },
+                { label: "Operations", items: OPERATIONS_NAV },
+                { label: "Business", items: BUSINESS_NAV },
+                { label: "Intelligence", items: INTELLIGENCE_NAV },
+                { label: "System", items: [{ href: routes.settings, label: "Settings", icon: "settings" }] },
+              ]}
+              organisations={organisations}
+              canCreateOrganisation={context.actor.isPlatformAdmin}
+            />
+            <Link href={routes.dashboard} className="flex min-w-0 items-center gap-2 px-1">
+              <span aria-hidden className="size-2 shrink-0 rounded-full bg-primary" />
+              <span className="truncate font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                Villiz Social
+              </span>
+            </Link>
+          </div>
+          <div className="w-40 shrink-0">
             <UserMenu actor={context.actor} />
           </div>
         </header>
-
-        <div className="lg:hidden">
-          <div className="border-b border-border px-4 py-2 space-y-2">
-            <SidebarNav items={MISSION_NAV} label="Mission" />
-            <SidebarNav items={OPERATIONS_NAV} label="Operations" />
-          </div>
-        </div>
 
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</main>
       </div>

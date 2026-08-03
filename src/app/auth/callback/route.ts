@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createGenesisClient } from "@/infrastructure/supabase/server-client";
-import { routes } from "@/lib/routes";
+import { resolveSafeNextPath } from "@/lib/routes";
 
 /**
  * Magic-link exchange.
@@ -12,8 +12,7 @@ import { routes } from "@/lib/routes";
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const requested = searchParams.get("next");
-  const next = requested && requested.startsWith("/") && !requested.startsWith("//") ? requested : routes.dashboard;
+  const next = resolveSafeNextPath(searchParams.get("next"));
 
   if (!code) {
     return NextResponse.redirect(`${origin}/auth/error?reason=missing_code`);
