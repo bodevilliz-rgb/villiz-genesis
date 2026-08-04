@@ -54,6 +54,7 @@ from the file.
 |---|---|---|
 | `NODE_VERSION` | yes | `22` — set as a literal in `render.yaml`, no secret. |
 | `NEXT_PUBLIC_SUPABASE_URL` | yes | The **production** Supabase Cloud project URL. Must be `https://` and not `localhost`/`127.0.0.1`/`*.local` — the worker refuses to start otherwise (see "Safety guards" below). |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes | The production project's public anon key. The shared Supabase client validates it during worker startup; RLS remains the security boundary. |
 | `SUPABASE_SERVICE_ROLE_KEY` | yes | Server-only. Same key used by Vercel's server actions — see [PRODUCTION_DEPLOYMENT.md](./PRODUCTION_DEPLOYMENT.md). |
 | `BLOTATO_API_KEY` | yes (to actually publish) | From https://my.blotato.com. Without it, `BLOTATO_ENABLED` has nothing to authenticate with. |
 | `BLOTATO_ENABLED` | yes | `"true"` to turn the integration on at all. |
@@ -61,15 +62,16 @@ from the file.
 
 Variables the worker does **not** need (these are Vercel/UI-only concerns —
 see [PRODUCTION_DEPLOYMENT.md](./PRODUCTION_DEPLOYMENT.md)'s variable table
-for the full split): `NEXT_PUBLIC_SITE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
-`ALLOWED_EMAIL_DOMAINS`, `ENABLE_DEV_LOGIN`, `CLOUD_PILOT_SELF_APPROVAL`.
+for the full split): `NEXT_PUBLIC_SITE_URL`, `ALLOWED_EMAIL_DOMAINS`,
+`ENABLE_DEV_LOGIN`, `CLOUD_PILOT_SELF_APPROVAL`.
 
 ## Safety guards already in place (unchanged by this sprint)
 
 `worker-publishing-cloud.ts` — the entrypoint Render actually runs — refuses
 to start at all if:
 
-- `NEXT_PUBLIC_SUPABASE_URL` or `SUPABASE_SERVICE_ROLE_KEY` is missing.
+- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, or
+  `SUPABASE_SERVICE_ROLE_KEY` is missing.
 - `NEXT_PUBLIC_SUPABASE_URL` isn't a valid `https://` URL.
 - `NEXT_PUBLIC_SUPABASE_URL` looks local (`localhost`, `127.0.0.1`, `0.0.0.0`,
   `::1`, or a `.local` hostname) — this worker will never quietly connect
