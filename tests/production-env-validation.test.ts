@@ -11,6 +11,7 @@ const VALID_ENV = {
   BLOTATO_API_KEY: "real-blotato-key",
   BLOTATO_ENABLED: "true",
   BLOTATO_LIVE_PUBLISHING_ENABLED: "false",
+  GENESIS_AUTOMATION_API_KEY: "c".repeat(64),
 };
 
 describe("validateProductionEnv", () => {
@@ -28,6 +29,12 @@ describe("validateProductionEnv", () => {
     expect(result.errors.some((e) => e.includes("NEXT_PUBLIC_SUPABASE_ANON_KEY"))).toBe(true);
     expect(result.errors.some((e) => e.includes("SUPABASE_SERVICE_ROLE_KEY"))).toBe(true);
     expect(result.errors.some((e) => e.includes("ALLOWED_EMAIL_DOMAINS"))).toBe(true);
+    expect(result.errors.some((e) => e.includes("GENESIS_AUTOMATION_API_KEY"))).toBe(true);
+  });
+
+  it("rejects a weak automation gateway token", () => {
+    const result = validateProductionEnv({ ...VALID_ENV, GENESIS_AUTOMATION_API_KEY: "too-short" });
+    expect(result.errors.some((e) => e.includes("GENESIS_AUTOMATION_API_KEY"))).toBe(true);
   });
 
   it("rejects a localhost NEXT_PUBLIC_SITE_URL as unsafe", () => {

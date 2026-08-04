@@ -85,9 +85,14 @@ worker's own list):
 | `ALLOWED_EMAIL_DOMAINS` | ✓ | | e.g. `villiz.com`. |
 | `ENABLE_DEV_LOGIN` | ✓ (`false`) | | Must be `false` in production. |
 | `CLOUD_PILOT_SELF_APPROVAL` | ✓ | | Real safety-bypass flag for the single-operator beta — see the `.env.production.example` comment before setting `true`. |
+| `GENESIS_AUTOMATION_API_KEY` | ✓ | | Server-only bearer token for the read-only n8n/Awo gateway. Generate with `openssl rand -hex 32`. |
 | `BLOTATO_API_KEY` | ✓ | ✓ | Needed by both: Vercel's Test Connection button, Render's actual publish calls. |
 | `BLOTATO_ENABLED` | ✓ | ✓ | Master integration switch. |
 | `BLOTATO_LIVE_PUBLISHING_ENABLED` | not functionally used | ✓ | Only `BlotatoPublisherBase` (worker-only code) reads this — harmless to set on Vercel too for visibility, but Render is where it actually matters. |
+
+Before running the check for Sprint 9, add the automation token to Vercel and
+your local pulled environment as described in
+[AWO_N8N_INTEGRATION.md](./AWO_N8N_INTEGRATION.md).
 
 Run `npm run production:check` against whatever you're about to set (e.g.
 `vercel env pull .env.production.local` then load it) before deploying —

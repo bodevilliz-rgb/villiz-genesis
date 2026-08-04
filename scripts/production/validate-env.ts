@@ -88,6 +88,11 @@ export function validateProductionEnv(env: Env): ValidationResult {
     );
   }
 
+  // --- Awo / n8n automation gateway ---------------------------------------
+  if (!env.GENESIS_AUTOMATION_API_KEY || env.GENESIS_AUTOMATION_API_KEY.trim().length < 32) {
+    errors.push("GENESIS_AUTOMATION_API_KEY is missing or shorter than 32 characters. The Awo/n8n gateway must use a strong server-only bearer token.");
+  }
+
   // --- Blotato ----------------------------------------------------------
   const blotatoEnabled = env.BLOTATO_ENABLED === "true";
   if (blotatoEnabled && (!env.BLOTATO_API_KEY || env.BLOTATO_API_KEY.trim().length === 0)) {
