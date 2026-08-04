@@ -17,6 +17,17 @@
 
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
+export type ClaimAutomationEventRow = {
+  event_id: string;
+  event_type: string;
+  aggregate_type: string;
+  aggregate_id: string;
+  organisation_id: string | null;
+  payload: Json;
+  occurred_at: string;
+  lease_token: string;
+};
+
 export type CampaignStatusDb = "planning" | "active" | "completed" | "archived";
 export type ConnectionStatusDb = "connected" | "expired" | "revoked";
 export type ContentDraftAwoStatusDb = "not_requested" | "ready_for_awo";
@@ -1048,6 +1059,18 @@ export type Database = {
       organisation_usage_snapshot: View<UsageSnapshotRow>;
     };
     Functions: {
+      ack_automation_event: {
+        Args: { p_event_id: string; p_consumer: string; p_lease_token: string };
+        Returns: boolean;
+      };
+      automation_status_snapshot: {
+        Args: Record<PropertyKey, never>;
+        Returns: Json;
+      };
+      claim_automation_events: {
+        Args: { p_consumer: string; p_limit?: number | null; p_lease_seconds?: number | null };
+        Returns: ClaimAutomationEventRow[];
+      };
       claim_next_publishing_job: {
         Args: {
           p_worker_id: string;

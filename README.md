@@ -94,6 +94,7 @@ You will not be able to sign in until a user exists — see
 | `SUPABASE_SERVICE_ROLE_KEY` | server only | Bypasses RLS. Never imported into a client component. |
 | `NEXT_PUBLIC_SITE_URL` | server | Magic-link redirect target |
 | `ALLOWED_EMAIL_DOMAINS` | server | Comma-separated staff domains, e.g. `villiz.com` |
+| `GENESIS_AUTOMATION_API_KEY` | server | Bearer token for the read-only n8n/Awo gateway |
 
 All five are validated by Zod at first use (`src/lib/env.ts`). A missing variable
 fails loudly on the first request rather than producing a confusing 500 later.

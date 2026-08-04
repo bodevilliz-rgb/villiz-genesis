@@ -10,6 +10,7 @@ const serverSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(20).optional(),
   NEXT_PUBLIC_SITE_URL: z.string().url().default("http://localhost:3000"),
   ALLOWED_EMAIL_DOMAINS: z.string().default("villiz.com"),
+  GENESIS_AUTOMATION_API_KEY: z.string().min(32).optional(),
 });
 
 let cached: z.infer<typeof serverSchema> | null = null;
@@ -23,6 +24,7 @@ export function serverEnv() {
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
     NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
     ALLOWED_EMAIL_DOMAINS: process.env.ALLOWED_EMAIL_DOMAINS,
+    GENESIS_AUTOMATION_API_KEY: process.env.GENESIS_AUTOMATION_API_KEY,
   });
 
   if (!parsed.success) {
