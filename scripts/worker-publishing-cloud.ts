@@ -32,7 +32,7 @@ import { runWorker, log } from "./publishing-worker-core";
 const REPO_ROOT = path.resolve(__dirname, "..");
 const CLOUD_ENV_PATH = path.join(REPO_ROOT, ".env.cloud.local");
 
-const REQUIRED_VARS = ["NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
+const REQUIRED_VARS = ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY"];
 
 function fail(message: string): never {
   // eslint-disable-next-line no-console

@@ -79,7 +79,7 @@ worker's own list):
 |---|---|---|---|
 | `NEXT_PUBLIC_SITE_URL` | ✓ | | Set only after your first deploy gives you a real URL — see [AUTH_PRODUCTION_SETUP.md](./AUTH_PRODUCTION_SETUP.md). |
 | `NEXT_PUBLIC_SUPABASE_URL` | ✓ | ✓ | The production Supabase Cloud project's URL. |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ✓ | | Public by design; RLS is the real boundary. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | ✓ | ✓ | Public by design; the shared Supabase client requires it at worker startup and RLS is the real boundary. |
 | `SUPABASE_URL` | optional | | Not read by any code — see the `.env.production.example` comment. Safe to omit. |
 | `SUPABASE_SERVICE_ROLE_KEY` | ✓ | ✓ | Server-only. Never prefix with `NEXT_PUBLIC_`. |
 | `ALLOWED_EMAIL_DOMAINS` | ✓ | | e.g. `villiz.com`. |

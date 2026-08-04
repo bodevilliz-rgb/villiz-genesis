@@ -33,7 +33,12 @@ describe("render.yaml (Render Background Worker configuration)", () => {
   });
 
   it("marks every secret env var sync: false so Render never accepts a committed value", () => {
-    for (const secretKey of ["NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "BLOTATO_API_KEY"]) {
+    for (const secretKey of [
+      "NEXT_PUBLIC_SUPABASE_URL",
+      "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+      "SUPABASE_SERVICE_ROLE_KEY",
+      "BLOTATO_API_KEY",
+    ]) {
       const keyIndex = raw.indexOf(`key: ${secretKey}`);
       expect(keyIndex, `${secretKey} should be declared`).toBeGreaterThan(-1);
       const nextLines = raw.slice(keyIndex, keyIndex + 120);
