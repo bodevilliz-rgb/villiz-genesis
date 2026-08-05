@@ -6,7 +6,7 @@ import type {
 } from "@/lib/ai/types";
 
 interface CreateGenerationRunInput {
-  workspaceId: string;
+  organisationId: string;
   promptTemplateId?: string | null;
   draftId?: string | null;
   campaignId?: string | null;
@@ -34,7 +34,7 @@ export class GenerationRunRepository {
     const { data, error } = await this.supabase
       .from("ai_generation_runs")
       .insert({
-        workspace_id: input.workspaceId,
+        organisation_id: input.organisationId,
         prompt_template_id: input.promptTemplateId ?? null,
         draft_id: input.draftId ?? null,
         campaign_id: input.campaignId ?? null,

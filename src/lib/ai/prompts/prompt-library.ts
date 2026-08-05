@@ -7,7 +7,7 @@ import type {
 
 interface PromptTemplateRow {
   id: string;
-  workspace_id: string | null;
+  organisation_id: string | null;
   name: string;
   slug: string;
   description: string | null;
@@ -25,11 +25,11 @@ interface PromptTemplateRow {
 export class PromptTemplateNotFoundError extends Error {
   constructor(options: {
     promptType: AiPromptType;
-    workspaceId?: string;
+    organisationId?: string;
     slug?: string;
   }) {
-    const scope = options.workspaceId
-      ? `workspace ${options.workspaceId}`
+    const scope = options.organisationId
+      ? `organisation ${options.organisationId}`
       : "system defaults";
 
     const slugText = options.slug
@@ -49,7 +49,7 @@ function mapPromptTemplateRow(
 ): AiPromptTemplate {
   return {
     id: row.id,
-    workspaceId: row.workspace_id,
+    organisationId: row.organisation_id,
     name: row.name,
     slug: row.slug,
     description: row.description,
@@ -72,13 +72,13 @@ export class PromptLibrary {
 
   async getActiveTemplate(options: {
     promptType: AiPromptType;
-    workspaceId?: string;
+    organisationId?: string;
     slug?: string;
   }): Promise<AiPromptTemplate> {
-    const workspaceTemplate = options.workspaceId
+    const workspaceTemplate = options.organisationId
       ? await this.findTemplate({
           promptType: options.promptType,
-          workspaceId: options.workspaceId,
+          organisationId: options.organisationId,
           slug: options.slug,
           systemDefaultOnly: false,
         })
@@ -90,7 +90,7 @@ export class PromptLibrary {
 
     const systemTemplate = await this.findTemplate({
       promptType: options.promptType,
-      workspaceId: null,
+      organisationId: null,
       slug: options.slug,
       systemDefaultOnly: true,
     });
@@ -104,7 +104,7 @@ export class PromptLibrary {
 
   private async findTemplate(options: {
     promptType: AiPromptType;
-    workspaceId: string | null;
+    organisationId: string | null;
     slug?: string;
     systemDefaultOnly: boolean;
   }): Promise<AiPromptTemplate | null> {
@@ -113,7 +113,7 @@ export class PromptLibrary {
       .select(
         [
           "id",
-          "workspace_id",
+          "organisation_id",
           "name",
           "slug",
           "description",
@@ -134,9 +134,9 @@ export class PromptLibrary {
       .limit(1);
 
     query =
-      options.workspaceId === null
-        ? query.is("workspace_id", null)
-        : query.eq("workspace_id", options.workspaceId);
+      options.organisationId === null
+        ? query.is("organisation_id", null)
+        : query.eq("organisation_id", options.organisationId);
 
     if (options.systemDefaultOnly) {
       query = query.eq("is_system_default", true);

@@ -62,7 +62,7 @@ export interface AiGenerationResponse<TOutput = unknown> {
 
 export interface AiPromptTemplate {
   id: string;
-  workspaceId: string | null;
+  organisationId: string | null;
   name: string;
   slug: string;
   description: string | null;
