@@ -10,6 +10,11 @@ import {
   archiveDraft,
   duplicateDraft,
 } from "@/core/application/use-cases/content";
+import {
+  generateImprovedDraft,
+  getGenerationReadiness,
+} from "@/core/application/use-cases/generation";
+import { getAIProvider } from "@/infrastructure/ai/provider-factory";
 import { errorState, successState, textOrEmpty, type ActionState } from "../action-result";
 import { routes } from "@/lib/routes";
 
@@ -70,6 +75,69 @@ export async function updateDraftAction(_prev: ActionState, formData: FormData):
     revalidateContent(draft.organisationId, draft.id);
     revalidatePath(routes.organisations.content.history(draft.organisationId, draft.id));
     return successState(`Saved as version ${draft.version}.`, draft.id);
+  } catch (error) {
+    return errorState(error);
+  }
+}
+
+export async function generateImprovedDraftAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  try {
+    const context = await requireContext();
+    const organisationId = textOrEmpty(formData, "organisationId");
+    const draftId = textOrEmpty(formData, "draftId");
+    const additionalInstructions = textOrEmpty(
+      formData,
+      "additionalInstructions",
+    );
+
+    if (!organisationId || !draftId) {
+      throw new Error(
+        "Organisation and draft details are required.",
+      );
+    }
+
+    const readiness = await getGenerationReadiness(
+      {
+        actor: context.actor,
+        organisations: context.organisations,
+        campaigns: context.campaigns,
+        content: context.content,
+        membrain: context.membrain,
+      },
+      organisationId,
+      draftId,
+    );
+
+    const result = await generateImprovedDraft(
+      {
+        aiProvider: getAIProvider(),
+        promptLibrary: context.promptLibrary,
+        generationRuns: context.generationRuns,
+      },
+      {
+        organisationId,
+        draftId,
+        requestedBy: context.actor.id,
+        readiness,
+        additionalInstructions:
+          additionalInstructions || undefined,
+      },
+    );
+
+    revalidateContent(organisationId, draftId);
+
+    const warningMessage =
+      result.warnings.length > 0
+        ? ` ${result.warnings.length} warning(s) require review.`
+        : "";
+
+    return successState(
+      `Improved draft generated for review.${warningMessage}`,
+      draftId,
+    );
   } catch (error) {
     return errorState(error);
   }
