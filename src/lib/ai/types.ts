@@ -59,3 +59,20 @@ export interface AiGenerationResponse<TOutput = unknown> {
   model: string;
   usage?: AiUsage;
 }
+
+export interface AiPromptTemplate {
+  id: string;
+  workspaceId: string | null;
+  name: string;
+  slug: string;
+  description: string | null;
+  promptType: AiPromptType;
+  systemPrompt: string;
+  userPromptTemplate: string;
+  model: string;
+  temperature: number;
+  maxTokens: number;
+  version: number;
+  isActive: boolean;
+  isSystemDefault: boolean;
+}
