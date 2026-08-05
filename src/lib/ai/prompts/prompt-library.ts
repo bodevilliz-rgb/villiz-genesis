@@ -102,6 +102,69 @@ export class PromptLibrary {
     throw new PromptTemplateNotFoundError(options);
   }
 
+  async createTemplateIfAbsent(options: {
+    organisationId: string;
+    name: string;
+    slug: string;
+    description: string;
+    promptType: AiPromptType;
+    systemPrompt: string;
+    userPromptTemplate: string;
+    model: string;
+    temperature: number;
+    maxTokens: number;
+    createdBy: string;
+  }): Promise<AiPromptTemplate> {
+    const existing = await this.findTemplate({
+      promptType: options.promptType,
+      organisationId: options.organisationId,
+      slug: options.slug,
+      systemDefaultOnly: false,
+    });
+    if (existing) return existing;
+
+    const { data, error } = await this.supabase
+      .from("ai_prompt_templates")
+      .insert({
+        organisation_id: options.organisationId,
+        name: options.name,
+        slug: options.slug,
+        description: options.description,
+        prompt_type: options.promptType,
+        system_prompt: options.systemPrompt,
+        user_prompt_template: options.userPromptTemplate,
+        model: options.model,
+        temperature: options.temperature,
+        max_tokens: options.maxTokens,
+        version: 1,
+        is_active: true,
+        is_system_default: false,
+        created_by: options.createdBy,
+      })
+      .select(
+        [
+          "id",
+          "organisation_id",
+          "name",
+          "slug",
+          "description",
+          "prompt_type",
+          "system_prompt",
+          "user_prompt_template",
+          "model",
+          "temperature",
+          "max_tokens",
+          "version",
+          "is_active",
+          "is_system_default",
+        ].join(","),
+      )
+      .single();
+
+    if (error) throw new Error(`Failed to create prompt template "${options.slug}": ${error.message}`);
+    return mapPromptTemplateRow(data as unknown as PromptTemplateRow);
+  }
+
   private async findTemplate(options: {
     promptType: AiPromptType;
     organisationId: string | null;

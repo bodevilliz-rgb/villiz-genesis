@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Building2, Plus } from "lucide-react";
+import { Building2, Plus, Sparkles } from "lucide-react";
 import { requireContext } from "@/server/container";
 import { PageHeader } from "@/components/common/page-header";
 import { EmptyState } from "@/components/common/empty-state";
@@ -36,12 +36,20 @@ export default async function OrganisationsPage() {
         description="Every organisation Villiz manages. Clients do not have access — this is our view of their work."
         actions={
           context.actor.isPlatformAdmin ? (
-            <Button asChild variant="primary">
-              <Link href={routes.organisations.new}>
-                <Plus aria-hidden />
-                Add a client
-              </Link>
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button asChild variant="secondary">
+                <Link href={routes.organisations.new}>
+                  <Plus aria-hidden />
+                  Quick add
+                </Link>
+              </Button>
+              <Button asChild variant="primary">
+                <Link href={routes.organisations.setup}>
+                  <Sparkles aria-hidden />
+                  Setup Assistant
+                </Link>
+              </Button>
+            </div>
           ) : null
         }
       />
@@ -57,9 +65,17 @@ export default async function OrganisationsPage() {
           }
           action={
             context.actor.isPlatformAdmin ? (
-              <Button asChild variant="primary">
-                <Link href={routes.organisations.new}>Add a client</Link>
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button asChild variant="secondary">
+                  <Link href={routes.organisations.new}>Quick add</Link>
+                </Button>
+                <Button asChild variant="primary">
+                  <Link href={routes.organisations.setup}>
+                    <Sparkles aria-hidden />
+                    Setup Assistant
+                  </Link>
+                </Button>
+              </div>
             ) : null
           }
         />

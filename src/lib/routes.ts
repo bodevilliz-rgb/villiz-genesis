@@ -14,6 +14,7 @@ export const routes = {
   organisations: {
     index: "/organisations",
     new: "/organisations/new",
+    setup: "/organisations/setup",
     detail: (id: string) => `/organisations/${id}`,
     settings: (id: string) => `/organisations/${id}/settings`,
     team: (id: string) => `/organisations/${id}/team`,
