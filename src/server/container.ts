@@ -14,6 +14,8 @@ import { SupabaseStoragePort } from "@/infrastructure/ports/supabase-storage-por
 import { SupabaseAuditRepository } from "@/infrastructure/repositories/supabase-audit-repository";
 import { SupabaseNotificationRepository } from "@/infrastructure/repositories/supabase-notification-repository";
 import { SupabasePublishingRepository } from "@/infrastructure/repositories/supabase-publishing-repository";
+import { PromptLibrary } from "@/lib/ai/prompts/prompt-library";
+import { GenerationRunRepository } from "@/lib/ai/services/generation-run-repository";
 import { SupabaseBlotatoAccountRepository } from "@/infrastructure/repositories/supabase-blotato-account-repository";
 import { HttpBlotatoClient } from "@/infrastructure/blotato/http-blotato-client";
 import { blotatoConfig } from "@/infrastructure/blotato/blotato-config";
@@ -45,6 +47,8 @@ export interface RequestContext {
   audits: SupabaseAuditRepository;
   notifications: SupabaseNotificationRepository;
   publishing: SupabasePublishingRepository;
+  promptLibrary: PromptLibrary;
+  generationRuns: GenerationRunRepository;
   blotatoAccounts: SupabaseBlotatoAccountRepository;
   blotatoClient: HttpBlotatoClient;
 }
@@ -75,6 +79,8 @@ export const getRequestContext = cache(async (): Promise<RequestContext | null> 
     audits: new SupabaseAuditRepository(client),
     notifications: new SupabaseNotificationRepository(client),
     publishing: new SupabasePublishingRepository(client),
+    promptLibrary: new PromptLibrary(client),
+    generationRuns: new GenerationRunRepository(client),
     blotatoAccounts: new SupabaseBlotatoAccountRepository(client),
     blotatoClient: new HttpBlotatoClient(blotatoConfig().apiKey),
   };
