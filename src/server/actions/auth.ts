@@ -41,7 +41,7 @@ export async function requestSignInLink(_prev: ActionState, formData: FormData):
       email,
       options: {
         shouldCreateUser: false,
-        emailRedirectTo: `${serverEnv().NEXT_PUBLIC_SITE_URL}${routes.authCallback}`,
+        emailRedirectTo: `${serverEnv().NEXT_PUBLIC_SITE_URL.replace(/\/$/, "")}${routes.authCallback}`,
       },
     });
 
