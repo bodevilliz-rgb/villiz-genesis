@@ -1,6 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { PUBLISHING_ATTEMPT_STATUS_LABELS, type PublishingAttempt } from "@/core/domain/entities/publishing";
 import { formatDateTime, formatDuration } from "@/lib/format";
+import { FailureClassificationBadge } from "./failure-classification";
 
 const STATUS_TONE: Record<PublishingAttempt["status"], "muted" | "accent" | "positive" | "danger"> = {
   queued: "muted",
@@ -42,9 +43,9 @@ export function AttemptTimeline({ attempts }: { attempts: PublishingAttempt[] })
           ) : null}
 
           {attempt.status === "failed" ? (
-            <p className="mt-2 rounded bg-danger-soft p-2 text-[12px] text-danger">
-              {attempt.errorCode}: {attempt.errorMessage}
-            </p>
+            <div className="mt-2">
+              <FailureClassificationBadge errorCode={attempt.errorCode} errorMessage={attempt.errorMessage} />
+            </div>
           ) : null}
         </li>
       ))}
