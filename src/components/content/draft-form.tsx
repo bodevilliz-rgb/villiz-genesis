@@ -18,6 +18,13 @@ import type { Campaign } from "@/core/domain/entities/campaign";
 import type { MediaAsset } from "@/core/domain/entities/media";
 import { attachAssetToDraftAction, detachAssetFromDraftAction } from "@/server/actions/media";
 import { generateCaption, rewriteContent } from "@/server/actions/awo";
+import {
+  isDraftBodyEmpty,
+  resolveEffectiveAiAction,
+  isAiActionAvailable,
+  rewriteInstructionForAction,
+  buildGenerateCaptionArgs,
+} from "./awo-assist-logic";
 import { routes } from "@/lib/routes";
 
 const AUTOSAVE_DEBOUNCE_MS = 2000;
@@ -101,26 +108,31 @@ export function DraftForm({
   const [localAttachedAssets, setLocalAttachedAssets] = useState<MediaAsset[]>(attachedAssets);
   const [isAssetPending, startAssetTransition] = useTransition();
   const [aiLoading, setAiLoading] = useState(false);
-  const [aiAction, setAiAction] = useState<string>("rewrite");
+  const [draftBody, setDraftBody] = useState<string>(draft?.body ?? "");
+  const [aiAction, setAiAction] = useState<string>(
+    isDraftBodyEmpty(draft?.body ?? "") ? "generate" : "rewrite",
+  );
   const [aiPrompt, setAiPrompt] = useState<string>("");
+
+  const effectiveAiAction = resolveEffectiveAiAction(draftBody, aiAction);
 
   async function handleAiAssist() {
     setAiLoading(true);
     try {
       const currentBody = (document.getElementById("body") as HTMLTextAreaElement)?.value || "";
       let suggestion = "";
-      
-      if (aiAction === "generate") {
-        const res = await generateCaption(organisationId, aiPrompt || draft?.title || "Generate a creative draft", draft?.category?.label || "General");
+
+      if (effectiveAiAction === "generate") {
+        const [orgId, prompt, platform] = buildGenerateCaptionArgs(
+          organisationId,
+          aiPrompt,
+          draft?.title,
+          draft?.scheduledPlatform,
+        );
+        const res = await generateCaption(orgId, prompt, platform);
         suggestion = res.text;
       } else {
-        let instruction: "expand" | "shorten" | "professional" | "casual" | "punchy" = "professional";
-        if (aiAction === "shorten") instruction = "shorten";
-        if (aiAction === "expand") instruction = "expand";
-        if (aiAction === "change_tone") instruction = "professional"; // Map properly later if needed
-        if (aiAction === "alternative_captions") instruction = "punchy";
-        if (aiAction === "clarity") instruction = "professional";
-        
+        const instruction = rewriteInstructionForAction(effectiveAiAction);
         const res = await rewriteContent(organisationId, currentBody, instruction);
         suggestion = res.text;
       }
@@ -139,6 +151,7 @@ export function DraftForm({
     const bodyEl = document.getElementById("body") as HTMLTextAreaElement;
     if (bodyEl && aiSuggestion) {
       bodyEl.value = aiSuggestion;
+      setDraftBody(aiSuggestion);
       setDirty(true);
       setAiSuggestion(null);
       toast.success("AI suggestion applied to draft.");
@@ -242,6 +255,7 @@ export function DraftForm({
           rows={16}
           maxLength={50000}
           defaultValue={draft?.body}
+          onChange={(e) => setDraftBody(e.target.value)}
           placeholder="Start writing, or use the generation request alongside this document to bring in what MemBrain already knows about this client."
           className="knowledge-body font-mono text-[13px] leading-relaxed"
           aria-invalid={Boolean(state.fieldErrors?.body)}
@@ -258,18 +272,35 @@ export function DraftForm({
           </div>
           <div className="flex flex-wrap gap-2 items-center">
             <Select
-              value={aiAction}
+              value={effectiveAiAction}
               onChange={(e) => setAiAction(e.target.value)}
               className="max-w-[200px]"
               aria-label="AI Action Selection"
             >
-              <option value="generate">Generate first draft</option>
-              <option value="rewrite">Rewrite</option>
-              <option value="shorten">Shorten</option>
-              <option value="expand">Expand</option>
-              <option value="change_tone">Change tone</option>
-              <option value="alternative_captions">Create alternative captions</option>
-              <option value="clarity">Improve clarity</option>
+              <option value="generate" disabled={!isAiActionAvailable(draftBody, "generate")}>
+                Generate first draft
+              </option>
+              <option value="rewrite" disabled={!isAiActionAvailable(draftBody, "rewrite")}>
+                Rewrite
+              </option>
+              <option value="shorten" disabled={!isAiActionAvailable(draftBody, "shorten")}>
+                Shorten
+              </option>
+              <option value="expand" disabled={!isAiActionAvailable(draftBody, "expand")}>
+                Expand
+              </option>
+              <option value="change_tone" disabled={!isAiActionAvailable(draftBody, "change_tone")}>
+                Change tone
+              </option>
+              <option
+                value="alternative_captions"
+                disabled={!isAiActionAvailable(draftBody, "alternative_captions")}
+              >
+                Create alternative captions
+              </option>
+              <option value="clarity" disabled={!isAiActionAvailable(draftBody, "clarity")}>
+                Improve clarity
+              </option>
             </Select>
             <Input
               type="text"
