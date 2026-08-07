@@ -30,7 +30,7 @@ const OPERATIONS_NAV: NavItem[] = [
   { href: "#projects", label: "Projects", icon: "folders", disabled: true, note: "Soon" },
   { href: "#creative", label: "Creative", icon: "pen-line", disabled: true, note: "Soon" },
   { href: routes.review, label: "Reviews", icon: "check-circle" },
-  { href: "#publishing", label: "Publishing", icon: "calendar-clock", disabled: true, note: "Soon" },
+  { href: routes.publishing, label: "Publishing", icon: "calendar-clock" },
 ];
 
 const BUSINESS_NAV: NavItem[] = [

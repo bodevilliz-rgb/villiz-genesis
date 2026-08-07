@@ -6,6 +6,7 @@ export const routes = {
   login: "/login",
   authCallback: "/auth/callback",
   dashboard: "/dashboard",
+  publishing: "/publishing",
   review: "/review",
   reviewWorkspace: (id: string) => `/review/${id}`,
   reviewCompare: (id: string) => `/review/${id}/compare`,
@@ -43,6 +44,9 @@ export const routes = {
     publishing: {
       index: (id: string) => `/organisations/${id}/publishing`,
       job: (id: string, jobId: string) => `/organisations/${id}/publishing/${jobId}`,
+    },
+    reports: {
+      index: (id: string) => `/organisations/${id}/reports`,
     },
   },
 } as const;
