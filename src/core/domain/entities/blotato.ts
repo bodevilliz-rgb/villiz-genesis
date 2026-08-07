@@ -19,6 +19,8 @@ export interface BlotatoAccountSummary {
 
 /** A BlotatoAccountSummary persisted to `blotato_accounts`, with bookkeeping timestamps. */
 export interface BlotatoAccount extends BlotatoAccountSummary {
+  /** Which client organisation owns this account. Null means the row pre-dates org scoping or was stored via a platform-wide Test Connection without an org context — such rows are blocked from driving a real publish until backfilled. */
+  organisationId: string | null;
   firstConnectedAt: string;
   lastVerifiedAt: string;
 }

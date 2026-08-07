@@ -74,13 +74,13 @@ export abstract class BlotatoPublisherBase implements PublisherPort {
     }
 
     const blotatoPlatform = toBlotatoPlatform(this.platform);
-    const account = await this.deps.blotatoAccounts.findMostRecentForPlatform(blotatoPlatform);
+    const account = await this.deps.blotatoAccounts.findMostRecentForPlatform(blotatoPlatform, input.organisationId);
 
     if (!account) {
       return {
         success: false,
         errorCode: "blotato_no_connected_account",
-        errorMessage: `No Blotato account is connected for ${this.platform}. Connect one from Publishing Settings, then Test Connection.`,
+        errorMessage: `No Blotato account is connected for ${this.platform} on this organisation. Connect one from Publishing Settings, then Test Connection.`,
         metadata: { organisationId: input.organisationId, draftId: input.draftId },
       };
     }

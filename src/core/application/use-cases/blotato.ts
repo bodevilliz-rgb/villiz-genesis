@@ -56,7 +56,11 @@ export async function testBlotatoConnection(deps: BlotatoDeps): Promise<BlotatoC
     };
   }
 
-  const stored = await deps.blotatoAccounts.upsertAccounts(summaries);
+  // organisation_id is null here — testBlotatoConnection is a platform-wide
+  // admin action with no org context. Rows stored this way are visible in
+  // the settings UI but blocked from driving a real publish until an operator
+  // backfills organisation_id (documented in the 20260807120000 migration).
+  const stored = await deps.blotatoAccounts.upsertAccounts(summaries, null);
 
   return {
     reachable: true,

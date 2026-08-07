@@ -1,9 +1,8 @@
 import type { BlotatoAccount, BlotatoAccountSummary } from "@/core/domain/entities/blotato";
 
 /**
- * Storage for the accounts Blotato reports as connected — platform-wide, not
- * organisation-scoped (see the migration's own comment for why). The only
- * writer is testBlotatoConnection(); everything else only ever reads.
+ * Storage for the accounts Blotato reports as connected. The only writer is
+ * testBlotatoConnection(); everything else only ever reads.
  */
 export interface BlotatoAccountRepository {
   /**
@@ -13,9 +12,19 @@ export interface BlotatoAccountRepository {
    * disconnected account should stay visible as history until an operator
    * explicitly removes it, not silently disappear the next time someone
    * clicks Test Connection.
+   *
+   * `organisationId` is null when called from a platform-wide Test Connection
+   * without org context (legacy/settings page flow before Sprint 10B). Rows
+   * with a null organisation_id cannot be used by the publishing worker —
+   * they must be backfilled before live publishing works for that org.
    */
-  upsertAccounts(accounts: BlotatoAccountSummary[]): Promise<BlotatoAccount[]>;
+  upsertAccounts(accounts: BlotatoAccountSummary[], organisationId: string | null): Promise<BlotatoAccount[]>;
   listAccounts(): Promise<BlotatoAccount[]>;
-  /** The most recently verified stored account for a given platform, if any — used by BlotatoPublisherBase to resolve which Blotato accountId to publish through. */
-  findMostRecentForPlatform(blotatoPlatform: string): Promise<BlotatoAccount | null>;
+  /**
+   * Returns the most recently verified account scoped to `organisationId` for
+   * the given Blotato platform string. NEVER falls back to null-org rows or
+   * another org's account — if this org has no verified account, returns null
+   * and the caller must fail safely.
+   */
+  findMostRecentForPlatform(blotatoPlatform: string, organisationId: string): Promise<BlotatoAccount | null>;
 }
