@@ -36,6 +36,30 @@ interface GenerationDeps {
 const READY_CONFIDENCE_THRESHOLD = 80;
 
 /**
+ * Returns one specific blocking reason per missing prompt-ready condition,
+ * never a compound message. Exported so the status gate can be tested
+ * independently of the full orchestrator.
+ */
+export function computePromptReadyReasons(hasBrandDescription: boolean, hasDraftBody: boolean): string[] {
+  const reasons: string[] = [];
+  if (!hasBrandDescription) reasons.push("An active Brand Description entry is required in MemBrain.");
+  if (!hasDraftBody) reasons.push("Save some draft body text before generation readiness can be completed.");
+  return reasons;
+}
+
+/**
+ * Maps confidence score + promptReady to the status label. The two conditions
+ * are both required — a high score does not override a missing prompt-ready
+ * condition, and vice versa. Exported for tests.
+ */
+export function resolveReadinessStatus(
+  confidenceScore: number,
+  promptReady: boolean,
+): "ready_for_awo" | "needs_attention" {
+  return confidenceScore >= READY_CONFIDENCE_THRESHOLD && promptReady ? "ready_for_awo" : "needs_attention";
+}
+
+/**
  * Orchestrates every engine in this sprint into one bundle for the
  * generation-readiness panel: fetches MemBrain once (reused by both the
  * Context Engine and the Knowledge Resolver — see context.ts's own note on
@@ -68,15 +92,16 @@ export async function getGenerationReadiness(
   const confidence = computeOverallConfidence(knowledgeCoverage, campaignReadiness, draftAnalysis);
   const promptSpecification = composePromptSpecification(context);
 
-  const promptReady = context.brand.brandDescription.length > 0 && context.draft.body.trim().length > 0;
+  const hasBrandDescription = context.brand.brandDescription.length > 0;
+  const hasDraftBody = context.draft.body.trim().length > 0;
+  const promptReady = hasBrandDescription && hasDraftBody;
 
   const blockingReasons: string[] = [
-    ...(!promptReady ? ["A brand description and some draft body text are needed before a prompt can be assembled."] : []),
+    ...computePromptReadyReasons(hasBrandDescription, hasDraftBody),
     ...confidence.missingInformation,
   ];
 
-  const status: GenerationReadiness["status"] =
-    confidence.score >= READY_CONFIDENCE_THRESHOLD && promptReady ? "ready_for_awo" : "needs_attention";
+  const status = resolveReadinessStatus(confidence.score, promptReady);
 
   return {
     status,
