@@ -22,23 +22,17 @@ export function isDraftBodyEmpty(body: string): boolean {
 }
 
 /**
- * Explicit state-machine resolver.
+ * Returns the action that should actually run given the current body content.
  *
- * STATE A — empty body  → "generate" (the only valid action)
- * STATE B — has content → currentAction (if a transform) or "rewrite" fallback
- *
- * This is the single authoritative resolver. The component derives effectiveAiAction
- * from this function; nothing else reads body state to determine the action.
+ * Rules:
+ * - Empty body → "generate" (the only valid action)
+ * - Non-empty body + "generate" selected → fall back to "rewrite"
+ * - Non-empty body + content-dependent action → use that action unchanged
  */
-export function normaliseAiAction(currentAction: string, body: string): string {
-  if (isDraftBodyEmpty(body)) return "generate";
-  if (currentAction === "generate") return "rewrite";
-  return currentAction;
-}
-
-/** Backward-compat alias — use normaliseAiAction for new call sites. */
 export function resolveEffectiveAiAction(body: string, selectedAction: string): string {
-  return normaliseAiAction(selectedAction, body);
+  if (isDraftBodyEmpty(body)) return "generate";
+  if (selectedAction === "generate") return "rewrite";
+  return selectedAction;
 }
 
 /**

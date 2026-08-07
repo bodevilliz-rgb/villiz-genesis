@@ -20,7 +20,7 @@ import { attachAssetToDraftAction, detachAssetFromDraftAction } from "@/server/a
 import { generateCaption, rewriteContent } from "@/server/actions/awo";
 import {
   isDraftBodyEmpty,
-  normaliseAiAction,
+  resolveEffectiveAiAction,
   isAiActionAvailable,
   rewriteInstructionForAction,
   buildGenerateCaptionArgs,
@@ -114,11 +114,12 @@ export function DraftForm({
   );
   const [aiPrompt, setAiPrompt] = useState<string>("");
 
-  const effectiveAiAction = normaliseAiAction(aiAction, draftBody);
+  const effectiveAiAction = resolveEffectiveAiAction(draftBody, aiAction);
 
   async function handleAiAssist() {
     setAiLoading(true);
     try {
+      const currentBody = (document.getElementById("body") as HTMLTextAreaElement)?.value || "";
       let suggestion = "";
 
       if (effectiveAiAction === "generate") {
@@ -132,7 +133,7 @@ export function DraftForm({
         suggestion = res.text;
       } else {
         const instruction = rewriteInstructionForAction(effectiveAiAction);
-        const res = await rewriteContent(organisationId, draftBody, instruction);
+        const res = await rewriteContent(organisationId, currentBody, instruction);
         suggestion = res.text;
       }
 
@@ -147,11 +148,14 @@ export function DraftForm({
   }
 
   function acceptAiSuggestion() {
-    if (!aiSuggestion) return;
-    setDraftBody(aiSuggestion);
-    setDirty(true);
-    setAiSuggestion(null);
-    toast.success("AI suggestion applied to draft.");
+    const bodyEl = document.getElementById("body") as HTMLTextAreaElement;
+    if (bodyEl && aiSuggestion) {
+      bodyEl.value = aiSuggestion;
+      setDraftBody(aiSuggestion);
+      setDirty(true);
+      setAiSuggestion(null);
+      toast.success("AI suggestion applied to draft.");
+    }
   }
 
   function scheduleAutosave() {
@@ -250,7 +254,7 @@ export function DraftForm({
           name="body"
           rows={16}
           maxLength={50000}
-          value={draftBody}
+          defaultValue={draft?.body}
           onChange={(e) => setDraftBody(e.target.value)}
           placeholder="Start writing, or use the generation request alongside this document to bring in what MemBrain already knows about this client."
           className="knowledge-body font-mono text-[13px] leading-relaxed"
