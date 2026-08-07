@@ -151,6 +151,28 @@ export interface PromptSpecification {
   constraints: string[];
 }
 
+/**
+ * Evidence metadata written to the `validation_result` JSON column after
+ * every successful generation. No DB migration required — the column accepts
+ * `unknown`. Consumers read it for audit, monitoring, and future UI badges.
+ */
+export interface GroundingMetadata {
+  /** MemBrain category keys whose entries were present in the prompt specification. */
+  categoriesUsed: string[];
+  /**
+   * MemBrain entry IDs fed into the prompt. Currently always empty — IDs are
+   * not threaded through `BrandContext`. Tracked here so a future refactor can
+   * populate it without touching the callers' interface.
+   */
+  knowledgeEntryIds: string[];
+  /** Whether the post-generation lexical compliance check ran. */
+  complianceChecked: boolean;
+  /** Number of prohibited-term violations found by the lexical check. */
+  complianceViolationsFound: number;
+  /** Number of violations repaired by the lexical check before returning output. */
+  complianceViolationsRepaired: number;
+}
+
 export type GenerationReadinessStatus = "ready_for_awo" | "needs_attention";
 
 export interface GenerationReadiness {

@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { AIProviderPort } from "@/core/application/ports/ai-provider-port";
 import type {
   GenerationReadiness,
+  GroundingMetadata,
   PromptSpecification,
 } from "@/core/domain/entities/generation";
 import {
@@ -11,6 +12,10 @@ import {
 } from "@/lib/ai/prompts/prompt-library";
 import { renderPromptTemplate } from "@/lib/ai/prompts/render-prompt";
 import { GenerationRunRepository } from "@/lib/ai/services/generation-run-repository";
+import {
+  detectComplianceViolations,
+  repairComplianceViolations,
+} from "./compliance";
 
 const ImprovedDraftSchema = z.object({
   title: z.string().min(1),
@@ -38,8 +43,21 @@ interface GenerateImprovedDraftInput {
 
 const DEFAULT_SYSTEM_PROMPT = [
   "You are Genesis Content Intelligence, an expert brand-aware content editor.",
-  "Improve the supplied draft without inventing facts, offers, testimonials, statistics, or business claims.",
-  "Follow all brand restrictions exactly.",
+  "",
+  "FACTUAL BOUNDARY — this is the most important rule:",
+  "Every factual business claim must be directly supported by the supplied brand context. Faithful paraphrasing is allowed, provided it does not introduce, strengthen, quantify or materially alter the underlying fact.",
+  "If a detail is entirely absent from the brand context, omit it rather than inventing a plausible substitute. Do not substitute industry averages, plausible numbers, or common assumptions.",
+  "Do not generalise from what similar businesses typically offer. Only use facts explicitly present in the brand context.",
+  "",
+  "WHAT YOU MAY IMPROVE:",
+  "Grammar, sentence structure, clarity, flow, and call-to-action phrasing are yours to improve freely.",
+  "You may rearrange, condense, or expand sentences — provided you introduce no new factual claim in doing so.",
+  "",
+  "RESTRICTIONS:",
+  "Follow all brand restrictions listed in the constraints section exactly.",
+  "If a restriction prohibits a word or claim, that word or claim must not appear anywhere in the output.",
+  "",
+  "FORMAT:",
   "Preserve the original intent while improving clarity, structure, relevance, and call to action.",
   "Return only content that matches the requested structured schema.",
 ].join("\n");
@@ -136,7 +154,7 @@ export async function generateImprovedDraft(
   });
 
   try {
-    const result = await deps.aiProvider.generateObject(
+    const rawResult = await deps.aiProvider.generateObject(
       prompt,
       ImprovedDraftSchema,
       {
@@ -146,6 +164,47 @@ export async function generateImprovedDraft(
         temperature: template?.temperature ?? 0.4,
       },
     );
+
+    // Post-generation compliance: lexical check + coherence-safe repair (no second AI call).
+    const restrictions = input.readiness.context.brand.restrictions;
+    const violations = detectComplianceViolations(rawResult.body, restrictions);
+    const repairResult = repairComplianceViolations(rawResult.body, violations);
+
+    const complianceWarnings: string[] = [];
+    if (violations.length > 0) {
+      if (repairResult.safe) {
+        complianceWarnings.push(
+          `Compliance repair removed ${violations.length} prohibited term(s): ${violations.join(", ")}.`,
+        );
+      } else {
+        complianceWarnings.push(
+          `REVIEW REQUIRED: Found ${violations.length} prohibited term(s) (${violations.join(", ")}) but safe automatic repair was not possible. This output must be reviewed by a human before use.`,
+        );
+      }
+    }
+
+    const result = {
+      ...rawResult,
+      body: repairResult.body,
+      summary: rawResult.summary ?? null,
+      reasoning: rawResult.reasoning ?? [],
+      warnings: [...(rawResult.warnings ?? []), ...complianceWarnings],
+    };
+
+    // Grounding metadata — stored in the existing validation_result JSON column.
+    const categoriesUsed = (
+      Object.entries(input.readiness.context.brand) as [string, string[]][]
+    )
+      .filter(([, entries]) => entries.length > 0)
+      .map(([key]) => key);
+
+    const grounding: GroundingMetadata = {
+      categoriesUsed,
+      knowledgeEntryIds: [],
+      complianceChecked: true,
+      complianceViolationsFound: violations.length,
+      complianceViolationsRepaired: repairResult.safe ? violations.length : 0,
+    };
 
     await deps.generationRuns.complete({
       runId,
@@ -160,15 +219,11 @@ export async function generateImprovedDraft(
           input.readiness.campaignReadiness?.score ?? null,
         draftReadiness:
           input.readiness.draftAnalysis.readinessPercent,
+        grounding,
       },
     });
 
-    return {
-      ...result,
-      summary: result.summary ?? null,
-      reasoning: result.reasoning ?? [],
-      warnings: result.warnings ?? [],
-    };
+    return result;
   } catch (error) {
     const message =
       error instanceof Error

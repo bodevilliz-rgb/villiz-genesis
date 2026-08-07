@@ -8,9 +8,16 @@ import type { GenerationContext, PromptSpecification } from "@/core/domain/entit
  * future GenerationProvider implementation (see the provider port).
  */
 const STANDING_PRINCIPLES = [
+  // Factual grounding — the single most critical class of failure
   "Never fabricate a factual claim about the business, its products, or its offers.",
+  "Every factual business claim must be directly supported by the supplied brand context. Faithful paraphrasing is allowed, provided it does not introduce, strengthen, quantify or materially alter the underlying fact.",
+  "When the brand context does not cover a detail the content type would normally include, omit that detail entirely rather than inventing a plausible substitute.",
+  "Do not generalise from industry norms. Only use knowledge explicitly present in the brand context.",
+  // Voice and restrictions
   "Follow the brand voice exactly as written — do not soften or embellish it.",
   "Respect every restriction listed in the constraints, without exception.",
+  // Creative latitude — what IS permitted
+  "Improving clarity, structure, grammar, flow, and call-to-action phrasing is encouraged, provided no new factual claim is introduced.",
   "Write only in the requested content type's format.",
 ];
 
