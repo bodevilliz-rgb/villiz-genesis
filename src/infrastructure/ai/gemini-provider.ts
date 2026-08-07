@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { AIProviderPort, AIGenerationOptions } from "@/core/application/ports/ai-provider-port";
 
 export class GeminiProvider implements AIProviderPort {
-  private defaultModel = "gemini-2.5-flash";
+  private defaultModel = "gemini-2.0-flash";
 
   async generateText(prompt: string, options?: AIGenerationOptions): Promise<string> {
     const { text } = await aiGenerateText({
