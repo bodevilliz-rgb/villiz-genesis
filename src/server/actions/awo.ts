@@ -3,12 +3,51 @@
 import { z } from "zod";
 import { getAIProvider } from "@/infrastructure/ai/provider-factory";
 import { requireContext } from "../container";
+import {
+  extractAwoMembrainContext,
+  buildCaptionSystemPrompt,
+  buildRewriteSystemPrompt,
+} from "./awo-grounding";
+import {
+  detectComplianceViolations,
+  repairComplianceViolations,
+} from "@/core/application/use-cases/generation/compliance";
+
+/**
+ * Runs post-generation compliance: detects prohibited terms from MemBrain
+ * restrictions and attempts coherence-safe lexical repair.
+ *
+ * Returns:
+ *   { text }                         — clean, no violations detected
+ *   { text: repaired }               — violations found and safely repaired
+ *   { text: original, warning }      — violations found but repair was unsafe;
+ *                                      caller must surface the warning
+ */
+function applyComplianceCheck(
+  text: string,
+  restrictions: string[],
+): { text: string; complianceWarning?: string } {
+  if (restrictions.length === 0) return { text };
+
+  const violations = detectComplianceViolations(text, restrictions);
+  if (violations.length === 0) return { text };
+
+  const repairResult = repairComplianceViolations(text, violations);
+  if (repairResult.safe) {
+    return { text: repairResult.body };
+  }
+
+  return {
+    text,
+    complianceWarning: `REVIEW REQUIRED: Found prohibited term(s) (${violations.join(", ")}) that could not be automatically repaired. This output must be reviewed before use.`,
+  };
+}
 
 export async function generateCaption(
   organisationId: string,
   prompt: string,
-  platform: string
-): Promise<{ text: string }> {
+  platform: string,
+): Promise<{ text: string; complianceWarning?: string }> {
   const context = await requireContext();
   const org = await context.organisations.findById(organisationId);
   const orgName = org?.name || "the organisation";
@@ -17,32 +56,20 @@ export async function generateCaption(
   const { getMembrainOverview } = await import("@/core/application/use-cases/membrain");
   const membrain = await getMembrainOverview(membrainDeps, organisationId);
 
-  const brandVoiceGroup = membrain.groups.find(g => g.category.label === "Brand Voice & Positioning");
-  const brandVoiceCtx = brandVoiceGroup?.entries.map(e => `${e.title}: ${e.body}`).join("\n") || "Professional, engaging, and clear.";
-
-  const audienceGroup = membrain.groups.find(g => g.category.label === "Target Audience");
-  const audienceCtx = audienceGroup?.entries.map(e => `${e.title}: ${e.body}`).join("\n") || "General audience.";
+  const ctx = extractAwoMembrainContext(membrain);
+  const systemPrompt = buildCaptionSystemPrompt(orgName, platform, ctx);
 
   const ai = getAIProvider();
-  const systemPrompt = `You are AWO, the AI Work Optimiser for ${orgName}.
-You write high-quality social media content.
-Platform: ${platform}
-Target Audience:
-${audienceCtx}
-Brand Voice & Tone Context:
-${brandVoiceCtx}
-
-Respond ONLY with the generated caption.`;
-
   const text = await ai.generateText(prompt, { systemPrompt });
-  return { text };
+
+  return applyComplianceCheck(text, ctx.restrictions);
 }
 
 export async function rewriteContent(
   organisationId: string,
   content: string,
-  instruction: "expand" | "shorten" | "professional" | "casual" | "punchy"
-): Promise<{ text: string }> {
+  instruction: "expand" | "shorten" | "professional" | "casual" | "punchy",
+): Promise<{ text: string; complianceWarning?: string }> {
   const context = await requireContext();
   const org = await context.organisations.findById(organisationId);
   const orgName = org?.name || "the organisation";
@@ -51,11 +78,8 @@ export async function rewriteContent(
   const { getMembrainOverview } = await import("@/core/application/use-cases/membrain");
   const membrain = await getMembrainOverview(membrainDeps, organisationId);
 
-  const brandVoiceGroup = membrain.groups.find(g => g.category.label === "Brand Voice & Positioning");
-  const brandVoiceCtx = brandVoiceGroup?.entries.map(e => `${e.title}: ${e.body}`).join("\n") || "Professional, engaging, and clear.";
+  const ctx = extractAwoMembrainContext(membrain);
 
-  const ai = getAIProvider();
-  
   let modifier = "";
   if (instruction === "expand") modifier = "Expand this content, adding more detail and depth.";
   if (instruction === "shorten") modifier = "Shorten this content, making it concise and to the point.";
@@ -63,32 +87,29 @@ export async function rewriteContent(
   if (instruction === "casual") modifier = "Rewrite this to be casual and friendly.";
   if (instruction === "punchy") modifier = "Rewrite this to be punchy, energetic, and high-impact.";
 
-  const systemPrompt = `You are AWO, the AI Work Optimiser for ${orgName}.
-Your task is to edit content.
-Instruction: ${modifier}
-Brand Voice Context:
-${brandVoiceCtx}
-Respond ONLY with the rewritten content. Do not include any explanations.`;
+  const systemPrompt = buildRewriteSystemPrompt(orgName, modifier, ctx);
 
+  const ai = getAIProvider();
   const text = await ai.generateText(content, { systemPrompt });
-  return { text };
+
+  return applyComplianceCheck(text, ctx.restrictions);
 }
 
 export async function generateHashtags(
   organisationId: string,
   content: string,
-  count: number = 5
+  count: number = 5,
 ): Promise<{ hashtags: string[] }> {
   const context = await requireContext();
-  
+
   const membrainDeps = { actor: context.actor, membrain: context.membrain, organisations: context.organisations };
   const { getMembrainOverview } = await import("@/core/application/use-cases/membrain");
   const membrain = await getMembrainOverview(membrainDeps, organisationId);
 
-  const brandVoiceGroup = membrain.groups.find(g => g.category.label === "Brand Voice & Positioning");
-  const brandVoiceCtx = brandVoiceGroup?.entries.map(e => `${e.title}: ${e.body}`).join("\n") || "Professional.";
+  const ctx = extractAwoMembrainContext(membrain);
 
   const ai = getAIProvider();
+  const brandVoiceCtx = ctx.brandVoice.join("\n") || "Professional.";
   const systemPrompt = `You are an expert social media manager. Suggest exactly ${count} highly relevant hashtags for the provided content. Ensure they align with the Brand Voice: ${brandVoiceCtx}`;
 
   const schema = z.object({
