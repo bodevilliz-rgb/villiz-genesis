@@ -26,7 +26,6 @@ const { mockGenerateCaption, mockRewriteContent } = vi.hoisted(() => ({
 }));
 
 const SUGGESTION = "Luxury Wig Installation — where natural beauty meets expert care.";
-const REWRITE_RESULT = "Rewritten: polished and professional.";
 const ORG_ID = "org-mervic-001";
 
 // ── Mock every external dependency ────────────────────────────────────────────
