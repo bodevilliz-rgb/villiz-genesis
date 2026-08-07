@@ -30,6 +30,7 @@ function summary(overrides: Partial<BlotatoAccountSummary> = {}): BlotatoAccount
 function storedAccount(overrides: Partial<BlotatoAccount> = {}): BlotatoAccount {
   return {
     ...summary(),
+    organisationId: null,
     firstConnectedAt: "2026-08-01T00:00:00Z",
     lastVerifiedAt: "2026-08-01T00:00:00Z",
     ...overrides,
@@ -38,7 +39,7 @@ function storedAccount(overrides: Partial<BlotatoAccount> = {}): BlotatoAccount 
 
 function fakeRepository(overrides: Partial<BlotatoAccountRepository> = {}): BlotatoAccountRepository {
   return {
-    upsertAccounts: async (accounts) => accounts.map((a) => storedAccount(a)),
+    upsertAccounts: async (accounts, _organisationId) => accounts.map((a) => storedAccount(a)),
     listAccounts: async () => [],
     findMostRecentForPlatform: async () => null,
     ...overrides,
@@ -102,7 +103,7 @@ describe("testBlotatoConnection", () => {
   });
 
   it("on success, stores every account and reports which of this app's platforms are supported", async () => {
-    const upsertAccounts = vi.fn(async (accounts: BlotatoAccountSummary[]) => accounts.map((a) => storedAccount(a)));
+    const upsertAccounts = vi.fn(async (accounts: BlotatoAccountSummary[], _orgId: string | null) => accounts.map((a) => storedAccount(a)));
 
     const result = await testBlotatoConnection({
       actor: actor({ isPlatformAdmin: true }),
@@ -117,10 +118,14 @@ describe("testBlotatoConnection", () => {
     expect(result.accounts).toHaveLength(2);
     expect(result.supportedPlatforms).toEqual(["linkedin"]);
     expect(upsertAccounts).toHaveBeenCalledTimes(1);
-    expect(upsertAccounts).toHaveBeenCalledWith([
-      expect.objectContaining({ id: "a", platform: "linkedin" }),
-      expect.objectContaining({ id: "b", platform: "tiktok" }),
-    ]);
+    // testBlotatoConnection is platform-wide (no org context) → passes null as organisationId.
+    expect(upsertAccounts).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({ id: "a", platform: "linkedin" }),
+        expect.objectContaining({ id: "b", platform: "tiktok" }),
+      ],
+      null,
+    );
   });
 
   it("reports unreachable, without throwing, when the client rejects (invalid key, network failure)", async () => {

@@ -32,6 +32,7 @@ function storedAccount(overrides: Partial<BlotatoAccount> = {}): BlotatoAccount 
     platform: "linkedin",
     fullname: "Villiz Pixels",
     username: "villizpixels",
+    organisationId: ORG_ID,
     firstConnectedAt: "2026-08-01T00:00:00Z",
     lastVerifiedAt: "2026-08-01T00:00:00Z",
     ...overrides,
@@ -40,7 +41,7 @@ function storedAccount(overrides: Partial<BlotatoAccount> = {}): BlotatoAccount 
 
 function fakeRepository(overrides: Partial<BlotatoAccountRepository> = {}): BlotatoAccountRepository {
   return {
-    upsertAccounts: async (accounts) => accounts.map((a) => storedAccount(a)),
+    upsertAccounts: async (accounts, _organisationId) => accounts.map((a) => storedAccount(a)),
     listAccounts: async () => [],
     findMostRecentForPlatform: async () => null,
     ...overrides,
@@ -109,7 +110,7 @@ describe("BlotatoPublisherBase — live publishing disabled (shipped default)", 
 
 describe("BlotatoPublisherBase — live publishing enabled", () => {
   it("resolves the most-recently-verified stored account for the mapped Blotato platform and calls publishPost with it", async () => {
-    const findMostRecentForPlatform = vi.fn(async (blotatoPlatform: string) =>
+    const findMostRecentForPlatform = vi.fn(async (blotatoPlatform: string, _orgId: string) =>
       blotatoPlatform === "twitter" ? storedAccount({ id: "acc-x", platform: "twitter" }) : null,
     );
     const publishPost = vi.fn(async () => ({ postSubmissionId: "submission-x-1" }));
@@ -124,7 +125,7 @@ describe("BlotatoPublisherBase — live publishing enabled", () => {
 
     const result = await publisher.publish(input({ platform: "x", body: "Hello world", assetUrls: ["https://cdn.example.com/x.png"] }));
 
-    expect(findMostRecentForPlatform).toHaveBeenCalledWith("twitter");
+    expect(findMostRecentForPlatform).toHaveBeenCalledWith("twitter", ORG_ID);
     expect(publishPost).toHaveBeenCalledWith({
       accountId: "acc-x",
       platform: "twitter",
