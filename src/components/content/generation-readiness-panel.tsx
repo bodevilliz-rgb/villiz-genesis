@@ -71,19 +71,21 @@ export function GenerationReadinessPanel({
   }, [state]);
 
   const isReady = readiness.status === "ready_for_awo";
+
+  // Fix D: build structured gap lists from readiness data rather than a flat warnings array.
+  const membrainGaps = readiness.knowledgeCoverage.missingCategories;
+  const draftGaps = readiness.draftAnalysis.checks.filter((c) => c.applicable && !c.passed);
+  const campaignGaps = readiness.campaignReadiness?.checks.filter((c) => !c.met) ?? [];
+
   const recommendations = [
     ...readiness.knowledgeCoverage.suggestedImprovements,
     ...(readiness.campaignReadiness?.recommendations ?? []),
     ...readiness.draftAnalysis.suggestions,
   ];
-  const warnings = [
-    ...readiness.knowledgeCoverage.missingCategories.map((c) => `${c.label}: ${c.state}.`),
-    ...(readiness.campaignReadiness?.warnings ?? []),
-    ...readiness.draftAnalysis.warnings,
-  ];
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Status banner */}
       <div
         className={cn(
           "flex flex-col gap-2 rounded-md border px-3 py-2.5",
@@ -112,8 +114,16 @@ export function GenerationReadinessPanel({
             ))}
           </ul>
         ) : null}
+        {/* Fix C: saved-version boundary — readiness is computed from the repository at
+            page-load time, not the live editor state. Autosave keeps draft content fresh,
+            but an explicit Save (or page reload) is needed to reflect accepted AI
+            suggestions or manual edits in these scores. */}
+        <p className="text-[11px] text-subtle-foreground">
+          Readiness reflects the last saved version of this draft.
+        </p>
       </div>
 
+      {/* Score rows */}
       <ScoreRow label="Knowledge coverage" percent={readiness.knowledgeCoverage.coveragePercent} />
       {readiness.campaignReadiness ? (
         <ScoreRow label="Campaign readiness" percent={readiness.campaignReadiness.score} />
@@ -125,6 +135,7 @@ export function GenerationReadinessPanel({
       <ScoreRow label="Draft readiness" percent={readiness.draftAnalysis.readinessPercent} />
       <ScoreRow label="Overall confidence" percent={readiness.confidence.score} />
 
+      {/* Strengths */}
       {readiness.confidence.strengths.length > 0 ? (
         <div>
           <p className="mb-1.5 text-[11px] uppercase tracking-wider text-subtle-foreground">Strengths</p>
@@ -138,11 +149,48 @@ export function GenerationReadinessPanel({
         </div>
       ) : null}
 
-      {warnings.length > 0 ? (
+      {/* Fix D: MemBrain gaps — show entryCount/requiredCount for partial categories (Fix B). */}
+      {membrainGaps.length > 0 ? (
         <div>
-          <p className="mb-1.5 text-[11px] uppercase tracking-wider text-subtle-foreground">Warnings</p>
+          <p className="mb-1.5 text-[11px] uppercase tracking-wider text-subtle-foreground">MemBrain gaps</p>
           <ul className="flex flex-col gap-1">
-            {warnings.map((warning) => (
+            {membrainGaps.map((cat) => (
+              <li key={cat.categoryKey} className="text-[12px] text-muted-foreground">
+                ·{" "}
+                {cat.requiredCount > 1
+                  ? `${cat.label} — ${cat.entryCount} of ${cat.requiredCount} active entries`
+                  : cat.state === "missing"
+                    ? `${cat.label} — no active entry`
+                    : `${cat.label} — ${cat.state}`}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1.5 text-[11px] text-subtle-foreground">
+            Only Active MemBrain entries count toward readiness. Draft-status entries are excluded.
+          </p>
+        </div>
+      ) : null}
+
+      {/* Fix D: Draft gaps */}
+      {draftGaps.length > 0 ? (
+        <div>
+          <p className="mb-1.5 text-[11px] uppercase tracking-wider text-subtle-foreground">Draft gaps</p>
+          <ul className="flex flex-col gap-1">
+            {readiness.draftAnalysis.warnings.map((warning) => (
+              <li key={warning} className="text-[12px] text-muted-foreground">
+                · {warning}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {/* Fix D: Campaign gaps */}
+      {campaignGaps.length > 0 ? (
+        <div>
+          <p className="mb-1.5 text-[11px] uppercase tracking-wider text-subtle-foreground">Campaign gaps</p>
+          <ul className="flex flex-col gap-1">
+            {(readiness.campaignReadiness?.warnings ?? []).map((warning) => (
               <li key={warning} className="text-[12px] text-muted-foreground">
                 · {warning}
               </li>
