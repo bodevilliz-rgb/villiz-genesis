@@ -2,7 +2,7 @@
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Check, Loader2, Video, Music, FileText, X, Paperclip, Plus } from "lucide-react";
+import { Check, Loader2, Video, Music, FileText, X, Paperclip, Plus, AlertTriangle } from "lucide-react";
 import { createDraftAction, updateDraftAction } from "@/server/actions/content";
 import { idleState } from "@/server/action-result";
 import { Field } from "@/components/ui/field";
@@ -16,7 +16,7 @@ import { CONTENT_DRAFT_TYPE_LABELS, type ContentDraft } from "@/core/domain/enti
 import type { MembrainCategory } from "@/core/domain/entities/membrain";
 import type { Campaign } from "@/core/domain/entities/campaign";
 import type { MediaAsset } from "@/core/domain/entities/media";
-import { attachAssetToDraftAction, detachAssetFromDraftAction } from "@/server/actions/media";
+import { attachAssetToDraftAction, detachAssetFromDraftAction, detachAssetFromPublishedDraftAction } from "@/server/actions/media";
 import { generateCaption, rewriteContent } from "@/server/actions/awo";
 import {
   isDraftBodyEmpty,
@@ -79,6 +79,7 @@ export function DraftForm({
   allAssets = [],
   attachedAssets = [],
   signedUrls = {},
+  canDetachPublishedMedia = false,
 }: {
   organisationId: string;
   categories: MembrainCategory[];
@@ -89,6 +90,8 @@ export function DraftForm({
   allAssets?: MediaAsset[];
   attachedAssets?: MediaAsset[];
   signedUrls?: Record<string, string>;
+  /** Lead-only: allow detaching assets from a Published draft without reopening the review cycle. */
+  canDetachPublishedMedia?: boolean;
 }) {
   const isEdit = Boolean(draft);
   const router = useRouter();
@@ -107,6 +110,7 @@ export function DraftForm({
   const [showAssetModal, setShowAssetModal] = useState(false);
   const [localAttachedAssets, setLocalAttachedAssets] = useState<MediaAsset[]>(attachedAssets);
   const [isAssetPending, startAssetTransition] = useTransition();
+  const [detachPublishedTarget, setDetachPublishedTarget] = useState<MediaAsset | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [draftBody, setDraftBody] = useState<string>(draft?.body ?? "");
   const [aiAction, setAiAction] = useState<string>(
@@ -435,6 +439,16 @@ export function DraftForm({
                         <X className="size-3.5" />
                       </button>
                     )}
+                    {locked && draft?.status === "published" && canDetachPublishedMedia && (
+                      <button
+                        type="button"
+                        onClick={() => setDetachPublishedTarget(asset)}
+                        className="text-[11px] text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded hover:bg-muted/60 whitespace-nowrap"
+                        disabled={isAssetPending}
+                      >
+                        Detach
+                      </button>
+                    )}
                   </div>
                 );
               })}
@@ -504,6 +518,60 @@ export function DraftForm({
 
             <div className="flex justify-end gap-2 mt-4 pt-3 border-t border-border">
               <Button type="button" onClick={() => setShowAssetModal(false)} variant="primary">Cancel</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {detachPublishedTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-start gap-3 mb-5">
+              <AlertTriangle className="size-5 text-warning mt-0.5 shrink-0" />
+              <div>
+                <h4 className="text-sm font-semibold text-foreground mb-2">Detach asset from published draft?</h4>
+                <p className="text-[12px] text-muted-foreground leading-relaxed">
+                  This draft has already been published. Detaching this asset only removes the Media Library
+                  relationship from this Genesis draft. It will not remove or alter the post already published
+                  on the social platform.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-8 px-3 text-[12px]"
+                onClick={() => setDetachPublishedTarget(null)}
+                disabled={isAssetPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                className="h-8 px-3 text-[12px] text-negative hover:text-negative"
+                disabled={isAssetPending}
+                onClick={() => {
+                  startAssetTransition(async () => {
+                    if (!draft || !detachPublishedTarget) return;
+                    const result = await detachAssetFromPublishedDraftAction(
+                      organisationId,
+                      draft.id,
+                      detachPublishedTarget.id,
+                    );
+                    if (result.status === "success") {
+                      toast.success(result.message);
+                      setLocalAttachedAssets((prev) => prev.filter((a) => a.id !== detachPublishedTarget.id));
+                    } else {
+                      toast.error(result.message);
+                    }
+                    setDetachPublishedTarget(null);
+                  });
+                }}
+              >
+                Detach from draft
+              </Button>
             </div>
           </div>
         </div>

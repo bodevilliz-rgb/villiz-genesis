@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { requireContext } from "../container";
 import { errorState, successState, text, textOrEmpty, list, type ActionState } from "../action-result";
 import { routes } from "@/lib/routes";
+import { canEditOrganisation } from "@/core/domain/entities/identity";
 
 function revalidateMedia(organisationId: string, assetId?: string) {
   revalidatePath(routes.organisations.media.index(organisationId));
@@ -402,6 +403,49 @@ export async function detachAssetFromDraftAction(draftId: string, assetId: strin
     revalidateMedia(organisationId);
     revalidatePath(routes.organisations.content.draft(organisationId, draftId));
     return successState("Asset detached from content draft.");
+  } catch (error) {
+    return errorState(error);
+  }
+}
+
+export async function detachAssetFromPublishedDraftAction(
+  organisationId: string,
+  draftId: string,
+  assetId: string,
+): Promise<ActionState> {
+  try {
+    const context = await requireContext();
+
+    // 1. Require Lead or platform-admin role — contributors cannot modify published records.
+    const role = await context.organisations.viewerRole(organisationId);
+    if (!canEditOrganisation(context.actor, role)) {
+      return { status: "error", message: "Only a Lead or administrator can detach media from a published draft." };
+    }
+
+    // 2. Verify the draft exists, belongs to this org, and is in the published state.
+    const draft = await context.content.findDraft(organisationId, draftId);
+    if (!draft) {
+      return { status: "error", message: "Draft not found or does not belong to this organisation." };
+    }
+    if (draft.status !== "published") {
+      return { status: "error", message: "This action is only available for published drafts." };
+    }
+
+    // 3. Verify the asset belongs to this org (cross-org protection).
+    const asset = await context.media.getAsset(organisationId, assetId);
+    if (!asset) {
+      return { status: "error", message: "Asset not found or does not belong to this organisation." };
+    }
+
+    // 4. Remove the content_draft_assets row only — draft status, publishing history,
+    //    destination, and provider metadata are untouched.
+    await context.media.detachFromDraft(draftId, assetId);
+
+    revalidateMedia(organisationId, assetId);
+    revalidatePath(routes.organisations.content.draft(organisationId, draftId));
+    return successState(
+      "Asset detached from draft. The post already published on the social platform is not affected.",
+    );
   } catch (error) {
     return errorState(error);
   }

@@ -99,6 +99,7 @@ export default async function DraftDetailPage({
               allAssets={allAssets}
               attachedAssets={attachedAssets}
               signedUrls={signedUrls}
+              canDetachPublishedMedia={canLead && draft.status === "published"}
             />
           </CardContent>
         </Card>
