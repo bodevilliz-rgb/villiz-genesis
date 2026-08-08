@@ -4,12 +4,13 @@ import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Loader2, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
-import { runPrePublishReviewAction } from "@/server/actions/publish";
+import { runPrePublishReviewAction, getPlatformPreflightAction } from "@/server/actions/publish";
 import type { ContentDraft } from "@/core/domain/entities/content";
 import type { BlotatoAccount } from "@/core/domain/entities/blotato";
 import { mapBlotatoPlatform } from "@/core/domain/entities/blotato";
 import { PUBLISHING_PLATFORM_LABELS } from "@/core/domain/entities/publishing";
 import type { PrePublishReport } from "@/core/application/use-cases/generation/pre-publish-review";
+import type { PlatformPreflightResult } from "@/core/domain/entities/publishing-preflight";
 import { toast } from "sonner";
 
 interface PrePublishDialogProps {
@@ -27,26 +28,49 @@ interface PrePublishDialogProps {
 export function PrePublishDialog({ organisationId, draft, open, onOpenChange, onConfirmPublish, channel, isLivePublishing = false }: PrePublishDialogProps) {
   const [loading, setLoading] = useState(true);
   const [report, setReport] = useState<PrePublishReport | null>(null);
+  const [preflight, setPreflight] = useState<PlatformPreflightResult | null>(null);
 
   useEffect(() => {
     if (open) {
       setLoading(true);
-      runPrePublishReviewAction(organisationId, draft)
-        .then(setReport)
-        .catch(() => toast.error("Failed to run Pre-Publish Review"))
-        .finally(() => setLoading(false));
+      setReport(null);
+      setPreflight(null);
+
+      const platform = channel ? mapBlotatoPlatform(channel.platform) : null;
+
+      const fetches: Promise<void>[] = [
+        runPrePublishReviewAction(organisationId, draft)
+          .then(setReport)
+          .catch(() => { toast.error("Failed to run Pre-Publish Review"); }),
+      ];
+
+      if (platform) {
+        fetches.push(
+          getPlatformPreflightAction(organisationId, draft.id, platform)
+            .then(setPreflight)
+            .catch(() => {
+              // Preflight fetch failure → treat as unknown; don't block the dialog
+            }),
+        );
+      }
+
+      void Promise.all(fetches).finally(() => setLoading(false));
     } else {
       setReport(null);
+      setPreflight(null);
     }
-  }, [open, draft, organisationId]);
+  }, [open, draft, organisationId, channel]);
+
+  const liveBlocked = isLivePublishing && preflight !== null && !preflight.ready;
+  const publishButtonDisabled = loading || !report || liveBlocked;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>AI Pre-Publish Review</DialogTitle>
+          <DialogTitle>Pre-Publish Review</DialogTitle>
           <DialogDescription>
-            Analyzing your draft for brand alignment and best practices before publishing.
+            Checking platform requirements and analyzing your draft before publishing.
           </DialogDescription>
         </DialogHeader>
 
@@ -74,78 +98,127 @@ export function PrePublishDialog({ organisationId, draft, open, onOpenChange, on
               <Loader2 className="size-8 animate-spin text-primary" />
               <p>Analyzing &quot;{draft.title}&quot;...</p>
             </div>
-          ) : report ? (
-            <div className="flex flex-col gap-6">
-              <div className="flex items-center gap-4">
-                <div className={`flex items-center justify-center size-16 rounded-full border-4 ${report.score >= 80 ? 'border-positive text-positive' : report.score >= 50 ? 'border-amber-500 text-amber-500' : 'border-negative text-negative'}`}>
-                  <span className="text-xl font-bold">{report.score}</span>
-                </div>
-                <div className="flex flex-col">
-                  <h3 className="font-semibold text-lg">Overall Score</h3>
-                  <p className="text-sm text-muted-foreground">
-                    {report.score >= 80 ? 'Excellent! Ready to publish.' : report.score >= 50 ? 'Good, but could be improved.' : 'Needs significant revision before publishing.'}
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div className="flex items-center gap-2">
-                  {report.brandVoiceAlignment === 'high' ? <CheckCircle2 className="size-4 text-positive" /> : <AlertTriangle className="size-4 text-amber-500" />}
-                  <span>Brand Voice: <span className="capitalize font-medium">{report.brandVoiceAlignment}</span></span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {report.ctaQuality === 'strong' ? <CheckCircle2 className="size-4 text-positive" /> : report.ctaQuality === 'weak' ? <AlertTriangle className="size-4 text-amber-500" /> : <XCircle className="size-4 text-negative" />}
-                  <span>Call to Action: <span className="capitalize font-medium">{report.ctaQuality}</span></span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {report.hashtagQuality === 'optimal' ? <CheckCircle2 className="size-4 text-positive" /> : report.hashtagQuality === 'spammy' ? <AlertTriangle className="size-4 text-amber-500" /> : <XCircle className="size-4 text-negative" />}
-                  <span>Hashtags: <span className="capitalize font-medium">{report.hashtagQuality}</span></span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {report.missingMedia ? <AlertTriangle className="size-4 text-amber-500" /> : <CheckCircle2 className="size-4 text-positive" />}
-                  <span>Media Assets: <span className="font-medium">{report.missingMedia ? 'Missing' : 'Attached'}</span></span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {report.platformOptimisation === 'high' ? <CheckCircle2 className="size-4 text-positive" /> : <AlertTriangle className="size-4 text-amber-500" />}
-                  <span>Platform Optimisation: <span className="capitalize font-medium">{report.platformOptimisation}</span></span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {report.accessibility === 'good' ? <CheckCircle2 className="size-4 text-positive" /> : <AlertTriangle className="size-4 text-amber-500" />}
-                  <span>Accessibility: <span className="capitalize font-medium">{report.accessibility}</span></span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {report.compliance === 'pass' ? <CheckCircle2 className="size-4 text-positive" /> : <XCircle className="size-4 text-negative" />}
-                  <span>Compliance: <span className="capitalize font-medium">{report.compliance}</span></span>
-                </div>
-                <div className="flex items-center gap-2">
-                  {report.readability === 'easy' ? <CheckCircle2 className="size-4 text-positive" /> : <AlertTriangle className="size-4 text-amber-500" />}
-                  <span>Readability: <span className="capitalize font-medium">{report.readability}</span></span>
-                </div>
-              </div>
-
-              {report.recommendations.length > 0 && (
-                <div className="flex flex-col gap-2 p-4 bg-muted/30 rounded-lg border border-border">
-                  <h4 className="font-medium text-sm">Recommendations</h4>
-                  <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
-                    {report.recommendations.map((f, i) => <li key={i}>{f}</li>)}
-                  </ul>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {/* Platform requirements — deterministic, server-authoritative */}
+              {preflight && (
+                <div className={`rounded border px-3 py-3 text-sm ${preflight.ready ? "border-positive/40 bg-positive/5" : liveBlocked ? "border-negative/40 bg-negative/5" : "border-amber-500/40 bg-amber-500/5"}`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    {preflight.ready
+                      ? <CheckCircle2 className="size-4 text-positive shrink-0" />
+                      : liveBlocked
+                        ? <XCircle className="size-4 text-negative shrink-0" />
+                        : <AlertTriangle className="size-4 text-amber-500 shrink-0" />
+                    }
+                    <span className="font-medium">
+                      {preflight.ready
+                        ? "Platform requirements met"
+                        : liveBlocked
+                          ? "Live publishing blocked"
+                          : "Platform requirements not met (simulation only)"
+                      }
+                    </span>
+                  </div>
+                  {preflight.blockers.length > 0 && (
+                    <ul className="ml-6 list-disc text-muted-foreground space-y-0.5 mt-1">
+                      {preflight.blockers.map((b, i) => <li key={i}>{b}</li>)}
+                    </ul>
+                  )}
+                  {!preflight.ready && !liveBlocked && (
+                    <p className="ml-6 text-[11px] text-muted-foreground mt-1">
+                      In simulation mode, this post will still proceed. Switch to live publishing to enforce these requirements.
+                    </p>
+                  )}
                 </div>
               )}
+
+              {/* AI review */}
+              {report ? (
+                <div className="flex flex-col gap-6">
+                  <div className="flex items-center gap-4">
+                    <div className={`flex items-center justify-center size-16 rounded-full border-4 ${report.score >= 80 ? 'border-positive text-positive' : report.score >= 50 ? 'border-amber-500 text-amber-500' : 'border-negative text-negative'}`}>
+                      <span className="text-xl font-bold">{report.score}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <h3 className="font-semibold text-lg">AI Score</h3>
+                      <p className="text-sm text-muted-foreground">
+                        {report.score >= 80
+                          ? liveBlocked
+                            ? 'Good score, but platform requirements above must be resolved first.'
+                            : 'Excellent content quality.'
+                          : report.score >= 50
+                            ? 'Good, but could be improved.'
+                            : 'Needs significant revision before publishing.'
+                        }
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div className="flex items-center gap-2">
+                      {report.brandVoiceAlignment === 'high' ? <CheckCircle2 className="size-4 text-positive" /> : <AlertTriangle className="size-4 text-amber-500" />}
+                      <span>Brand Voice: <span className="capitalize font-medium">{report.brandVoiceAlignment}</span></span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {report.ctaQuality === 'strong' ? <CheckCircle2 className="size-4 text-positive" /> : report.ctaQuality === 'weak' ? <AlertTriangle className="size-4 text-amber-500" /> : <XCircle className="size-4 text-negative" />}
+                      <span>Call to Action: <span className="capitalize font-medium">{report.ctaQuality}</span></span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {report.hashtagQuality === 'optimal' ? <CheckCircle2 className="size-4 text-positive" /> : report.hashtagQuality === 'spammy' ? <AlertTriangle className="size-4 text-amber-500" /> : <XCircle className="size-4 text-negative" />}
+                      <span>Hashtags: <span className="capitalize font-medium">{report.hashtagQuality}</span></span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {report.missingMedia ? <AlertTriangle className="size-4 text-amber-500" /> : <CheckCircle2 className="size-4 text-positive" />}
+                      <span>Media Assets: <span className="font-medium">{report.missingMedia ? 'Missing' : 'Attached'}</span></span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {report.platformOptimisation === 'high' ? <CheckCircle2 className="size-4 text-positive" /> : <AlertTriangle className="size-4 text-amber-500" />}
+                      <span>Platform Optimisation: <span className="capitalize font-medium">{report.platformOptimisation}</span></span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {report.accessibility === 'good' ? <CheckCircle2 className="size-4 text-positive" /> : <AlertTriangle className="size-4 text-amber-500" />}
+                      <span>Accessibility: <span className="capitalize font-medium">{report.accessibility}</span></span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {report.compliance === 'pass' ? <CheckCircle2 className="size-4 text-positive" /> : <XCircle className="size-4 text-negative" />}
+                      <span>Compliance: <span className="capitalize font-medium">{report.compliance}</span></span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {report.readability === 'easy' ? <CheckCircle2 className="size-4 text-positive" /> : <AlertTriangle className="size-4 text-amber-500" />}
+                      <span>Readability: <span className="capitalize font-medium">{report.readability}</span></span>
+                    </div>
+                  </div>
+
+                  {report.recommendations.length > 0 && (
+                    <div className="flex flex-col gap-2 p-4 bg-muted/30 rounded-lg border border-border">
+                      <h4 className="font-medium text-sm">Recommendations</h4>
+                      <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-1">
+                        {report.recommendations.map((f, i) => <li key={i}>{f}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-center text-negative">Failed to generate report.</p>
+              )}
             </div>
-          ) : (
-            <p className="text-center text-negative">Failed to generate report.</p>
           )}
         </div>
 
         <DialogFooter>
           <Button variant="ghost" size="lg" onClick={() => onOpenChange(false)}>Back to Draft</Button>
           <Button
-            variant={report && report.score >= 80 ? "primary" : "secondary"}
+            variant={report && report.score >= 80 && !liveBlocked ? "primary" : "secondary"}
             size="lg"
-            disabled={loading || !report}
+            disabled={publishButtonDisabled}
             onClick={onConfirmPublish}
           >
-            {report && report.score >= 80 ? "Publish Now" : "Publish Anyway"}
+            {liveBlocked
+              ? "Requirements not met"
+              : report && report.score >= 80
+                ? "Publish Now"
+                : "Publish Anyway"
+            }
           </Button>
         </DialogFooter>
       </DialogContent>

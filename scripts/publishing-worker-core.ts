@@ -39,6 +39,7 @@ import { blotatoConfig } from "../src/infrastructure/blotato/blotato-config";
 import { resolvePublisher } from "../src/infrastructure/publishers/publisher-factory";
 import { resolveEffectiveSimulationMode } from "../src/infrastructure/publishers/simulation-mode";
 import { resolvePublishMediaUrls } from "../src/core/application/use-cases/publishing/media";
+import { evaluatePlatformPreflight } from "../src/core/domain/entities/publishing-preflight";
 import { redactMediaUrl } from "../src/core/domain/entities/publishing-media";
 import {
   claimNextPublishingJob,
@@ -156,6 +157,30 @@ async function processJob(job: PublishingJob, deps: ReturnType<typeof buildDeps>
     skippedUnsupportedType: media.skipped.unsupportedType,
     skippedUnreachableUrl: media.skipped.unreachableUrl,
   });
+
+  // Fail-closed: when live publishing is enabled, mandatory platform
+  // requirements must be met at execution time — not just at job creation.
+  // Media may have been removed from the draft after the job was queued
+  // (e.g. operator retries a job that was previously valid). Simulation
+  // always proceeds regardless, so this guard is invisible in UAT.
+  if (deps.blotatoLivePublishingEnabled) {
+    const preflight = evaluatePlatformPreflight(job.platform, draft.body, media.mediaUrls.length);
+    if (!preflight.ready) {
+      const errorMessage = `Platform preflight failed: ${preflight.blockers.join(" ")}`;
+      await failPublishingAttempt(deps, job, attempt, {
+        errorCode: "preflight_failed",
+        errorMessage,
+        providerMetadata: { blockers: preflight.blockers },
+      });
+      log("attempt_failed", {
+        jobId: job.id,
+        attemptId: attempt.id,
+        errorCode: "preflight_failed",
+        blockers: preflight.blockers,
+      });
+      return;
+    }
+  }
 
   const publisher = resolvePublisher(job.platform, {
     blotatoAccounts: deps.blotatoAccounts,

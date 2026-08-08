@@ -1,0 +1,460 @@
+/**
+ * Platform Publishing Preflight — 17 required tests.
+ *
+ * Covers:
+ *   T1–T8   evaluatePlatformPreflight — pure domain function, no IO
+ *   T9–T12  checkPublishingPreflight — async use case with mock repositories
+ *   T13–T14 Server action enforcement — live vs simulation mode
+ *   T15–T16 Worker fail-closed — live vs simulation path via pollOnce
+ *   T17     Combined scenario — multiple blockers listed together
+ */
+
+// ── Module-scope mocks required for server action tests (T13–T14) ─────────────
+// vi.mock() is hoisted; these mock the infrastructure that server actions import.
+
+vi.mock("@/infrastructure/blotato/blotato-config", () => ({
+  blotatoConfig: vi.fn(),
+}));
+
+vi.mock("@/server/container", () => ({
+  requireContext: vi.fn(),
+}));
+
+vi.mock("@/core/application/use-cases/publishing", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/core/application/use-cases/publishing")>();
+  return {
+    ...actual,
+    createImmediatePublishingJob: vi.fn(async () => ({ id: "job-created" })),
+    createScheduledPublishingJob: vi.fn(async () => ({ id: "job-scheduled" })),
+  };
+});
+
+// Worker infra mocks — keep buildDeps from creating real Supabase clients (T15–T16)
+vi.mock("@/infrastructure/supabase/admin-client", () => ({
+  createAdminClient: vi.fn(() => ({})),
+}));
+vi.mock("@/infrastructure/repositories/supabase-publishing-repository", () => ({
+  SupabasePublishingRepository: vi.fn().mockImplementation(() => ({})),
+}));
+vi.mock("@/infrastructure/repositories/supabase-content-repository", () => ({
+  SupabaseContentRepository: vi.fn().mockImplementation(() => ({})),
+}));
+vi.mock("@/infrastructure/repositories/supabase-audit-repository", () => ({
+  SupabaseAuditRepository: vi.fn().mockImplementation(() => ({})),
+}));
+vi.mock("@/infrastructure/repositories/supabase-notification-repository", () => ({
+  SupabaseNotificationRepository: vi.fn().mockImplementation(() => ({})),
+}));
+vi.mock("@/infrastructure/repositories/supabase-blotato-account-repository", () => ({
+  SupabaseBlotatoAccountRepository: vi.fn().mockImplementation(() => ({})),
+}));
+vi.mock("@/infrastructure/repositories/supabase-media-repository", () => ({
+  SupabaseMediaRepository: vi.fn().mockImplementation(() => ({})),
+}));
+vi.mock("@/infrastructure/ports/supabase-storage-port", () => ({
+  SupabaseStoragePort: vi.fn().mockImplementation(() => ({})),
+}));
+vi.mock("@/infrastructure/blotato/http-blotato-client", () => ({
+  HttpBlotatoClient: vi.fn().mockImplementation(() => ({})),
+}));
+vi.mock("@/infrastructure/publishers/publisher-factory", () => ({
+  resolvePublisher: vi.fn(),
+}));
+vi.mock("@/infrastructure/publishers/simulation-mode", () => ({
+  resolveEffectiveSimulationMode: vi.fn(() => null),
+}));
+
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { evaluatePlatformPreflight } from "@/core/domain/entities/publishing-preflight";
+import { checkPublishingPreflight } from "@/core/application/use-cases/publishing/preflight";
+import { pollOnce } from "../scripts/publishing-worker-core";
+import { blotatoConfig } from "@/infrastructure/blotato/blotato-config";
+import { requireContext } from "@/server/container";
+import {
+  createImmediatePublishingJobAction,
+  createScheduledPublishingJobAction,
+} from "@/server/actions/publishing";
+import type { MediaAsset } from "@/core/domain/entities/media";
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+function makeAsset(overrides: Partial<MediaAsset> = {}): MediaAsset {
+  return {
+    id: "asset-1",
+    organisationId: "org-1",
+    storagePath: "org-1/image.jpg",
+    fileName: "image.jpg",
+    mimeType: "image/jpeg",
+    sizeBytes: 50000,
+    width: null,
+    height: null,
+    isArchived: false,
+    isAiGenerated: false,
+    tags: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    uploadedBy: { id: "user-1", fullName: "Test User", email: "test@villiz.com" },
+    title: null,
+    thumbnailPath: null,
+    category: null,
+    description: null,
+    altText: null,
+    brand: null,
+    duration: null,
+    copyrightOwner: null,
+    usageRights: null,
+    expiresAt: null,
+    ...overrides,
+  };
+}
+
+/** Build a minimal mock deps object for pollOnce / processJob tests. */
+function makePollDeps(overrides: Record<string, unknown> = {}) {
+  const attempt = { id: "attempt-1", attemptNumber: 1 };
+  const job = {
+    id: "job-1",
+    organisationId: "org-1",
+    draftId: "draft-1",
+    platform: "instagram" as const,
+    triggerType: "immediate" as const,
+    scheduledFor: new Date().toISOString(),
+    status: "queued" as const,
+    idempotencyKey: "idem-1",
+    requestedBy: "user-1",
+    requestedByProfile: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    claimedBy: null,
+    nextAttemptAt: null,
+    retryCount: 0,
+    maxRetries: 3,
+    completedAt: null,
+    cancelledAt: null,
+    devSimulationMode: null,
+    resolvedAccountId: null,
+  };
+
+  const failAttempt = vi.fn(async () => {});
+  const markJobFailed = vi.fn(async () => {});
+
+  return {
+    deps: {
+      publishing: {
+        // Return the job once, then null so pollOnce's for(;;) exits cleanly.
+        claimNextJob: vi.fn().mockResolvedValueOnce(job).mockResolvedValue(null),
+        listAttemptsForJob: vi.fn(async () => []),
+        createAttempt: vi.fn(async () => attempt),
+        startAttempt: vi.fn(async () => ({ ...attempt })),
+        completeAttempt: vi.fn(async () => {}),
+        failAttempt,
+        markJobPublished: vi.fn(async () => {}),
+        markJobFailed,
+      },
+      content: {
+        findDraft: vi.fn(async () => ({
+          id: "draft-1",
+          organisationId: "org-1",
+          title: "Test Post",
+          body: "Body text here",
+          status: "approved",
+        })),
+        updateStatus: vi.fn(async () => ({})),
+      },
+      audits: { recordEvent: vi.fn(async () => {}) },
+      notifications: { createNotification: vi.fn(async () => {}) },
+      blotatoAccounts: {
+        findActiveForOrganisationAndPlatform: vi.fn(async () => [{ id: "acc-1" }]),
+      },
+      blotatoClient: {},
+      blotatoLivePublishingEnabled: false,
+      media: {
+        listAssetsForDraft: vi.fn(async () => []),
+      },
+      storage: { getSignedUrl: vi.fn(async () => "https://cdn.example.com/image.jpg") },
+      ...overrides,
+    },
+    failAttempt,
+    markJobFailed,
+  };
+}
+
+// ── T1–T8: evaluatePlatformPreflight — pure domain function ─────────────────
+
+describe("T1 — Instagram live mode: missing media → blocked", () => {
+  it("returns ready:false with Instagram media blocker", () => {
+    const result = evaluatePlatformPreflight("instagram", "Caption text", 0);
+    expect(result.ready).toBe(false);
+    expect(result.blockers).toContain("Instagram requires at least one image or video.");
+  });
+});
+
+describe("T2 — Instagram simulation: missing media → simulationAllowed:true", () => {
+  it("simulationAllowed is always true even when ready is false", () => {
+    const result = evaluatePlatformPreflight("instagram", "Caption text", 0);
+    expect(result.ready).toBe(false);
+    expect(result.simulationAllowed).toBe(true);
+  });
+});
+
+describe("T3 — Valid Instagram: body + media → ready:true", () => {
+  it("returns ready:true when body and media are both present", () => {
+    const result = evaluatePlatformPreflight("instagram", "Caption text", 2);
+    expect(result.ready).toBe(true);
+    expect(result.blockers).toHaveLength(0);
+  });
+});
+
+describe("T4 — Facebook text-only live: no media → ready:true", () => {
+  it("Facebook does not require media — text-only posts are accepted", () => {
+    const result = evaluatePlatformPreflight("facebook", "A text-only post", 0);
+    expect(result.ready).toBe(true);
+    expect(result.blockers).toHaveLength(0);
+  });
+});
+
+describe("T5 — LinkedIn text-only live: no media → ready:true", () => {
+  it("LinkedIn does not require media", () => {
+    const result = evaluatePlatformPreflight("linkedin", "Professional update", 0);
+    expect(result.ready).toBe(true);
+    expect(result.blockers).toHaveLength(0);
+  });
+});
+
+describe("T6 — X text-only live: no media → ready:true", () => {
+  it("X does not require media", () => {
+    const result = evaluatePlatformPreflight("x", "Short post", 0);
+    expect(result.ready).toBe(true);
+    expect(result.blockers).toHaveLength(0);
+  });
+});
+
+describe("T7 — Empty body: blocked across all platforms", () => {
+  it.each(["instagram", "facebook", "linkedin", "x"] as const)(
+    "%s with empty body → blocked",
+    (platform) => {
+      const result = evaluatePlatformPreflight(platform, "   ", 1);
+      expect(result.ready).toBe(false);
+      expect(result.blockers).toContain("Post body cannot be empty.");
+    },
+  );
+});
+
+describe("T8 — AI score does NOT determine preflight readiness", () => {
+  it("evaluatePlatformPreflight has no aiScore parameter — score is irrelevant", () => {
+    // The function signature accepts only (platform, body, publishableMediaCount).
+    // There is no aiScore parameter, so a score of 100 cannot make preflight pass
+    // when platform requirements are not met.
+    const result = evaluatePlatformPreflight("instagram", "Great caption!", 0);
+    expect(result.ready).toBe(false);
+    expect(result.blockers.some((b) => b.includes("image or video"))).toBe(true);
+  });
+});
+
+// ── T9–T12: checkPublishingPreflight — use case with mock repositories ────────
+
+describe("T9 — checkPublishingPreflight: Instagram + no assets → blocked", () => {
+  it("blocks when the draft has no linked assets for Instagram", async () => {
+    const mockContent = { findDraft: vi.fn(async () => ({ body: "Caption", id: "d-1" })) };
+    const mockMedia = { listAssetsForDraft: vi.fn(async () => []) };
+
+    const result = await checkPublishingPreflight(
+      { content: mockContent as never, media: mockMedia as never },
+      { organisationId: "org-1", draftId: "d-1", platform: "instagram" },
+    );
+
+    expect(result.ready).toBe(false);
+    expect(result.blockers).toContain("Instagram requires at least one image or video.");
+  });
+});
+
+describe("T10 — checkPublishingPreflight: Instagram + image asset → ready", () => {
+  it("passes when the draft has at least one publishable image", async () => {
+    const asset = makeAsset({ organisationId: "org-1", mimeType: "image/jpeg" });
+    const mockContent = { findDraft: vi.fn(async () => ({ body: "Caption", id: "d-1" })) };
+    const mockMedia = { listAssetsForDraft: vi.fn(async () => [asset]) };
+
+    const result = await checkPublishingPreflight(
+      { content: mockContent as never, media: mockMedia as never },
+      { organisationId: "org-1", draftId: "d-1", platform: "instagram" },
+    );
+
+    expect(result.ready).toBe(true);
+  });
+});
+
+describe("T11 — Org isolation: cross-org asset not counted", () => {
+  it("an asset owned by another organisation is excluded from the publishable count", async () => {
+    const crossOrgAsset = makeAsset({ organisationId: "org-other", mimeType: "image/jpeg" });
+    const mockContent = { findDraft: vi.fn(async () => ({ body: "Caption", id: "d-1" })) };
+    const mockMedia = { listAssetsForDraft: vi.fn(async () => [crossOrgAsset]) };
+
+    const result = await checkPublishingPreflight(
+      { content: mockContent as never, media: mockMedia as never },
+      { organisationId: "org-1", draftId: "d-1", platform: "instagram" },
+    );
+
+    // Cross-org asset must not count — Instagram still sees 0 publishable media
+    expect(result.ready).toBe(false);
+    expect(result.blockers).toContain("Instagram requires at least one image or video.");
+  });
+});
+
+describe("T12 — Non-image/video asset (e.g. PDF) not counted as publishable", () => {
+  it("application/pdf assets are filtered out and do not satisfy the media requirement", async () => {
+    const pdfAsset = makeAsset({ organisationId: "org-1", mimeType: "application/pdf" });
+    const mockContent = { findDraft: vi.fn(async () => ({ body: "Caption", id: "d-1" })) };
+    const mockMedia = { listAssetsForDraft: vi.fn(async () => [pdfAsset]) };
+
+    const result = await checkPublishingPreflight(
+      { content: mockContent as never, media: mockMedia as never },
+      { organisationId: "org-1", draftId: "d-1", platform: "instagram" },
+    );
+
+    expect(result.ready).toBe(false);
+    expect(result.blockers).toContain("Instagram requires at least one image or video.");
+  });
+});
+
+// ── T13–T14: Server action enforcement ────────────────────────────────────────
+
+const blotatoConfigMock = vi.mocked(blotatoConfig);
+const requireContextMock = vi.mocked(requireContext);
+
+function makeActionContext(assets: MediaAsset[] = []) {
+  return {
+    actor: { id: "user-1", isPlatformAdmin: false },
+    content: {
+      findDraft: vi.fn(async () => ({
+        id: "draft-1",
+        organisationId: "org-1",
+        body: "Some content",
+        title: "Test",
+        status: "approved",
+        assets,
+      })),
+      updateStatus: vi.fn(async () => ({})),
+    },
+    media: {
+      listAssetsForDraft: vi.fn(async () => assets),
+    },
+    publishing: {
+      findActiveJobForDraftPlatform: vi.fn(async () => null),
+      createJob: vi.fn(async () => ({ id: "job-1", status: "queued" })),
+    },
+    blotatoAccounts: {
+      findActiveForOrganisationAndPlatform: vi.fn(async () => [{ id: "acc-1" }]),
+    },
+    organisations: { viewerRole: vi.fn(async () => "admin") },
+    audits: { recordEvent: vi.fn(async () => {}) },
+    notifications: { createNotification: vi.fn(async () => {}) },
+  };
+}
+
+function makePublishFormData(platform = "instagram"): FormData {
+  const fd = new FormData();
+  fd.append("organisationId", "org-1");
+  fd.append("id", "draft-1");
+  fd.append("platform", platform);
+  fd.append("idempotencyKey", "key-123");
+  return fd;
+}
+
+describe("T13 — Immediate action: live mode + no media → error returned", () => {
+  beforeEach(() => {
+    blotatoConfigMock.mockReturnValue({ apiKey: "key", enabled: true, livePublishingEnabled: true });
+    requireContextMock.mockResolvedValue(makeActionContext([]) as never);
+  });
+
+  it("returns error state with a human-readable message when preflight fails in live mode", async () => {
+    const result = await createImmediatePublishingJobAction(
+      { status: "idle", message: "" },
+      makePublishFormData("instagram"),
+    );
+    expect(result.status).toBe("error");
+    expect(result.message).toContain("Cannot publish");
+    expect(result.message).toContain("Instagram");
+  });
+});
+
+describe("T14 — Scheduled action: live mode + no media → error returned", () => {
+  beforeEach(() => {
+    blotatoConfigMock.mockReturnValue({ apiKey: "key", enabled: true, livePublishingEnabled: true });
+    requireContextMock.mockResolvedValue(makeActionContext([]) as never);
+  });
+
+  it("returns error state for Instagram scheduled job in live mode with no media", async () => {
+    const fd = makePublishFormData("instagram");
+    fd.append("scheduledAt", new Date(Date.now() + 3_600_000).toISOString());
+
+    const result = await createScheduledPublishingJobAction(
+      { status: "idle", message: "" },
+      fd,
+    );
+    expect(result.status).toBe("error");
+    expect(result.message).toContain("Cannot schedule");
+  });
+});
+
+// ── T15–T16: Worker fail-closed vs simulation pass-through ────────────────────
+
+describe("T15 — Worker live mode: Instagram + no media → attempt fails with preflight_failed", () => {
+  it("processJob fails the attempt instead of calling the publisher", async () => {
+    const { deps, failAttempt, markJobFailed } = makePollDeps({
+      blotatoLivePublishingEnabled: true,
+      // media returns empty — no publishable assets
+      media: { listAssetsForDraft: vi.fn(async () => []) },
+    });
+
+    await pollOnce(deps as never);
+
+    // deps.publishing.failAttempt is called as failAttempt(attemptId, failure)
+    expect(failAttempt).toHaveBeenCalledWith(
+      "attempt-1",
+      expect.objectContaining({ errorCode: "preflight_failed" }),
+    );
+    expect(markJobFailed).toHaveBeenCalled();
+  });
+});
+
+describe("T16 — Worker simulation mode: Instagram + no media → publisher is called (no block)", () => {
+  it("processJob proceeds to the publisher even without media when simulation mode is active", async () => {
+    const publishFn = vi.fn(async () => ({
+      success: true as const,
+      externalPostId: "post-sim-1",
+      externalUrl: "https://instagram.com/p/sim-1",
+      publishedAt: new Date().toISOString(),
+    }));
+    const mockPublisher = { publish: publishFn };
+
+    const { resolvePublisher } = await import("@/infrastructure/publishers/publisher-factory");
+    vi.mocked(resolvePublisher).mockReturnValue(mockPublisher as never);
+
+    const { deps, failAttempt } = makePollDeps({
+      blotatoLivePublishingEnabled: false,
+      media: { listAssetsForDraft: vi.fn(async () => []) },
+    });
+
+    await pollOnce(deps as never);
+
+    // Simulation: preflight is NOT enforced, publisher IS called
+    expect(failAttempt).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ errorCode: "preflight_failed" }),
+    );
+    expect(publishFn).toHaveBeenCalled();
+  });
+});
+
+// ── T17 — Combined scenario: multiple blockers ─────────────────────────────────
+
+describe("T17 — Multiple blockers: empty body + Instagram + no media → all blockers listed", () => {
+  it("collects all failures into the blockers array rather than stopping at the first", () => {
+    const result = evaluatePlatformPreflight("instagram", "", 0);
+    expect(result.ready).toBe(false);
+    expect(result.blockers).toContain("Post body cannot be empty.");
+    expect(result.blockers).toContain("Instagram requires at least one image or video.");
+    expect(result.blockers).toHaveLength(2);
+  });
+});
