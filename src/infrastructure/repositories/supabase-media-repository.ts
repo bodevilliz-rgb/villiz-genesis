@@ -436,6 +436,54 @@ export class SupabaseMediaRepository implements MediaRepository {
     if (result.error) throw result.error;
   }
 
+  async listDraftsReferencingAsset(assetId: string): Promise<Array<{ id: string; title: string }>> {
+    // Step 1: find which draft_ids reference this asset
+    const linkResult = await (this.client as any)
+      .from("content_draft_assets")
+      .select("draft_id")
+      .eq("asset_id", assetId);
+
+    if (linkResult.error) throw linkResult.error;
+    const draftIds: string[] = (linkResult.data ?? []).map((r: any) => r.draft_id);
+    if (draftIds.length === 0) return [];
+
+    // Step 2: fetch titles so the error message is human-readable
+    const draftsResult = await (this.client as any)
+      .from("content_drafts")
+      .select("id, title")
+      .in("id", draftIds);
+
+    if (draftsResult.error) throw draftsResult.error;
+    return (draftsResult.data ?? []).map((r: any) => ({
+      id: r.id as string,
+      title: (r.title as string | null) ?? "Untitled draft",
+    }));
+  }
+
+  async listCampaignsReferencingAsset(assetId: string): Promise<Array<{ id: string; name: string }>> {
+    // Step 1: find which campaign_ids reference this asset
+    const linkResult = await (this.client as any)
+      .from("campaign_assets")
+      .select("campaign_id")
+      .eq("asset_id", assetId);
+
+    if (linkResult.error) throw linkResult.error;
+    const campaignIds: string[] = (linkResult.data ?? []).map((r: any) => r.campaign_id);
+    if (campaignIds.length === 0) return [];
+
+    // Step 2: fetch names so the error message is human-readable
+    const campaignsResult = await (this.client as any)
+      .from("campaigns")
+      .select("id, name")
+      .in("id", campaignIds);
+
+    if (campaignsResult.error) throw campaignsResult.error;
+    return (campaignsResult.data ?? []).map((r: any) => ({
+      id: r.id as string,
+      name: (r.name as string | null) ?? "Unnamed campaign",
+    }));
+  }
+
   private mapCollectionToDomain(row: any): MediaCollection {
     return {
       id: row.id,

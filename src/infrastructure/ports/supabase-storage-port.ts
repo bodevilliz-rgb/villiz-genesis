@@ -45,4 +45,15 @@ export class SupabaseStoragePort implements StoragePort {
       throw new Error(`Failed to delete media: ${error.message}`);
     }
   }
+
+  async deleteMediaFiles(paths: string[]): Promise<void> {
+    if (paths.length === 0) return;
+    const { error } = await this.client.storage
+      .from(this.BUCKET)
+      .remove(paths);
+
+    if (error) {
+      throw new Error(`Failed to delete media files: ${error.message}`);
+    }
+  }
 }
