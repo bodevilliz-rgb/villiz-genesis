@@ -20,4 +20,10 @@ export interface StoragePort {
    * Removes a file from storage permanently.
    */
   deleteMedia(storagePath: string): Promise<void>;
+
+  /**
+   * Removes multiple files from storage in a single call.
+   * No-op when paths is empty. Throws if any removal fails.
+   */
+  deleteMediaFiles(paths: string[]): Promise<void>;
 }

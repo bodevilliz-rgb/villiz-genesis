@@ -74,6 +74,8 @@ function fakeMedia(assets: MediaAsset[]): MediaRepository {
     detachFromDraft: vi.fn(),
     listAssetsForCampaign: vi.fn(),
     detachFromCampaign: vi.fn(),
+    listDraftsReferencingAsset: vi.fn(async () => []),
+    listCampaignsReferencingAsset: vi.fn(async () => []),
   };
 }
 
@@ -82,6 +84,7 @@ function fakeStorage(urlFor: (storagePath: string) => string): StoragePort {
     uploadMedia: vi.fn(),
     getSignedUrl: vi.fn(async (storagePath: string) => urlFor(storagePath)),
     deleteMedia: vi.fn(),
+    deleteMediaFiles: vi.fn(),
   };
 }
 

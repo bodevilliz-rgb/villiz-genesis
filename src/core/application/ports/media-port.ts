@@ -70,4 +70,9 @@ export interface MediaRepository {
   detachFromDraft(draftId: string, assetId: string): Promise<void>;
   listAssetsForCampaign(campaignId: string): Promise<MediaAsset[]>;
   detachFromCampaign(campaignId: string, assetId: string): Promise<void>;
+
+  /** Returns drafts that reference this asset via content_draft_assets (ON DELETE RESTRICT). */
+  listDraftsReferencingAsset(assetId: string): Promise<Array<{ id: string; title: string }>>;
+  /** Returns campaigns that reference this asset via campaign_assets (ON DELETE RESTRICT). */
+  listCampaignsReferencingAsset(assetId: string): Promise<Array<{ id: string; name: string }>>;
 }
