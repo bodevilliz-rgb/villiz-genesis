@@ -31,6 +31,19 @@ function platformLabel(blotatoPlatform: string): string {
   return p ? PUBLISHING_PLATFORM_LABELS[p] : blotatoPlatform;
 }
 
+/**
+ * The human-recognisable social identity for an account.
+ * Priority: @username > fullname > provider account ID (fallback).
+ * fullname is deliberately lower-priority because Blotato sometimes
+ * populates it with the platform name ("Instagram"), which is indistinguishable
+ * across multiple accounts on the same platform.
+ */
+function accountHandle(a: Pick<BlotatoAccount, "username" | "fullname" | "id">): string {
+  if (a.username) return `@${a.username}`;
+  if (a.fullname) return a.fullname;
+  return a.id;
+}
+
 function AssignForm({
   organisationId,
   available,
@@ -63,11 +76,22 @@ function AssignForm({
       <input type="hidden" name="organisationId" value={organisationId} />
       <div className="flex flex-col gap-2">
         {available.map((a) => (
-          <label key={a.id} className="flex items-center gap-3 rounded-md border p-3 cursor-pointer hover:bg-muted/40">
-            <input type="radio" name="blotatoAccountId" value={a.id} required className="accent-primary" />
-            <span className="flex flex-col">
-              <span className="text-[13px] font-medium">{a.fullname ?? a.username ?? a.id}</span>
-              <span className="text-[12px] text-muted-foreground">{platformLabel(a.platform)}</span>
+          <label
+            key={a.id}
+            className="flex items-center gap-3 rounded-md border p-3 cursor-pointer hover:bg-muted/40"
+          >
+            <input
+              type="radio"
+              name="blotatoAccountId"
+              value={a.id}
+              required
+              className="accent-primary"
+              aria-label={`${platformLabel(a.platform)} ${accountHandle(a)}`}
+            />
+            <span className="flex flex-col gap-0.5">
+              <span className="text-[13px] font-medium">{platformLabel(a.platform)}</span>
+              <span className="text-[12px]">{accountHandle(a)}</span>
+              <span className="text-[11px] text-muted-foreground">Blotato</span>
             </span>
           </label>
         ))}
@@ -147,14 +171,15 @@ export function ConnectedChannelsPanel({ organisationId, channels, available, ca
         <ul className="flex flex-col gap-2">
           {channels.map((ch) => (
             <li key={ch.id} className="flex items-center justify-between rounded-md border px-3 py-2">
-              <div className="flex items-center gap-3">
-                <Badge tone="neutral" className="text-[11px]">
-                  {platformLabel(ch.platform)}
-                </Badge>
-                <span className="text-[13px]">{ch.fullname ?? ch.username ?? ch.id}</span>
-                {ch.username && ch.fullname && (
-                  <span className="text-[12px] text-muted-foreground">@{ch.username}</span>
-                )}
+              <div className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-2">
+                  <Badge tone="neutral" className="text-[11px]">
+                    {platformLabel(ch.platform)}
+                  </Badge>
+                  <span className="text-[11px] text-muted-foreground">Blotato</span>
+                  <Badge tone="positive" className="text-[11px]">Connected</Badge>
+                </div>
+                <span className="text-[13px] font-medium">{accountHandle(ch)}</span>
               </div>
               {canManage && <RemoveForm organisationId={organisationId} account={ch} />}
             </li>
