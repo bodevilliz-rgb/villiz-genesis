@@ -21,6 +21,8 @@ export interface BlotatoAccountSummary {
 export interface BlotatoAccount extends BlotatoAccountSummary {
   /** Which client organisation owns this account. Null means the row pre-dates org scoping or was stored via a platform-wide Test Connection without an org context — such rows are blocked from driving a real publish until backfilled. */
   organisationId: string | null;
+  /** False once an operator removes this channel from its org. Rows with active=false are never selected for publishing and are excluded from listActiveForOrganisation. The row is kept for history and can be re-activated via re-assignment. */
+  active: boolean;
   firstConnectedAt: string;
   lastVerifiedAt: string;
 }

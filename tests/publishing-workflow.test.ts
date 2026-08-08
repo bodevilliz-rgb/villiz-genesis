@@ -17,6 +17,8 @@ import type {
   CreatePublishingJobInput,
   PublishingRepository,
 } from "@/core/application/ports/publishing-port";
+import type { BlotatoAccountRepository } from "@/core/application/ports/blotato-account-port";
+import type { BlotatoAccount } from "@/core/domain/entities/blotato";
 import type { ContentRepository } from "@/core/application/ports/content-port";
 import type { OrganisationRepository } from "@/core/application/ports/organisation-port";
 import type { AuditEvent, AuditRepository } from "@/core/application/ports/audit-port";
@@ -97,6 +99,13 @@ function createHarness(input: {
   draft: ContentDraft;
   viewerRole: OrganisationRole | null;
   organisationId?: string;
+  /**
+   * Number of active Blotato accounts returned for any platform query.
+   * Default: 1 (the single-account happy path, locks that account onto the job).
+   * Pass 0 to test fail-closed on no mapped accounts.
+   * Pass 2+ to test fail-closed on ambiguous accounts.
+   */
+  activeAccountCount?: number;
 }) {
   let draft = input.draft;
   const jobs = new Map<string, PublishingJob>();
@@ -105,6 +114,23 @@ function createHarness(input: {
   const notifications: { profileId: string; type: string; message: string }[] = [];
   let jobSeq = 0;
   let attemptSeq = 0;
+
+  const blotatoAccounts: Partial<BlotatoAccountRepository> = {
+    async findActiveForOrganisationAndPlatform(blotatoPlatform, organisationId) {
+      if (organisationId !== (input.organisationId ?? ORG_ID)) return [];
+      const count = input.activeAccountCount ?? 1;
+      return Array.from<unknown, BlotatoAccount>({ length: count }, (_, i) => ({
+        id: `fake-blotato-${blotatoPlatform}-${i}`,
+        platform: blotatoPlatform,
+        fullname: `Test Account ${i + 1}`,
+        username: `testaccount${i + 1}`,
+        organisationId,
+        active: true,
+        firstConnectedAt: "2026-01-01T00:00:00Z",
+        lastVerifiedAt: "2026-01-01T00:00:00Z",
+      }));
+    },
+  };
 
   const publishing: Partial<PublishingRepository> = {
     async createJob(jobInput: CreatePublishingJobInput) {
@@ -132,6 +158,7 @@ function createHarness(input: {
         completedAt: null,
         cancelledAt: null,
         devSimulationMode: jobInput.devSimulationMode,
+        resolvedAccountId: jobInput.resolvedAccountId,
       };
       jobs.set(created.id, created);
       return created;
@@ -303,6 +330,7 @@ function createHarness(input: {
     deps: {
       actor: actor(),
       publishing: publishing as PublishingRepository,
+      blotatoAccounts: blotatoAccounts as BlotatoAccountRepository,
       content: content as ContentRepository,
       organisations: organisations as OrganisationRepository,
       audits: audits as AuditRepository,
@@ -408,6 +436,7 @@ describe("retryFailedPublishingJob", () => {
       requestedBy: ACTOR_ID,
       maxRetries: 3,
       devSimulationMode: null,
+      resolvedAccountId: null,
     });
     await deps.publishing.markJobFailed(job.id);
 
@@ -429,6 +458,7 @@ describe("retryFailedPublishingJob", () => {
       requestedBy: ACTOR_ID,
       maxRetries: 3,
       devSimulationMode: null,
+      resolvedAccountId: null,
     });
     await expect(retryFailedPublishingJob(deps, ORG_ID, job.id)).rejects.toBeInstanceOf(ValidationError);
   });
@@ -445,6 +475,7 @@ describe("retryFailedPublishingJob", () => {
       requestedBy: ACTOR_ID,
       maxRetries: 1,
       devSimulationMode: null,
+      resolvedAccountId: null,
     });
     await deps.publishing.markJobFailed(job.id);
     await deps.publishing.requeueJobForRetry(ORG_ID, job.id); // retryCount now 1, equal to maxRetries
@@ -467,6 +498,7 @@ describe("cancelPublishingJob", () => {
       requestedBy: ACTOR_ID,
       maxRetries: 3,
       devSimulationMode: null,
+      resolvedAccountId: null,
     });
     const cancelled = await cancelPublishingJob(deps, ORG_ID, job.id);
     expect(cancelled.status).toBe("cancelled");
@@ -485,6 +517,7 @@ describe("cancelPublishingJob", () => {
       requestedBy: ACTOR_ID,
       maxRetries: 3,
       devSimulationMode: null,
+      resolvedAccountId: null,
     });
     // Simulate the worker having already claimed it.
     (job as { status: string }).status = "processing";
@@ -505,6 +538,7 @@ describe("attempt lifecycle — immutable history, audit events, notifications",
       requestedBy: ACTOR_ID,
       maxRetries: 3,
       devSimulationMode: null,
+      resolvedAccountId: null,
     });
     const attempt = await startPublishingAttempt(deps, job);
     expect(attempt.attemptNumber).toBe(1);
@@ -527,6 +561,7 @@ describe("attempt lifecycle — immutable history, audit events, notifications",
       requestedBy: ACTOR_ID,
       maxRetries: 3,
       devSimulationMode: null,
+      resolvedAccountId: null,
     });
     const attempt = await deps.publishing.createAttempt({
       jobId: job.id,
@@ -563,6 +598,7 @@ describe("attempt lifecycle — immutable history, audit events, notifications",
       requestedBy: ACTOR_ID,
       maxRetries: 3,
       devSimulationMode: null,
+      resolvedAccountId: null,
     });
     const attempt = await deps.publishing.createAttempt({
       jobId: job.id,
@@ -598,6 +634,7 @@ describe("attempt lifecycle — immutable history, audit events, notifications",
       requestedBy: ACTOR_ID,
       maxRetries: 3,
       devSimulationMode: null,
+      resolvedAccountId: null,
     });
     const attempt1 = await deps.publishing.createAttempt({
       jobId: job.id,
@@ -634,4 +671,124 @@ describe("attempt lifecycle — immutable history, audit events, notifications",
     expect(all[1]?.status).toBe("completed");
     expect(all[1]?.retryOfAttemptId).toBe(attempt1.id);
   });
+});
+
+// ── Destination-lock tests ─────────────────────────────────────────────────────
+//
+// These tests prove Check 1/2/3/4/5 from the Sprint 10B safety audit:
+//   • resolvedAccountId is set on the job at creation time (not execution time)
+//   • 0 active accounts → fail before createJob()
+//   • 1 active account  → lock that account ID onto the job
+//   • 2+ active accounts → fail before createJob()
+//   Applies identically to immediate and scheduled job creation.
+//
+describe("destination lock — account pre-check at scheduling time", () => {
+  const future = "2099-01-01T10:00:00.000Z";
+
+  it("immediate publish: locks the sole active account ID onto the job at creation time", async () => {
+    const { deps, getJobs } = createHarness({
+      draft: baseDraft({ status: "approved" }),
+      viewerRole: "contributor",
+      activeAccountCount: 1,
+    });
+    const job = await createImmediatePublishingJob(deps, {
+      organisationId: ORG_ID,
+      draftId: DRAFT_ID,
+      platform: "linkedin",
+      idempotencyKey: "lock-imm-1",
+    });
+    expect(job.resolvedAccountId).toBe("fake-blotato-linkedin-0");
+    expect(getJobs()[0]?.resolvedAccountId).toBe("fake-blotato-linkedin-0");
+  });
+
+  it("scheduled publish: locks the sole active account ID onto the job at creation time", async () => {
+    const { deps, getJobs } = createHarness({
+      draft: baseDraft({ status: "approved" }),
+      viewerRole: "contributor",
+      activeAccountCount: 1,
+    });
+    const job = await createScheduledPublishingJob(deps, {
+      organisationId: ORG_ID,
+      draftId: DRAFT_ID,
+      platform: "facebook",
+      scheduledFor: future,
+      timezone: "UTC",
+      idempotencyKey: "lock-sched-1",
+    });
+    expect(job.resolvedAccountId).toBe("fake-blotato-facebook-0");
+    expect(getJobs()[0]?.resolvedAccountId).toBe("fake-blotato-facebook-0");
+  });
+
+  it("immediate publish: fails closed (ValidationError) before createJob when 0 accounts are mapped", async () => {
+    const { deps, getJobs } = createHarness({
+      draft: baseDraft({ status: "approved" }),
+      viewerRole: "contributor",
+      activeAccountCount: 0,
+    });
+    await expect(
+      createImmediatePublishingJob(deps, {
+        organisationId: ORG_ID,
+        draftId: DRAFT_ID,
+        platform: "linkedin",
+        idempotencyKey: "lock-imm-zero",
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(getJobs()).toHaveLength(0);
+  });
+
+  it("scheduled publish: fails closed (ValidationError) before createJob when 0 accounts are mapped", async () => {
+    const { deps, getJobs } = createHarness({
+      draft: baseDraft({ status: "approved" }),
+      viewerRole: "contributor",
+      activeAccountCount: 0,
+    });
+    await expect(
+      createScheduledPublishingJob(deps, {
+        organisationId: ORG_ID,
+        draftId: DRAFT_ID,
+        platform: "instagram",
+        scheduledFor: future,
+        timezone: "UTC",
+        idempotencyKey: "lock-sched-zero",
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(getJobs()).toHaveLength(0);
+  });
+
+  it("immediate publish: fails closed (ValidationError) before createJob when 2+ accounts are mapped", async () => {
+    const { deps, getJobs } = createHarness({
+      draft: baseDraft({ status: "approved" }),
+      viewerRole: "contributor",
+      activeAccountCount: 2,
+    });
+    await expect(
+      createImmediatePublishingJob(deps, {
+        organisationId: ORG_ID,
+        draftId: DRAFT_ID,
+        platform: "x",
+        idempotencyKey: "lock-imm-many",
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(getJobs()).toHaveLength(0);
+  });
+
+  it("scheduled publish: fails closed (ValidationError) before createJob when 2+ accounts are mapped", async () => {
+    const { deps, getJobs } = createHarness({
+      draft: baseDraft({ status: "approved" }),
+      viewerRole: "contributor",
+      activeAccountCount: 2,
+    });
+    await expect(
+      createScheduledPublishingJob(deps, {
+        organisationId: ORG_ID,
+        draftId: DRAFT_ID,
+        platform: "linkedin",
+        scheduledFor: future,
+        timezone: "UTC",
+        idempotencyKey: "lock-sched-many",
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+    expect(getJobs()).toHaveLength(0);
+  });
+
 });

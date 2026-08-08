@@ -43,6 +43,10 @@ vi.mock("@/infrastructure/repositories/supabase-blotato-account-repository", () 
     upsertAccounts: vi.fn(async () => []),
     listAccounts: vi.fn(async () => []),
     findMostRecentForPlatform: vi.fn(async () => null),
+    findActiveForOrganisationAndPlatform: vi.fn(async () => []),
+    listActiveForOrganisation: vi.fn(async () => []),
+    assignToOrganisation: vi.fn(async () => ({})),
+    removeFromOrganisation: vi.fn(async () => {}),
   })),
 }));
 
@@ -144,6 +148,7 @@ function baseJob(overrides: Partial<PublishingJob> = {}): PublishingJob {
     completedAt: null,
     cancelledAt: null,
     devSimulationMode: null,
+    resolvedAccountId: null,
     ...overrides,
   };
 }
@@ -186,6 +191,7 @@ function storedBlotatoAccount(orgId = ORG_A): BlotatoAccount {
     fullname: "Test Instagram",
     username: "testinstagram",
     organisationId: orgId,
+    active: true,
     firstConnectedAt: "2026-08-01T00:00:00Z",
     lastVerifiedAt: "2026-08-01T00:00:00Z",
   };
@@ -341,6 +347,21 @@ function fakeAccountRepo(account: BlotatoAccount | null = storedBlotatoAccount()
       if (account.organisationId !== organisationId) return null;
       return account;
     },
+    findActiveForOrganisationAndPlatform: async (platform, organisationId) => {
+      if (!account) return [];
+      if (account.platform !== platform) return [];
+      if (account.organisationId !== organisationId) return [];
+      if (!account.active) return [];
+      return [account];
+    },
+    listActiveForOrganisation: async (organisationId) => {
+      if (!account) return [];
+      if (account.organisationId !== organisationId) return [];
+      if (!account.active) return [];
+      return [account];
+    },
+    assignToOrganisation: async () => account ?? storedBlotatoAccount(),
+    removeFromOrganisation: async () => {},
   };
 }
 
@@ -559,15 +580,15 @@ describe("E — organisation isolation: org A cannot resolve org B account", () 
     expect(jobs.get(JOB_ID)?.status).toBe("failed");
   });
 
-  it("findMostRecentForPlatform is called with the job's organisationId, not a hardcoded value", async () => {
+  it("findActiveForOrganisationAndPlatform is called with the job's organisationId, not a hardcoded value", async () => {
     const { repo } = createPublishingHarness(baseJob());
     const capturedArgs: Array<{ platform: string; orgId: string }> = [];
 
     const spyAccountRepo: BlotatoAccountRepository = {
       ...fakeAccountRepo(storedBlotatoAccount(ORG_A)),
-      findMostRecentForPlatform: async (platform, orgId) => {
+      findActiveForOrganisationAndPlatform: async (platform, orgId) => {
         capturedArgs.push({ platform, orgId });
-        return storedBlotatoAccount(ORG_A);
+        return [storedBlotatoAccount(ORG_A)];
       },
     };
 
@@ -790,5 +811,77 @@ describe("J — brand voice: draft-status Brand Voice entries are excluded from 
       .join("\n\n");
 
     expect(brandVoiceCtx).toBe("");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// K — Destination lock: resolvedAccountId forwarded from job to publisher
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("K — destination lock: job.resolvedAccountId is forwarded to publisher.publish()", () => {
+  it("simulation mode: job with resolvedAccountId set processes to published (no crash, no corruption)", async () => {
+    // In simulation mode the publisher never touches the account repo or client,
+    // so this test proves: (a) the field is forwarded without crashing executeJob,
+    // and (b) a successful result is returned.
+    const jobWithLock = baseJob({ resolvedAccountId: "blotato-acc-locked-42" });
+    const { repo } = createPublishingHarness(jobWithLock);
+
+    const result = await runPublishingWorkerIteration(
+      workerDeps(repo, fakeContentRepo()),
+    );
+
+    expect(result.status).toBe("processed");
+    if (result.status === "processed") expect(result.result).toBe("published");
+  });
+
+  it("simulation mode: job with resolvedAccountId=null still processes successfully (backward compat)", async () => {
+    // Jobs created before destination-lock shipped have resolvedAccountId:null.
+    // The publisher falls back to its own account lookup — this must not throw.
+    const jobNoLock = baseJob({ resolvedAccountId: null });
+    const { repo } = createPublishingHarness(jobNoLock);
+
+    const result = await runPublishingWorkerIteration(
+      workerDeps(repo, fakeContentRepo()),
+    );
+
+    expect(result.status).toBe("processed");
+    if (result.status === "processed") expect(result.result).toBe("published");
+  });
+
+  it("live mode: when resolvedAccountId matches one of 2+ active accounts, publishPost uses that account's ID", async () => {
+    // The destination-lock branch in BlotatoBlotatoPublisherBase.publish() is
+    // activated when activeAccounts.length > 1. It selects the account whose
+    // id matches resolvedAccountId and forwards it as accountId to publishPost.
+    const ACC_A = { ...storedBlotatoAccount(ORG_A), id: "acc-a", username: "acca" };
+    const ACC_B = { ...storedBlotatoAccount(ORG_A), id: "acc-b", username: "accb" };
+
+    const twoAccountRepo: BlotatoAccountRepository = {
+      ...fakeAccountRepo(ACC_A),
+      // Override the method that the base publisher calls:
+      findActiveForOrganisationAndPlatform: async (_platform, orgId) => {
+        if (orgId !== ORG_A) return [];
+        return [ACC_A, ACC_B];
+      },
+    };
+
+    const jobLockedToB = baseJob({ resolvedAccountId: "acc-b" });
+    const { repo } = createPublishingHarness(jobLockedToB);
+
+    const capturedAccountIds: string[] = [];
+    const spyClient = fakeClient({
+      publishPost: vi.fn(async (req: { accountId: string }) => {
+        capturedAccountIds.push(req.accountId);
+        return { postSubmissionId: "sub-lock-b" };
+      }),
+    });
+
+    enableLivePublishing();
+    const result = await runPublishingWorkerIteration(
+      workerDeps(repo, fakeContentRepo(), twoAccountRepo, spyClient),
+    );
+
+    expect(result.status).toBe("processed");
+    if (result.status === "processed") expect(result.result).toBe("published");
+    expect(capturedAccountIds).toEqual(["acc-b"]); // locked to ACC_B, not ACC_A
   });
 });

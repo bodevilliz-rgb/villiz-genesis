@@ -31,6 +31,7 @@ function storedAccount(overrides: Partial<BlotatoAccount> = {}): BlotatoAccount 
   return {
     ...summary(),
     organisationId: null,
+    active: true,
     firstConnectedAt: "2026-08-01T00:00:00Z",
     lastVerifiedAt: "2026-08-01T00:00:00Z",
     ...overrides,
@@ -42,6 +43,10 @@ function fakeRepository(overrides: Partial<BlotatoAccountRepository> = {}): Blot
     upsertAccounts: async (accounts, _organisationId) => accounts.map((a) => storedAccount(a)),
     listAccounts: async () => [],
     findMostRecentForPlatform: async () => null,
+    findActiveForOrganisationAndPlatform: async () => [],
+    listActiveForOrganisation: async () => [],
+    assignToOrganisation: async () => storedAccount(),
+    removeFromOrganisation: async () => {},
     ...overrides,
   };
 }

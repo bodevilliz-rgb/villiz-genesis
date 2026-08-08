@@ -65,6 +65,12 @@ function fakeAudits(): AuditRepository {
 function fakeNotifications(): NotificationRepository {
   return {} as unknown as NotificationRepository;
 }
+/** Returns exactly 1 active account for any org+platform query — satisfies resolveDestinationAccount without ambiguity. */
+function fakeActiveBlotatoAccounts() {
+  return fakeBlotatoAccountRepository({
+    findActiveForOrganisationAndPlatform: async (_platform, _orgId) => [blotatoStoredAccount({ organisationId: _orgId })],
+  });
+}
 
 // ---------------------------------------------------------------------------
 // A. Draft and review workflow
@@ -266,6 +272,7 @@ export const immediateJobCreationCheck: ReliabilityCheck = {
       {
         actor: actor(),
         publishing: repo,
+        blotatoAccounts: fakeActiveBlotatoAccounts(),
         content: content as ContentRepository,
         organisations: { viewerRole: async () => "lead" } as unknown as OrganisationRepository,
         audits: fakeAudits(),
@@ -297,6 +304,7 @@ export const duplicatePublishPreventionCheck: ReliabilityCheck = {
     const deps = {
       actor: actor(),
       publishing: repo,
+      blotatoAccounts: fakeActiveBlotatoAccounts(),
       content: content as ContentRepository,
       organisations: { viewerRole: async () => "lead" } as unknown as OrganisationRepository,
       audits: fakeAudits(),
@@ -654,6 +662,7 @@ export const retryPublishCheck: ReliabilityCheck = {
       {
         actor: actor(),
         publishing: repo as PublishingRepository,
+        blotatoAccounts: fakeActiveBlotatoAccounts(),
         content: {} as ContentRepository,
         organisations: { viewerRole: async () => "lead" } as unknown as OrganisationRepository,
         audits: fakeAudits(),
@@ -676,6 +685,7 @@ export const retryPublishCheck: ReliabilityCheck = {
         {
           actor: actor(),
           publishing: exhaustedRepo as PublishingRepository,
+          blotatoAccounts: fakeActiveBlotatoAccounts(),
           content: {} as ContentRepository,
           organisations: { viewerRole: async () => "lead" } as unknown as OrganisationRepository,
           audits: fakeAudits(),
@@ -708,6 +718,7 @@ export const scheduledJobEligibilityCheck: ReliabilityCheck = {
     const deps = {
       actor: actor(),
       publishing: repo,
+      blotatoAccounts: fakeActiveBlotatoAccounts(),
       content: content as ContentRepository,
       organisations: { viewerRole: async () => "lead" } as unknown as OrganisationRepository,
       audits: fakeAudits(),
@@ -888,6 +899,7 @@ export const auditTrailCheck: ReliabilityCheck = {
       {
         actor: actor(),
         publishing: repo,
+        blotatoAccounts: fakeActiveBlotatoAccounts(),
         content: content as ContentRepository,
         organisations: { viewerRole: async () => "lead" } as unknown as OrganisationRepository,
         audits,

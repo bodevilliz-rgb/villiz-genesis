@@ -17,6 +17,10 @@ const fakeBlotatoDeps: BlotatoPublisherDeps = {
     upsertAccounts: async (_accounts, _orgId) => [],
     listAccounts: async () => [],
     findMostRecentForPlatform: async (_platform, _orgId) => null,
+    findActiveForOrganisationAndPlatform: async (_platform, _orgId) => [],
+    listActiveForOrganisation: async (_orgId) => [],
+    assignToOrganisation: async (_id, _orgId) => { throw new Error("not used"); },
+    removeFromOrganisation: async (_id) => {},
   },
   blotatoClient: {
     listAccounts: async () => [],

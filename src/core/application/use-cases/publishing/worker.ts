@@ -122,6 +122,7 @@ async function executeJob(deps: WorkerDeps, job: PublishingJob): Promise<WorkerI
       body: draft.body,
       assetUrls: [],
       devSimulationMode,
+      resolvedAccountId: job.resolvedAccountId,
     });
 
     if (publishResult.success) {

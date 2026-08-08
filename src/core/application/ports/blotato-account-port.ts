@@ -27,4 +27,18 @@ export interface BlotatoAccountRepository {
    * and the caller must fail safely.
    */
   findMostRecentForPlatform(blotatoPlatform: string, organisationId: string): Promise<BlotatoAccount | null>;
+  /**
+   * Returns ALL active accounts scoped to `organisationId` for the given Blotato
+   * platform string. Used by the publisher to distinguish:
+   *   0 rows → fail closed (no account connected)
+   *   1 row  → use it
+   *   2+ rows → fail closed unless a resolvedAccountId destination lock is present
+   */
+  findActiveForOrganisationAndPlatform(blotatoPlatform: string, organisationId: string): Promise<BlotatoAccount[]>;
+  /** All active accounts for an org — used by the Connected Channels panel. */
+  listActiveForOrganisation(organisationId: string): Promise<BlotatoAccount[]>;
+  /** Assigns a Blotato account to an org and marks it active. Throws if the account is already owned by a different org. */
+  assignToOrganisation(blotatoAccountId: string, organisationId: string): Promise<BlotatoAccount>;
+  /** Marks a Blotato account inactive and clears its org assignment. The row is kept for history. */
+  removeFromOrganisation(blotatoAccountId: string): Promise<void>;
 }

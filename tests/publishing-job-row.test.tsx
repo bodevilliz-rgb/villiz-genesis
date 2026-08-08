@@ -27,6 +27,7 @@ function job(overrides: Partial<PublishingJob> = {}): PublishingJob {
     completedAt: "2026-08-01T10:00:05.000Z",
     cancelledAt: null,
     devSimulationMode: null,
+    resolvedAccountId: null,
     ...overrides,
   };
 }

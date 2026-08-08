@@ -17,6 +17,13 @@ export interface PublishInput {
    * ever sees an effective, already-safe value.
    */
   devSimulationMode: "always_succeed" | "fail_next_attempt" | "always_fail";
+  /**
+   * Destination lock set at scheduling time (Sprint 10B). When multiple active
+   * accounts are connected for the same platform, the publisher uses this ID to
+   * route to the correct account rather than failing with blotato_ambiguous_account.
+   * Null or absent when only one account is connected (no disambiguation needed).
+   */
+  resolvedAccountId?: string | null;
 }
 
 /**

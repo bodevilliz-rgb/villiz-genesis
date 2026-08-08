@@ -23,6 +23,7 @@ export default async function DashboardPage() {
   const publishingDeps = {
     actor: context.actor,
     publishing: context.publishing,
+    blotatoAccounts: context.blotatoAccounts,
     content: context.content,
     organisations: context.organisations,
     audits: context.audits,

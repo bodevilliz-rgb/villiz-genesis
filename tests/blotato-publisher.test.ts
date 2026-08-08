@@ -33,6 +33,7 @@ function storedAccount(overrides: Partial<BlotatoAccount> = {}): BlotatoAccount 
     fullname: "Villiz Pixels",
     username: "villizpixels",
     organisationId: ORG_ID,
+    active: true,
     firstConnectedAt: "2026-08-01T00:00:00Z",
     lastVerifiedAt: "2026-08-01T00:00:00Z",
     ...overrides,
@@ -44,6 +45,10 @@ function fakeRepository(overrides: Partial<BlotatoAccountRepository> = {}): Blot
     upsertAccounts: async (accounts, _organisationId) => accounts.map((a) => storedAccount(a)),
     listAccounts: async () => [],
     findMostRecentForPlatform: async () => null,
+    findActiveForOrganisationAndPlatform: async () => [],
+    listActiveForOrganisation: async () => [],
+    assignToOrganisation: async () => storedAccount(),
+    removeFromOrganisation: async () => {},
     ...overrides,
   };
 }
@@ -79,12 +84,12 @@ function deps(overrides: Partial<BlotatoPublisherDeps> = {}): BlotatoPublisherDe
 
 describe("BlotatoPublisherBase — live publishing disabled (shipped default)", () => {
   it("behaves exactly like simulatePublish, never touching the Blotato client or account repository", async () => {
-    const findMostRecentForPlatform = vi.fn(async () => null);
+    const findActiveForOrganisationAndPlatform = vi.fn(async () => []);
     const publishPost = vi.fn(async () => ({ postSubmissionId: "should-not-happen" }));
     const publisher = new BlotatoLinkedInPublisher(
       deps({
         livePublishingEnabled: false,
-        blotatoAccounts: fakeRepository({ findMostRecentForPlatform }),
+        blotatoAccounts: fakeRepository({ findActiveForOrganisationAndPlatform }),
         blotatoClient: fakeClient({ publishPost }),
       }),
     );
@@ -96,7 +101,7 @@ describe("BlotatoPublisherBase — live publishing disabled (shipped default)", 
       expect(result.externalPostId).toMatch(/^mock-linkedin-\d+$/);
       expect(result.externalUrl).toBe(`https://mock.local/linkedin/${result.externalPostId}`);
     }
-    expect(findMostRecentForPlatform).not.toHaveBeenCalled();
+    expect(findActiveForOrganisationAndPlatform).not.toHaveBeenCalled();
     expect(publishPost).not.toHaveBeenCalled();
   });
 
@@ -109,23 +114,23 @@ describe("BlotatoPublisherBase — live publishing disabled (shipped default)", 
 });
 
 describe("BlotatoPublisherBase — live publishing enabled", () => {
-  it("resolves the most-recently-verified stored account for the mapped Blotato platform and calls publishPost with it", async () => {
-    const findMostRecentForPlatform = vi.fn(async (blotatoPlatform: string, _orgId: string) =>
-      blotatoPlatform === "twitter" ? storedAccount({ id: "acc-x", platform: "twitter" }) : null,
+  it("resolves the single active stored account for the mapped Blotato platform and calls publishPost with it", async () => {
+    const findActiveForOrganisationAndPlatform = vi.fn(async (blotatoPlatform: string, _orgId: string) =>
+      blotatoPlatform === "twitter" ? [storedAccount({ id: "acc-x", platform: "twitter" })] : [],
     );
     const publishPost = vi.fn(async () => ({ postSubmissionId: "submission-x-1" }));
 
     const publisher = new BlotatoXPublisher(
       deps({
         livePublishingEnabled: true,
-        blotatoAccounts: fakeRepository({ findMostRecentForPlatform }),
+        blotatoAccounts: fakeRepository({ findActiveForOrganisationAndPlatform }),
         blotatoClient: fakeClient({ publishPost }),
       }),
     );
 
     const result = await publisher.publish(input({ platform: "x", body: "Hello world", assetUrls: ["https://cdn.example.com/x.png"] }));
 
-    expect(findMostRecentForPlatform).toHaveBeenCalledWith("twitter", ORG_ID);
+    expect(findActiveForOrganisationAndPlatform).toHaveBeenCalledWith("twitter", ORG_ID);
     expect(publishPost).toHaveBeenCalledWith({
       accountId: "acc-x",
       platform: "twitter",
@@ -141,7 +146,7 @@ describe("BlotatoPublisherBase — live publishing enabled", () => {
 
   it("returns a business failure (not a thrown exception) when no account is connected for the platform", async () => {
     const publisher = new BlotatoLinkedInPublisher(
-      deps({ livePublishingEnabled: true, blotatoAccounts: fakeRepository({ findMostRecentForPlatform: async () => null }) }),
+      deps({ livePublishingEnabled: true, blotatoAccounts: fakeRepository({ findActiveForOrganisationAndPlatform: async () => [] }) }),
     );
 
     const result = await publisher.publish(input());
@@ -157,7 +162,7 @@ describe("BlotatoPublisherBase — live publishing enabled", () => {
     const publisher = new BlotatoLinkedInPublisher(
       deps({
         livePublishingEnabled: true,
-        blotatoAccounts: fakeRepository({ findMostRecentForPlatform: async () => storedAccount() }),
+        blotatoAccounts: fakeRepository({ findActiveForOrganisationAndPlatform: async () => [storedAccount()] }),
         blotatoClient: fakeClient({
           publishPost: async () => {
             throw new Error("Blotato returned 500 posting");
@@ -174,7 +179,7 @@ describe("BlotatoPublisherBase — live publishing enabled", () => {
     const publisher = new BlotatoLinkedInPublisher(
       deps({
         livePublishingEnabled: true,
-        blotatoAccounts: fakeRepository({ findMostRecentForPlatform: async () => storedAccount({ id: "blotato-account-1234567890" }) }),
+        blotatoAccounts: fakeRepository({ findActiveForOrganisationAndPlatform: async () => [storedAccount({ id: "blotato-account-1234567890" })] }),
         assetMimeTypes: ["image/png"],
         onBeforePublish: (preview) => previews.push(preview),
       }),
@@ -209,7 +214,7 @@ describe("BlotatoPublisherBase — final-status polling", () => {
     const publisher = new BlotatoLinkedInPublisher(
       deps({
         livePublishingEnabled: true,
-        blotatoAccounts: fakeRepository({ findMostRecentForPlatform: async () => storedAccount() }),
+        blotatoAccounts: fakeRepository({ findActiveForOrganisationAndPlatform: async () => [storedAccount()] }),
         blotatoClient: fakeClient({ publishPost: async () => ({ postSubmissionId: "submission-42" }), getPostStatus }),
         statusPollIntervalMs: 0,
       }),
@@ -234,7 +239,7 @@ describe("BlotatoPublisherBase — final-status polling", () => {
     const publisher = new BlotatoLinkedInPublisher(
       deps({
         livePublishingEnabled: true,
-        blotatoAccounts: fakeRepository({ findMostRecentForPlatform: async () => storedAccount() }),
+        blotatoAccounts: fakeRepository({ findActiveForOrganisationAndPlatform: async () => [storedAccount()] }),
         blotatoClient: fakeClient({ publishPost: async () => ({ postSubmissionId: "submission-42" }), getPostStatus }),
         statusPollIntervalMs: 0,
       }),
@@ -255,7 +260,7 @@ describe("BlotatoPublisherBase — final-status polling", () => {
     const publisher = new BlotatoLinkedInPublisher(
       deps({
         livePublishingEnabled: true,
-        blotatoAccounts: fakeRepository({ findMostRecentForPlatform: async () => storedAccount() }),
+        blotatoAccounts: fakeRepository({ findActiveForOrganisationAndPlatform: async () => [storedAccount()] }),
         blotatoClient: fakeClient({ publishPost: async () => ({ postSubmissionId: "submission-42" }), getPostStatus }),
         statusPollIntervalMs: 0,
         statusPollMaxAttempts: 3,
@@ -276,7 +281,7 @@ describe("BlotatoPublisherBase — final-status polling", () => {
     const publisher = new BlotatoLinkedInPublisher(
       deps({
         livePublishingEnabled: true,
-        blotatoAccounts: fakeRepository({ findMostRecentForPlatform: async () => storedAccount() }),
+        blotatoAccounts: fakeRepository({ findActiveForOrganisationAndPlatform: async () => [storedAccount()] }),
         blotatoClient: fakeClient({
           publishPost: async () => ({ postSubmissionId: "submission-99" }),
           getPostStatus: async (id) => publishedStatus({ postSubmissionId: id, status: "failed", errorMessage: "boom" }),

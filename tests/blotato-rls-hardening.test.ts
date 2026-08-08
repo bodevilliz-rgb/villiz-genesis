@@ -92,6 +92,7 @@ function storedAccount(overrides: Partial<BlotatoAccount> = {}): BlotatoAccount 
     fullname: "Villiz Pixels",
     username: "villizpixels",
     organisationId: ORG_A,
+    active: true,
     firstConnectedAt: "2026-08-01T00:00:00Z",
     lastVerifiedAt: "2026-08-07T12:00:00Z",
     ...overrides,
@@ -123,6 +124,7 @@ function baseJob(overrides: Partial<PublishingJob> = {}): PublishingJob {
     completedAt: null,
     cancelledAt: null,
     devSimulationMode: null,
+    resolvedAccountId: null,
     ...overrides,
   };
 }
@@ -170,6 +172,21 @@ function fakeAccountRepo(account: BlotatoAccount | null): BlotatoAccountReposito
       if (account.organisationId !== organisationId) return null;
       return account;
     },
+    findActiveForOrganisationAndPlatform: async (platform, organisationId) => {
+      if (!account) return [];
+      if (account.platform !== platform) return [];
+      if (account.organisationId !== organisationId) return [];
+      if (!account.active) return [];
+      return [account];
+    },
+    listActiveForOrganisation: async (organisationId) => {
+      if (!account) return [];
+      if (account.organisationId !== organisationId) return [];
+      if (!account.active) return [];
+      return [account];
+    },
+    assignToOrganisation: async () => account ?? storedAccount(),
+    removeFromOrganisation: async () => {},
   };
 }
 
@@ -449,6 +466,10 @@ describe("B — Test Connection preserves existing organisationId (trigger contr
       },
       listAccounts: async () => [...store.values()],
       findMostRecentForPlatform: async () => null,
+      findActiveForOrganisationAndPlatform: async () => [],
+      listActiveForOrganisation: async () => [],
+      assignToOrganisation: async () => storedAccount(),
+      removeFromOrganisation: async () => {},
     };
 
     // Act: admin clicks Test Connection — passes null as organisationId
@@ -485,6 +506,10 @@ describe("B — Test Connection preserves existing organisationId (trigger contr
       },
       listAccounts: async () => [...store.values()],
       findMostRecentForPlatform: async () => null,
+      findActiveForOrganisationAndPlatform: async () => [],
+      listActiveForOrganisation: async () => [],
+      assignToOrganisation: async () => storedAccount(),
+      removeFromOrganisation: async () => {},
     };
 
     // An org-aware upsert (e.g. future Sprint 10B flow) passing an explicit org ID
@@ -560,16 +585,16 @@ describe("D — service-role worker resolves org-scoped account and publishes", 
     expect([...attempts.values()][0]!.status).toBe("completed");
   });
 
-  it("findMostRecentForPlatform is called with the job organisationId — never a hardcoded value", async () => {
+  it("findActiveForOrganisationAndPlatform is called with the job organisationId — never a hardcoded value", async () => {
     const orgScopedAccount = storedAccount({ organisationId: ORG_A });
     const capturedQueries: Array<{ platform: string; orgId: string }> = [];
 
     const spyAccountRepo: BlotatoAccountRepository = {
       ...fakeAccountRepo(orgScopedAccount),
-      findMostRecentForPlatform: async (platform, orgId) => {
+      findActiveForOrganisationAndPlatform: async (platform, orgId) => {
         capturedQueries.push({ platform, orgId });
-        if (orgId === ORG_A && platform === "instagram") return orgScopedAccount;
-        return null;
+        if (orgId === ORG_A && platform === "instagram") return [orgScopedAccount];
+        return [];
       },
     };
 

@@ -587,6 +587,7 @@ export type PublishingJobRow = {
   claimed_by: string | null;
   claimed_at: string | null;
   dev_simulation_mode: PublishingSimulationModeDb | null;
+  resolved_account_id: string | null;
 };
 
 export type ScheduledPostRow = {

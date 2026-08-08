@@ -91,6 +91,7 @@ export function publishingJob(overrides: Partial<PublishingJob> = {}): Publishin
     completedAt: null,
     cancelledAt: null,
     devSimulationMode: null,
+    resolvedAccountId: null,
     ...overrides,
   };
 }
@@ -159,6 +160,7 @@ export function blotatoStoredAccount(overrides: Partial<BlotatoAccount> = {}): B
     fullname: "Villiz Pixels",
     username: "villizpixels",
     organisationId: null,
+    active: true,
     firstConnectedAt: "2026-08-01T00:00:00Z",
     lastVerifiedAt: "2026-08-01T00:00:00Z",
     ...overrides,
@@ -170,6 +172,10 @@ export function fakeBlotatoAccountRepository(overrides: Partial<BlotatoAccountRe
     upsertAccounts: async (accounts) => accounts.map((a) => blotatoStoredAccount(a)),
     listAccounts: async () => [],
     findMostRecentForPlatform: async () => null,
+    findActiveForOrganisationAndPlatform: async () => [],
+    listActiveForOrganisation: async () => [],
+    assignToOrganisation: async () => blotatoStoredAccount(),
+    removeFromOrganisation: async () => {},
     ...overrides,
   };
 }

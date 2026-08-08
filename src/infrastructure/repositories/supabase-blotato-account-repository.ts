@@ -8,13 +8,21 @@ type BlotatoAccountRow =
   Database["public"]["Tables"]["blotato_accounts"]["Row"];
 import { translateError, unwrap } from "./errors";
 
+type ExtendedRow = BlotatoAccountRow & {
+  organisation_id?: string | null;
+  active?: boolean | null;
+  resolved_account_id?: string | null;
+};
+
 function toBlotatoAccount(row: BlotatoAccountRow): BlotatoAccount {
+  const r = row as ExtendedRow;
   return {
     id: row.blotato_account_id,
     platform: row.platform,
     fullname: row.fullname,
     username: row.username,
-    organisationId: (row as BlotatoAccountRow & { organisation_id?: string | null }).organisation_id ?? null,
+    organisationId: r.organisation_id ?? null,
+    active: r.active ?? true,
     firstConnectedAt: row.first_connected_at,
     lastVerifiedAt: row.last_verified_at,
   };
@@ -65,7 +73,6 @@ export class SupabaseBlotatoAccountRepository implements BlotatoAccountRepositor
       .from("blotato_accounts")
       .select("*")
       .eq("platform", blotatoPlatform)
-      // organisation_id exists in DB but not yet in generated types — see above
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .eq("organisation_id" as any, organisationId)
       .order("last_verified_at", { ascending: false })
@@ -74,5 +81,50 @@ export class SupabaseBlotatoAccountRepository implements BlotatoAccountRepositor
 
     if (error) translateError(error, "Blotato account");
     return data ? toBlotatoAccount(data as BlotatoAccountRow) : null;
+  }
+
+  async findActiveForOrganisationAndPlatform(blotatoPlatform: string, organisationId: string): Promise<BlotatoAccount[]> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (this.client.from("blotato_accounts").select("*") as any)
+      .eq("platform", blotatoPlatform)
+      .eq("organisation_id", organisationId)
+      .eq("active", true)
+      .order("last_verified_at", { ascending: false });
+
+    if (error) translateError(error as Parameters<typeof translateError>[0], "Blotato account");
+    return ((data ?? []) as BlotatoAccountRow[]).map(toBlotatoAccount);
+  }
+
+  async listActiveForOrganisation(organisationId: string): Promise<BlotatoAccount[]> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (this.client.from("blotato_accounts").select("*") as any)
+      .eq("organisation_id", organisationId)
+      .eq("active", true)
+      .order("platform", { ascending: true });
+
+    if (error) translateError(error as Parameters<typeof translateError>[0], "Blotato account");
+    return ((data ?? []) as BlotatoAccountRow[]).map(toBlotatoAccount);
+  }
+
+  async assignToOrganisation(blotatoAccountId: string, organisationId: string): Promise<BlotatoAccount> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (this.client.from("blotato_accounts") as any)
+      .update({ organisation_id: organisationId, active: true })
+      .eq("blotato_account_id", blotatoAccountId)
+      .select("*")
+      .maybeSingle();
+
+    if (error) translateError(error as Parameters<typeof translateError>[0], "Blotato account");
+    if (!data) throw new Error(`Blotato account ${blotatoAccountId} not found`);
+    return toBlotatoAccount(data as BlotatoAccountRow);
+  }
+
+  async removeFromOrganisation(blotatoAccountId: string): Promise<void> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (this.client.from("blotato_accounts") as any)
+      .update({ active: false, organisation_id: null })
+      .eq("blotato_account_id", blotatoAccountId);
+
+    if (error) translateError(error as Parameters<typeof translateError>[0], "Blotato account");
   }
 }

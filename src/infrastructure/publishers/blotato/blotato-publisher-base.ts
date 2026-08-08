@@ -3,7 +3,7 @@ import type { PublisherPort, PublishInput } from "@/core/application/ports/publi
 import type { PublisherResult, PublishingPlatform } from "@/core/domain/entities/publishing";
 import type { BlotatoAccountRepository } from "@/core/application/ports/blotato-account-port";
 import type { BlotatoClient, BlotatoPostStatus } from "@/core/application/ports/blotato-client-port";
-import { toBlotatoPlatform } from "@/core/domain/entities/blotato";
+import { toBlotatoPlatform, type BlotatoAccount } from "@/core/domain/entities/blotato";
 import { redactAccountId } from "@/core/domain/entities/publishing-media";
 import { simulatePublish } from "../simulated-publish";
 
@@ -74,14 +74,49 @@ export abstract class BlotatoPublisherBase implements PublisherPort {
     }
 
     const blotatoPlatform = toBlotatoPlatform(this.platform);
-    const account = await this.deps.blotatoAccounts.findMostRecentForPlatform(blotatoPlatform, input.organisationId);
+    const activeAccounts = await this.deps.blotatoAccounts.findActiveForOrganisationAndPlatform(
+      blotatoPlatform,
+      input.organisationId,
+    );
 
-    if (!account) {
+    if (activeAccounts.length === 0) {
       return {
         success: false,
         errorCode: "blotato_no_connected_account",
-        errorMessage: `No Blotato account is connected for ${this.platform} on this organisation. Connect one from Publishing Settings, then Test Connection.`,
+        errorMessage: `No active ${this.platform} account is connected for this organisation. Assign one from Connected Channels in Settings.`,
         metadata: { organisationId: input.organisationId, draftId: input.draftId },
+      };
+    }
+
+    let account: BlotatoAccount;
+    if (activeAccounts.length === 1) {
+      account = activeAccounts[0]!;
+    } else if (input.resolvedAccountId) {
+      const locked = activeAccounts.find((a) => a.id === input.resolvedAccountId);
+      if (locked === undefined) {
+        return {
+          success: false,
+          errorCode: "blotato_ambiguous_account",
+          errorMessage: `Multiple ${this.platform} accounts are connected for this organisation and the resolved account (${input.resolvedAccountId}) no longer matches an active account. Re-schedule this post with an explicit account selection.`,
+          metadata: { organisationId: input.organisationId, draftId: input.draftId, resolvedAccountId: input.resolvedAccountId },
+        };
+      }
+      account = locked;
+    } else {
+      return {
+        success: false,
+        errorCode: "blotato_ambiguous_account",
+        errorMessage: `Multiple ${this.platform} accounts are connected for this organisation. Select one explicitly when scheduling the post.`,
+        metadata: { organisationId: input.organisationId, draftId: input.draftId },
+      };
+    }
+
+    if (!account.active) {
+      return {
+        success: false,
+        errorCode: "blotato_account_inactive",
+        errorMessage: `The ${this.platform} account (${account.username ?? account.id}) is no longer active for this organisation. Reconnect or assign a different account in Connected Channels.`,
+        metadata: { organisationId: input.organisationId, draftId: input.draftId, blotatoAccountId: account.id },
       };
     }
 
