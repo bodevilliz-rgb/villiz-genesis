@@ -43,6 +43,7 @@ function account(overrides: Partial<BlotatoAccount> = {}): BlotatoAccount {
     fullname: "Test User",
     organisationId: null,
     active: true,
+    providerActive: true,
     firstConnectedAt: "2026-08-01T00:00:00Z",
     lastVerifiedAt: "2026-08-01T00:00:00Z",
     ...overrides,
