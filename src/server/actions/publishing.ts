@@ -48,6 +48,8 @@ export async function createImmediatePublishingJobAction(_prev: ActionState, for
         ? devSimulationModeRaw
         : null;
 
+    const resolvedAccountId = formData.get("resolvedAccountId")?.toString() || null;
+
     if (!isPublishingPlatform(platform)) throw new Error("Choose a destination platform.");
     if (!idempotencyKey) throw new Error("Missing request identifier — reload the page and try again.");
 
@@ -57,6 +59,7 @@ export async function createImmediatePublishingJobAction(_prev: ActionState, for
       platform,
       idempotencyKey,
       devSimulationMode,
+      resolvedAccountId,
     });
 
     revalidatePublishing(organisationId, draftId);
@@ -76,6 +79,8 @@ export async function createScheduledPublishingJobAction(_prev: ActionState, for
     const timezone = textOrEmpty(formData, "timezone") || "UTC";
     const idempotencyKey = textOrEmpty(formData, "idempotencyKey");
 
+    const resolvedAccountId = formData.get("resolvedAccountId")?.toString() || null;
+
     if (!isPublishingPlatform(platform)) throw new Error("Choose a destination platform.");
     if (!scheduledAt) throw new Error("Choose a date and time to publish.");
     if (!idempotencyKey) throw new Error("Missing request identifier — reload the page and try again.");
@@ -87,6 +92,7 @@ export async function createScheduledPublishingJobAction(_prev: ActionState, for
       scheduledFor: new Date(scheduledAt).toISOString(),
       timezone,
       idempotencyKey,
+      resolvedAccountId,
     });
 
     revalidatePublishing(organisationId, draftId);
@@ -154,6 +160,9 @@ export async function reschedulePublishingJob(
       scheduledFor: scheduledDate.toISOString(),
       timezone: "UTC",
       idempotencyKey: generateIdempotencyKey(),
+      // Preserve the original destination lock so a drag-and-drop reschedule never
+      // re-opens account resolution and never fails on 2+ same-platform accounts.
+      resolvedAccountId: activeJob.resolvedAccountId ?? null,
     });
 
     revalidatePublishing(organisationId, draftId);
