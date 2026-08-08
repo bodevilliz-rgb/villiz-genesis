@@ -105,6 +105,8 @@ export interface PublishingJob {
   cancelledAt: string | null;
   /** Non-production-only mock outcome override — see infrastructure/publishers/simulation-mode.ts. Always null in real use. */
   devSimulationMode: "always_succeed" | "fail_next_attempt" | "always_fail" | null;
+  /** Destination lock: the exact blotato_account_id resolved at scheduling time. The worker passes this to the publisher so it can route to the correct account even when multiple accounts are connected for the same platform. Null for jobs scheduled before Sprint 10B or when only one account is connected (no ambiguity). */
+  resolvedAccountId: string | null;
 }
 
 export interface PublishingAttempt {

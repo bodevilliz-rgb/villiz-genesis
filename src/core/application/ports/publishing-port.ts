@@ -16,6 +16,7 @@ export interface CreatePublishingJobInput {
   requestedBy: string;
   maxRetries: number;
   devSimulationMode: "always_succeed" | "fail_next_attempt" | "always_fail" | null;
+  resolvedAccountId: string | null;
 }
 
 export interface PublishingQueueFilters {

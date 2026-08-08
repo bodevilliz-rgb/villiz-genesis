@@ -33,6 +33,7 @@ export function toPublishingJob(row: PublishingJobRowWithRelations): PublishingJ
     completedAt: row.completed_at,
     cancelledAt: row.cancelled_at,
     devSimulationMode: row.dev_simulation_mode,
+    resolvedAccountId: (row as PublishingJobRowWithRelations & { resolved_account_id?: string | null }).resolved_account_id ?? null,
   };
 }
 

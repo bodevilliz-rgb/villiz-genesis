@@ -52,7 +52,6 @@ describe("Sprint 2 surface is advertised but inert", () => {
     const sprintTwo = [
       "src/app/(workspace)/content",
       "src/app/(workspace)/campaigns",
-      "src/app/(workspace)/publishing",
       "src/app/(workspace)/media",
     ];
 

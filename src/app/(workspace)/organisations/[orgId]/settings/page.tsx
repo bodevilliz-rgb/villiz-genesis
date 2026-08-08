@@ -3,8 +3,10 @@ import { requireContext } from "@/server/container";
 import { PageHeader } from "@/components/common/page-header";
 import { OrganisationForm } from "@/components/organisations/organisation-form";
 import { LimitsForm } from "@/components/organisations/limits-form";
+import { ConnectedChannelsPanel } from "@/components/settings/connected-channels-panel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { canEditOrganisation } from "@/core/domain/entities/identity";
+import { listOrganisationChannels, listAvailableAccountsForAssignment } from "@/core/application/use-cases/organisation-social-accounts";
 
 export default async function OrganisationSettingsPage({
   params,
@@ -14,10 +16,14 @@ export default async function OrganisationSettingsPage({
   const { orgId } = await params;
   const context = await requireContext();
 
-  const [organisation, viewerRole, usage] = await Promise.all([
+  const [organisation, viewerRole, usage, channels, available] = await Promise.all([
     context.organisations.findById(orgId),
     context.organisations.viewerRole(orgId),
     context.usage.forOrganisation(orgId),
+    listOrganisationChannels({ blotatoAccounts: context.blotatoAccounts }, orgId),
+    context.actor.isPlatformAdmin
+      ? listAvailableAccountsForAssignment({ actor: context.actor, blotatoAccounts: context.blotatoAccounts })
+      : Promise.resolve([]),
   ]);
 
   if (!organisation) notFound();
@@ -44,6 +50,26 @@ export default async function OrganisationSettingsPage({
               You have read access to this account. Ask the account lead if something here needs to change.
             </p>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Connected channels</CardTitle>
+          <CardDescription>
+            {context.actor.isPlatformAdmin
+              ? "Assign Blotato social accounts to this organisation. The publishing worker uses only the accounts listed here."
+              : "Social accounts connected for publishing. Ask a platform administrator to add or remove channels."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="py-6">
+          <ConnectedChannelsPanel
+            organisationId={orgId}
+            channels={channels}
+            available={available}
+            canManage={context.actor.isPlatformAdmin}
+            maxChannels={usage?.maxSocialAccounts ?? 6}
+          />
         </CardContent>
       </Card>
 

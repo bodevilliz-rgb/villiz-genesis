@@ -65,6 +65,12 @@ function fakeAudits(): AuditRepository {
 function fakeNotifications(): NotificationRepository {
   return {} as unknown as NotificationRepository;
 }
+/** Returns exactly 1 active account for any org+platform query — satisfies resolveDestinationAccount without ambiguity. */
+function fakeActiveBlotatoAccounts() {
+  return fakeBlotatoAccountRepository({
+    findActiveForOrganisationAndPlatform: async (_platform, _orgId) => [blotatoStoredAccount({ organisationId: _orgId })],
+  });
+}
 
 // ---------------------------------------------------------------------------
 // A. Draft and review workflow
@@ -266,6 +272,7 @@ export const immediateJobCreationCheck: ReliabilityCheck = {
       {
         actor: actor(),
         publishing: repo,
+        blotatoAccounts: fakeActiveBlotatoAccounts(),
         content: content as ContentRepository,
         organisations: { viewerRole: async () => "lead" } as unknown as OrganisationRepository,
         audits: fakeAudits(),
@@ -297,6 +304,7 @@ export const duplicatePublishPreventionCheck: ReliabilityCheck = {
     const deps = {
       actor: actor(),
       publishing: repo,
+      blotatoAccounts: fakeActiveBlotatoAccounts(),
       content: content as ContentRepository,
       organisations: { viewerRole: async () => "lead" } as unknown as OrganisationRepository,
       audits: fakeAudits(),
@@ -469,8 +477,8 @@ export const blotatoPayloadConstructionCheck: ReliabilityCheck = {
       const publisher = new Publisher(
         blotatoDeps({
           blotatoAccounts: fakeBlotatoAccountRepository({
-            findMostRecentForPlatform: async (blotatoPlatform) =>
-              blotatoPlatform === expectedBlotatoPlatform ? blotatoStoredAccount({ id: "acc-1", platform: expectedBlotatoPlatform }) : null,
+            findActiveForOrganisationAndPlatform: async (blotatoPlatform) =>
+              blotatoPlatform === expectedBlotatoPlatform ? [blotatoStoredAccount({ id: "acc-1", platform: expectedBlotatoPlatform })] : [],
           }),
           blotatoClient: fakeBlotatoClient({
             publishPost: async (input) => {
@@ -504,7 +512,7 @@ export const providerStatusPollingCheck: ReliabilityCheck = {
       let calls = 0;
       const publisher = new BlotatoLinkedInPublisher(
         blotatoDeps({
-          blotatoAccounts: fakeBlotatoAccountRepository({ findMostRecentForPlatform: async () => blotatoStoredAccount() }),
+          blotatoAccounts: fakeBlotatoAccountRepository({ findActiveForOrganisationAndPlatform: async () => [blotatoStoredAccount()] }),
           blotatoClient: fakeBlotatoClient({
             getPostStatus: async (id) => {
               calls += 1;
@@ -525,7 +533,7 @@ export const providerStatusPollingCheck: ReliabilityCheck = {
     {
       const publisher = new BlotatoLinkedInPublisher(
         blotatoDeps({
-          blotatoAccounts: fakeBlotatoAccountRepository({ findMostRecentForPlatform: async () => blotatoStoredAccount() }),
+          blotatoAccounts: fakeBlotatoAccountRepository({ findActiveForOrganisationAndPlatform: async () => [blotatoStoredAccount()] }),
           blotatoClient: fakeBlotatoClient({
             getPostStatus: async (id) => blotatoPublishedStatus({ postSubmissionId: id, status: "failed", publicUrl: null, errorMessage: "no media provided" }),
           }),
@@ -542,7 +550,7 @@ export const providerStatusPollingCheck: ReliabilityCheck = {
       let calls = 0;
       const publisher = new BlotatoLinkedInPublisher(
         blotatoDeps({
-          blotatoAccounts: fakeBlotatoAccountRepository({ findMostRecentForPlatform: async () => blotatoStoredAccount() }),
+          blotatoAccounts: fakeBlotatoAccountRepository({ findActiveForOrganisationAndPlatform: async () => [blotatoStoredAccount()] }),
           blotatoClient: fakeBlotatoClient({
             getPostStatus: async (id) => {
               calls += 1;
@@ -570,7 +578,7 @@ export const providerStatusPollingCheck: ReliabilityCheck = {
     {
       const publisher = new BlotatoLinkedInPublisher(
         blotatoDeps({
-          blotatoAccounts: fakeBlotatoAccountRepository({ findMostRecentForPlatform: async () => blotatoStoredAccount() }),
+          blotatoAccounts: fakeBlotatoAccountRepository({ findActiveForOrganisationAndPlatform: async () => [blotatoStoredAccount()] }),
           blotatoClient: fakeBlotatoClient({
             getPostStatus: async () => {
               throw new Error("Blotato returned 500 checking post status");
@@ -593,7 +601,7 @@ export const providerStatusPollingCheck: ReliabilityCheck = {
       let publishPostCalls = 0;
       const publisher = new BlotatoLinkedInPublisher(
         blotatoDeps({
-          blotatoAccounts: fakeBlotatoAccountRepository({ findMostRecentForPlatform: async () => blotatoStoredAccount() }),
+          blotatoAccounts: fakeBlotatoAccountRepository({ findActiveForOrganisationAndPlatform: async () => [blotatoStoredAccount()] }),
           blotatoClient: fakeBlotatoClient({
             publishPost: async () => {
               publishPostCalls += 1;
@@ -620,7 +628,7 @@ export const failurePersistenceCheck: ReliabilityCheck = {
   async run() {
     const publisher = new BlotatoLinkedInPublisher(
       blotatoDeps({
-        blotatoAccounts: fakeBlotatoAccountRepository({ findMostRecentForPlatform: async () => null }),
+        blotatoAccounts: fakeBlotatoAccountRepository({ findActiveForOrganisationAndPlatform: async () => [] }),
       }),
     );
     const result = await publisher.publish(publishInput());
@@ -654,6 +662,7 @@ export const retryPublishCheck: ReliabilityCheck = {
       {
         actor: actor(),
         publishing: repo as PublishingRepository,
+        blotatoAccounts: fakeActiveBlotatoAccounts(),
         content: {} as ContentRepository,
         organisations: { viewerRole: async () => "lead" } as unknown as OrganisationRepository,
         audits: fakeAudits(),
@@ -676,6 +685,7 @@ export const retryPublishCheck: ReliabilityCheck = {
         {
           actor: actor(),
           publishing: exhaustedRepo as PublishingRepository,
+          blotatoAccounts: fakeActiveBlotatoAccounts(),
           content: {} as ContentRepository,
           organisations: { viewerRole: async () => "lead" } as unknown as OrganisationRepository,
           audits: fakeAudits(),
@@ -708,6 +718,7 @@ export const scheduledJobEligibilityCheck: ReliabilityCheck = {
     const deps = {
       actor: actor(),
       publishing: repo,
+      blotatoAccounts: fakeActiveBlotatoAccounts(),
       content: content as ContentRepository,
       organisations: { viewerRole: async () => "lead" } as unknown as OrganisationRepository,
       audits: fakeAudits(),
@@ -888,6 +899,7 @@ export const auditTrailCheck: ReliabilityCheck = {
       {
         actor: actor(),
         publishing: repo,
+        blotatoAccounts: fakeActiveBlotatoAccounts(),
         content: content as ContentRepository,
         organisations: { viewerRole: async () => "lead" } as unknown as OrganisationRepository,
         audits,

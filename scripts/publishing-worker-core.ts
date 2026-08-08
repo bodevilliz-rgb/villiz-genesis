@@ -177,6 +177,7 @@ async function processJob(job: PublishingJob, deps: ReturnType<typeof buildDeps>
     body: draft.body,
     assetUrls: media.mediaUrls,
     devSimulationMode: effectiveMode,
+    resolvedAccountId: job.resolvedAccountId,
   });
 
   if (result.success) {

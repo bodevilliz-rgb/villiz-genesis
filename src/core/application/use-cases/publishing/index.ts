@@ -10,7 +10,9 @@ import {
   type PublishingJob,
   type PublishingPlatform,
 } from "@/core/domain/entities/publishing";
+import { toBlotatoPlatform } from "@/core/domain/entities/blotato";
 import type { PublishingRepository, PublishingQueueFilters } from "@/core/application/ports/publishing-port";
+import type { BlotatoAccountRepository } from "@/core/application/ports/blotato-account-port";
 import type { ContentRepository } from "@/core/application/ports/content-port";
 import type { OrganisationRepository } from "@/core/application/ports/organisation-port";
 import type { AuditRepository } from "@/core/application/ports/audit-port";
@@ -20,6 +22,7 @@ import { computePublishingAnalytics } from "./analytics";
 interface PublishingDeps {
   actor: Actor;
   publishing: PublishingRepository;
+  blotatoAccounts: BlotatoAccountRepository;
   content: ContentRepository;
   organisations: OrganisationRepository;
   audits: AuditRepository;
@@ -45,6 +48,39 @@ async function requireMember(deps: PublishingDeps, organisationId: string): Prom
 }
 
 const PUBLISHABLE_STATUSES = ["approved", "scheduled", "failed"] as const;
+
+/**
+ * Resolves exactly one active Blotato account for the given org+platform and
+ * returns its ID — this becomes the destination lock stored on the job row.
+ *
+ * Fail-closed at scheduling time:
+ *   0 accounts → ValidationError (no account to publish through)
+ *   2+ accounts → ValidationError (ambiguous; operator must remove accounts
+ *                 until exactly one remains, or an explicit picker UI is built)
+ *   1 account  → returns that account's Blotato ID
+ */
+async function resolveDestinationAccount(
+  deps: Pick<PublishingDeps, "blotatoAccounts">,
+  organisationId: string,
+  platform: PublishingPlatform,
+): Promise<string> {
+  const blotatoPlatform = toBlotatoPlatform(platform);
+  const active = await deps.blotatoAccounts.findActiveForOrganisationAndPlatform(blotatoPlatform, organisationId);
+
+  if (active.length === 0) {
+    throw new ValidationError(
+      `No active ${PUBLISHING_PLATFORM_LABELS[platform]} account is connected for this organisation. ` +
+        `Assign one from Connected Channels in Organisation Settings before publishing.`,
+    );
+  }
+  if (active.length > 1) {
+    throw new ValidationError(
+      `Multiple ${PUBLISHING_PLATFORM_LABELS[platform]} accounts are connected for this organisation. ` +
+        `Remove the extra channels in Organisation Settings until exactly one remains, then retry.`,
+    );
+  }
+  return active[0]!.id;
+}
 
 /** Immediate publish — "Publish Now". Queues a due-now job; the worker (never the operator) drives it to Published/Failed. */
 export async function createImmediatePublishingJob(
@@ -74,6 +110,8 @@ export async function createImmediatePublishingJob(
     throw new ValidationError("Only approved, scheduled, or failed content can be published.");
   }
 
+  const resolvedAccountId = await resolveDestinationAccount(deps, input.organisationId, input.platform);
+
   const job = await deps.publishing.createJob({
     organisationId: input.organisationId,
     draftId: input.draftId,
@@ -84,6 +122,7 @@ export async function createImmediatePublishingJob(
     requestedBy: deps.actor.id,
     maxRetries: DEFAULT_MAX_PUBLISHING_RETRIES,
     devSimulationMode: input.devSimulationMode ?? null,
+    resolvedAccountId,
   });
 
   if (draft.status !== "publishing") {
@@ -139,6 +178,8 @@ export async function createScheduledPublishingJob(
     throw new ValidationError("Only approved, scheduled, or failed content can be scheduled for publishing.");
   }
 
+  const resolvedAccountId = await resolveDestinationAccount(deps, input.organisationId, input.platform);
+
   const job = await deps.publishing.createJob({
     organisationId: input.organisationId,
     draftId: input.draftId,
@@ -149,6 +190,7 @@ export async function createScheduledPublishingJob(
     requestedBy: deps.actor.id,
     maxRetries: DEFAULT_MAX_PUBLISHING_RETRIES,
     devSimulationMode: input.devSimulationMode ?? null,
+    resolvedAccountId,
   });
 
   await deps.content.scheduleDraft(input.organisationId, input.draftId, {

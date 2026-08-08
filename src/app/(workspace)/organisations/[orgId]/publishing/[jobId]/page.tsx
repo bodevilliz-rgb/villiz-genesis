@@ -32,6 +32,7 @@ export default async function PublishingJobDetailPage({
   const deps = {
     actor: context.actor,
     publishing: context.publishing,
+    blotatoAccounts: context.blotatoAccounts,
     content: context.content,
     organisations: context.organisations,
     audits: context.audits,

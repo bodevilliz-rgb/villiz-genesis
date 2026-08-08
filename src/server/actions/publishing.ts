@@ -16,6 +16,7 @@ function publishingDeps(context: Awaited<ReturnType<typeof requireContext>>) {
   return {
     actor: context.actor,
     publishing: context.publishing,
+    blotatoAccounts: context.blotatoAccounts,
     content: context.content,
     organisations: context.organisations,
     audits: context.audits,
