@@ -43,12 +43,22 @@ export const prePublishSchema = z.object({
 export async function analyzeDraftForPublishing(
   draft: ContentDraft,
   brandVoiceCtx: string,
-  platformCtx: string = "general social media"
+  platformCtx: string = "general social media",
+  publishableMediaCount?: number,
 ): Promise<PrePublishReport> {
   // Basic programmatic checks
   const hasLinks = /https?:\/\//.test(draft.body);
   const brokenLinks = hasLinks ? false : false; // Placeholder
-  const missingMedia = draft.assets ? draft.assets.length === 0 : true;
+  // When the caller supplies an org-isolated publishable count (preferred),
+  // use it. Fall back to draft.assets only when the count is not provided —
+  // draft.assets is a partially-loaded optional relation that is often absent
+  // when the draft is passed from a client component to a server action.
+  const missingMedia =
+    publishableMediaCount !== undefined
+      ? publishableMediaCount === 0
+      : draft.assets
+        ? draft.assets.length === 0
+        : true;
 
   try {
     const ai = getAIProvider();

@@ -3,6 +3,10 @@
 import { requireContext } from "../container";
 import { analyzeDraftForPublishing, type PrePublishReport } from "@/core/application/use-cases/generation/pre-publish-review";
 import { checkPublishingPreflight } from "@/core/application/use-cases/publishing/preflight";
+import {
+  filterAssetsForOrganisation,
+  isPublishableMediaAsset,
+} from "@/core/domain/entities/publishing-media";
 import type { ContentDraft } from "@/core/domain/entities/content";
 import type { PublishingPlatform } from "@/core/domain/entities/publishing";
 import type { PlatformPreflightResult } from "@/core/domain/entities/publishing-preflight";
@@ -23,13 +27,22 @@ export async function runPrePublishReviewAction(
 ): Promise<PrePublishReport> {
   const context = await requireContext();
 
-  const entries = await context.membrain.listRecent(organisationId, 500);
+  const [entries, allAssets] = await Promise.all([
+    context.membrain.listRecent(organisationId, 500),
+    context.media.listAssetsForDraft(draft.id),
+  ]);
+
   const brandVoiceEntries = entries.filter(
     (e) => e.category?.key === "brand_voice" && e.status === "active",
   );
   const brandVoiceCtx = brandVoiceEntries.map((e) => e.body).join("\n\n");
 
-  return analyzeDraftForPublishing(draft, brandVoiceCtx);
+  // Apply the same org-isolation and type-filter rules used by the deterministic
+  // preflight so the AI review's media signal is always consistent with it.
+  const { allowed } = filterAssetsForOrganisation(allAssets, organisationId);
+  const publishableMediaCount = allowed.filter(isPublishableMediaAsset).length;
+
+  return analyzeDraftForPublishing(draft, brandVoiceCtx, undefined, publishableMediaCount);
 }
 
 /**
