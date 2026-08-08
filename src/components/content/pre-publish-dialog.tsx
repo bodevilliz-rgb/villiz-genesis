@@ -6,6 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Loader2, CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
 import { runPrePublishReviewAction } from "@/server/actions/publish";
 import type { ContentDraft } from "@/core/domain/entities/content";
+import type { BlotatoAccount } from "@/core/domain/entities/blotato";
+import { mapBlotatoPlatform } from "@/core/domain/entities/blotato";
+import { PUBLISHING_PLATFORM_LABELS } from "@/core/domain/entities/publishing";
 import type { PrePublishReport } from "@/core/application/use-cases/generation/pre-publish-review";
 import { toast } from "sonner";
 
@@ -15,9 +18,13 @@ interface PrePublishDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirmPublish: () => void;
+  /** The selected destination channel. Shown in the destination summary row. */
+  channel?: BlotatoAccount | null;
+  /** Whether the integration is in live-publishing mode. Shown as a mode badge. */
+  isLivePublishing?: boolean;
 }
 
-export function PrePublishDialog({ organisationId, draft, open, onOpenChange, onConfirmPublish }: PrePublishDialogProps) {
+export function PrePublishDialog({ organisationId, draft, open, onOpenChange, onConfirmPublish, channel, isLivePublishing = false }: PrePublishDialogProps) {
   const [loading, setLoading] = useState(true);
   const [report, setReport] = useState<PrePublishReport | null>(null);
 
@@ -44,6 +51,24 @@ export function PrePublishDialog({ organisationId, draft, open, onOpenChange, on
         </DialogHeader>
 
         <div className="py-6 flex flex-col gap-4">
+          {/* Destination summary — shown whenever a channel is selected */}
+          {channel && (() => {
+            const genesis = mapBlotatoPlatform(channel.platform);
+            const platformLabel = genesis ? PUBLISHING_PLATFORM_LABELS[genesis] : channel.platform;
+            const identity = channel.username ? `@${channel.username}` : channel.fullname ?? channel.id;
+            return (
+              <div className="flex items-center justify-between rounded border border-border bg-muted/30 px-3 py-2.5 text-sm">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Destination</span>
+                  <span className="font-medium">{platformLabel} · {identity}</span>
+                </div>
+                <span className={`text-[11px] font-semibold rounded-full px-2.5 py-1 ${isLivePublishing ? "bg-positive/10 text-positive" : "bg-amber-500/10 text-amber-700 dark:text-amber-400"}`}>
+                  {isLivePublishing ? "Live" : "Simulation"}
+                </span>
+              </div>
+            );
+          })()}
+
           {loading ? (
             <div className="flex flex-col items-center justify-center py-8 gap-4 text-muted-foreground">
               <Loader2 className="size-8 animate-spin text-primary" />

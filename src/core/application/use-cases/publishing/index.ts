@@ -50,19 +50,23 @@ async function requireMember(deps: PublishingDeps, organisationId: string): Prom
 const PUBLISHABLE_STATUSES = ["approved", "scheduled", "failed"] as const;
 
 /**
- * Resolves exactly one active Blotato account for the given org+platform and
+ * Resolves the destination Blotato account ID for the given org+platform and
  * returns its ID — this becomes the destination lock stored on the job row.
  *
- * Fail-closed at scheduling time:
+ * When an explicit account ID is provided (from the channel selector UI):
+ *   - validates it is in the active pool for this org+platform (active + providerActive)
+ *   - returns it; allows disambiguation when 2+ accounts exist on the same platform
+ *
+ * Without an explicit ID (backward compat / single-account orgs):
  *   0 accounts → ValidationError (no account to publish through)
- *   2+ accounts → ValidationError (ambiguous; operator must remove accounts
- *                 until exactly one remains, or an explicit picker UI is built)
+ *   2+ accounts → ValidationError (ambiguous; select a specific account in the UI)
  *   1 account  → returns that account's Blotato ID
  */
-async function resolveDestinationAccount(
+async function resolveAndLockAccountId(
   deps: Pick<PublishingDeps, "blotatoAccounts">,
   organisationId: string,
   platform: PublishingPlatform,
+  explicitAccountId?: string | null,
 ): Promise<string> {
   const blotatoPlatform = toBlotatoPlatform(platform);
   const active = await deps.blotatoAccounts.findActiveForOrganisationAndPlatform(blotatoPlatform, organisationId);
@@ -73,10 +77,22 @@ async function resolveDestinationAccount(
         `Assign one from Connected Channels in Organisation Settings before publishing.`,
     );
   }
+
+  if (explicitAccountId) {
+    const matched = active.find((a) => a.id === explicitAccountId);
+    if (!matched) {
+      throw new ValidationError(
+        `The selected ${PUBLISHING_PLATFORM_LABELS[platform]} account is no longer available for this organisation. ` +
+          `Refresh the page and choose a destination before publishing.`,
+      );
+    }
+    return matched.id;
+  }
+
   if (active.length > 1) {
     throw new ValidationError(
       `Multiple ${PUBLISHING_PLATFORM_LABELS[platform]} accounts are connected for this organisation. ` +
-        `Remove the extra channels in Organisation Settings until exactly one remains, then retry.`,
+        `Select a specific account before publishing.`,
     );
   }
   return active[0]!.id;
@@ -91,6 +107,9 @@ export async function createImmediatePublishingJob(
     platform: PublishingPlatform;
     idempotencyKey: string;
     devSimulationMode?: "always_succeed" | "fail_next_attempt" | "always_fail" | null;
+    /** Destination lock from the channel selector UI. When provided, validates against the active pool
+     *  and uses this exact account. When absent, auto-resolves if exactly one account is connected. */
+    resolvedAccountId?: string | null;
   },
 ): Promise<PublishingJob> {
   await requireRole(deps, input.organisationId, canWriteContent);
@@ -110,7 +129,7 @@ export async function createImmediatePublishingJob(
     throw new ValidationError("Only approved, scheduled, or failed content can be published.");
   }
 
-  const resolvedAccountId = await resolveDestinationAccount(deps, input.organisationId, input.platform);
+  const resolvedAccountId = await resolveAndLockAccountId(deps, input.organisationId, input.platform, input.resolvedAccountId);
 
   const job = await deps.publishing.createJob({
     organisationId: input.organisationId,
@@ -152,6 +171,9 @@ export async function createScheduledPublishingJob(
     timezone: string;
     idempotencyKey: string;
     devSimulationMode?: "always_succeed" | "fail_next_attempt" | "always_fail" | null;
+    /** Destination lock from the channel selector UI. When provided, validates against the active pool
+     *  and uses this exact account. When absent, auto-resolves if exactly one account is connected. */
+    resolvedAccountId?: string | null;
   },
 ): Promise<PublishingJob> {
   await requireRole(deps, input.organisationId, canWriteContent);
@@ -178,7 +200,7 @@ export async function createScheduledPublishingJob(
     throw new ValidationError("Only approved, scheduled, or failed content can be scheduled for publishing.");
   }
 
-  const resolvedAccountId = await resolveDestinationAccount(deps, input.organisationId, input.platform);
+  const resolvedAccountId = await resolveAndLockAccountId(deps, input.organisationId, input.platform, input.resolvedAccountId);
 
   const job = await deps.publishing.createJob({
     organisationId: input.organisationId,

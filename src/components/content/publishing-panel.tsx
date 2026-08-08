@@ -11,6 +11,9 @@ import { archiveDraftAction, duplicateDraftAction } from "@/server/actions/conte
 import { createImmediatePublishingJobAction, createScheduledPublishingJobAction } from "@/server/actions/publishing";
 import { idleState } from "@/server/action-result";
 import type { ContentDraft } from "@/core/domain/entities/content";
+import type { BlotatoAccount } from "@/core/domain/entities/blotato";
+import { mapBlotatoPlatform } from "@/core/domain/entities/blotato";
+import { PUBLISHING_PLATFORM_LABELS } from "@/core/domain/entities/publishing";
 import { formatRelative } from "@/lib/format";
 
 function useActionToast(state: { status: "idle" | "success" | "error"; message: string }) {
@@ -20,14 +23,33 @@ function useActionToast(state: { status: "idle" | "success" | "error"; message: 
   }, [state]);
 }
 
+/** Human-readable label for the Blotato platform string — falls back to the raw string for unsupported platforms. */
+function channelPlatformLabel(ch: BlotatoAccount): string {
+  const genesis = mapBlotatoPlatform(ch.platform);
+  return genesis ? PUBLISHING_PLATFORM_LABELS[genesis] : ch.platform;
+}
+
+/** The identity string shown alongside the platform label. */
+function channelIdentity(ch: BlotatoAccount): string {
+  if (ch.username) return `@${ch.username}`;
+  if (ch.fullname) return ch.fullname;
+  return ch.id;
+}
+
 export function PublishingPanel({
   organisationId,
   draft,
   canWrite,
+  channels = [],
+  isLivePublishing = false,
 }: {
   organisationId: string;
   draft: ContentDraft;
   canWrite: boolean;
+  /** Active channels assigned to this organisation — used to populate the destination selector. */
+  channels?: BlotatoAccount[];
+  /** Whether the Blotato integration is in live-publishing mode. False = simulation only. */
+  isLivePublishing?: boolean;
 }) {
   const [scheduleState, scheduleAction] = useActionState(createScheduledPublishingJobAction, idleState);
   const [publishState, publishAction] = useActionState(createImmediatePublishingJobAction, idleState);
@@ -39,7 +61,6 @@ export function PublishingPanel({
   useActionToast(archiveState);
   useActionToast(duplicateState);
 
-  const [platform, setPlatform] = useState("linkedin");
   const [timezone, setTimezone] = useState("UTC");
   const [scheduledAt, setScheduledAt] = useState("");
 
@@ -68,6 +89,18 @@ export function PublishingPanel({
   );
   const showSimulationControls = process.env.NODE_ENV !== "production";
 
+  // Only show channels whose Blotato platform maps to one of the 4 supported Genesis platforms.
+  const supportedChannels = channels.filter((ch) => mapBlotatoPlatform(ch.platform) !== null);
+
+  // Auto-select the sole channel so single-account orgs need zero clicks.
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(
+    () => (supportedChannels.length === 1 ? supportedChannels[0]!.id : null),
+  );
+
+  const selectedAccount = supportedChannels.find((c) => c.id === selectedAccountId) ?? null;
+  const derivedPlatform = selectedAccount ? mapBlotatoPlatform(selectedAccount.platform) : null;
+  const canPublish = isPublishable && !!derivedPlatform && !!selectedAccountId;
+
   const handlePublishIntercept = (e: React.MouseEvent, type: "publish" | "schedule") => {
     e.preventDefault();
     setPendingAction(type);
@@ -86,18 +119,21 @@ export function PublishingPanel({
 
   return (
     <div className="flex flex-col gap-4">
-      <PrePublishDialog 
-        organisationId={organisationId} 
-        draft={draft} 
-        open={dialogOpen} 
-        onOpenChange={setDialogOpen} 
-        onConfirmPublish={confirmAction} 
+      <PrePublishDialog
+        organisationId={organisationId}
+        draft={draft}
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        onConfirmPublish={confirmAction}
+        channel={selectedAccount}
+        isLivePublishing={isLivePublishing}
       />
+
       {/* Draft Status Info */}
       <div className="flex flex-col gap-1.5">
         <span className="text-[11px] uppercase tracking-wider text-subtle-foreground">Publishing status</span>
         <p className="text-[13px] font-medium capitalize">{draft.status}</p>
-        
+
         {draft.status === "scheduled" && (
           <div className="rounded border border-border bg-card p-2.5 text-[12px] flex flex-col gap-1">
             <p><strong>Platform:</strong> <span className="uppercase">{draft.scheduledPlatform}</span></p>
@@ -129,23 +165,52 @@ export function PublishingPanel({
             </form>
           )}
 
+          {/* Simulation mode banner */}
+          {!isLivePublishing && (
+            <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2.5 text-[12px] text-amber-800 dark:border-amber-800/40 dark:bg-amber-900/20 dark:text-amber-300">
+              <strong>Simulation mode</strong> — the publishing engine is active but no content is sent to any social platform. Enable live publishing in the platform configuration to go live.
+            </div>
+          )}
+
+          {/* Destination channel selector */}
+          {isPublishable && (
+            <div className="flex flex-col gap-2.5 border-t border-border pt-3">
+              <span className="text-[11px] uppercase tracking-wider text-subtle-foreground font-semibold">Destination</span>
+
+              {supportedChannels.length === 0 ? (
+                <p className="text-[12px] text-subtle-foreground leading-relaxed">
+                  No channels connected. Assign one from{" "}
+                  <strong>Organisation Settings → Connected Channels</strong> before publishing.
+                </p>
+              ) : (
+                <Field id="channel-select" label="Publish to">
+                  <Select
+                    id="channel-select"
+                    value={selectedAccountId ?? ""}
+                    onChange={(e) => setSelectedAccountId(e.target.value || null)}
+                  >
+                    {supportedChannels.length > 1 && <option value="">Select a destination…</option>}
+                    {supportedChannels.map((ch) => (
+                      <option key={ch.id} value={ch.id}>
+                        {channelPlatformLabel(ch)} · {channelIdentity(ch)}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
+            </div>
+          )}
+
           {/* Schedule Form */}
           {isPublishable && (
             <form ref={scheduleFormRef} action={scheduleAction} className="flex flex-col gap-3.5 border-t border-border pt-3">
               <input type="hidden" name="organisationId" value={organisationId} />
               <input type="hidden" name="id" value={draft.id} />
               <input type="hidden" name="idempotencyKey" value={scheduleIdempotencyKey} />
+              <input type="hidden" name="platform" value={derivedPlatform ?? ""} />
+              <input type="hidden" name="resolvedAccountId" value={selectedAccountId ?? ""} />
 
               <span className="text-[11px] uppercase tracking-wider text-subtle-foreground font-semibold">Schedule Post</span>
-
-              <Field id="platform" label="Destination Platform">
-                <Select id="platform" name="platform" value={platform} onChange={(e) => setPlatform(e.target.value)}>
-                  <option value="linkedin">LinkedIn</option>
-                  <option value="facebook">Facebook</option>
-                  <option value="instagram">Instagram</option>
-                  <option value="x">X</option>
-                </Select>
-              </Field>
 
               <Field id="scheduledAt" label="Scheduled Date & Time">
                 <Input
@@ -168,7 +233,14 @@ export function PublishingPanel({
                 </Select>
               </Field>
 
-              <Button type="button" size="lg" onClick={(e) => handlePublishIntercept(e, "schedule")}>Schedule</Button>
+              <Button
+                type="button"
+                size="lg"
+                disabled={!canPublish}
+                onClick={(e) => handlePublishIntercept(e, "schedule")}
+              >
+                Schedule
+              </Button>
             </form>
           )}
 
@@ -177,18 +249,10 @@ export function PublishingPanel({
             <form ref={publishFormRef} action={publishAction} className="flex flex-col gap-3.5 border-t border-border pt-3">
               <input type="hidden" name="organisationId" value={organisationId} />
               <input type="hidden" name="id" value={draft.id} />
-              <input type="hidden" name="platform" value={platform} />
+              <input type="hidden" name="platform" value={derivedPlatform ?? ""} />
+              <input type="hidden" name="resolvedAccountId" value={selectedAccountId ?? ""} />
               <input type="hidden" name="idempotencyKey" value={publishIdempotencyKey} />
               <input type="hidden" name="devSimulationMode" value={devSimulationMode} />
-
-              <Field id="publish-now-platform" label="Destination Platform">
-                <Select id="publish-now-platform" value={platform} onChange={(e) => setPlatform(e.target.value)}>
-                  <option value="linkedin">LinkedIn</option>
-                  <option value="facebook">Facebook</option>
-                  <option value="instagram">Instagram</option>
-                  <option value="x">X</option>
-                </Select>
-              </Field>
 
               {showSimulationControls && (
                 <Field id="dev-simulation-mode" label="Dev: mock publish outcome">
@@ -204,7 +268,14 @@ export function PublishingPanel({
                 </Field>
               )}
 
-              <Button type="button" variant="secondary" size="lg" className="w-full" onClick={(e) => handlePublishIntercept(e, "publish")}>
+              <Button
+                type="button"
+                variant="secondary"
+                size="lg"
+                className="w-full"
+                disabled={!canPublish}
+                onClick={(e) => handlePublishIntercept(e, "publish")}
+              >
                 Publish Now
               </Button>
             </form>

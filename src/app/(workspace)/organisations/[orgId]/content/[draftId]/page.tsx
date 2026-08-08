@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { canEditOrganisation, canWriteContent } from "@/core/domain/entities/identity";
 import { isContentDraftLocked } from "@/core/domain/entities/content";
+import { blotatoConfig } from "@/infrastructure/blotato/blotato-config";
 import { routes } from "@/lib/routes";
 
 export default async function DraftDetailPage({
@@ -41,7 +42,7 @@ export default async function DraftDetailPage({
 
   if (!draft) notFound();
 
-  const [categories, campaigns, latestRequest, readiness, reviewHistory, eligibleReviewers, allAssets, attachedAssets, canSelfApproveInCloudPilot] =
+  const [categories, campaigns, latestRequest, readiness, reviewHistory, eligibleReviewers, allAssets, attachedAssets, canSelfApproveInCloudPilot, channels] =
     await Promise.all([
       context.membrain.listCategories(orgId),
       context.campaigns.listCampaigns({ organisationId: orgId, limit: 100, offset: 0 }),
@@ -52,7 +53,10 @@ export default async function DraftDetailPage({
       context.media.listAssets(orgId),
       context.media.listAssetsForDraft(draftId),
       canBypassSelfApprovalForCloudPilot({ actor: context.actor, organisations: context.organisations }, orgId),
+      context.blotatoAccounts.listActiveForOrganisation(orgId).catch(() => []),
     ]);
+
+  const isLivePublishing = blotatoConfig().livePublishingEnabled;
 
   const signedUrls: Record<string, string> = {};
   for (const asset of allAssets) {
@@ -126,6 +130,8 @@ export default async function DraftDetailPage({
                 organisationId={orgId}
                 draft={draft}
                 canWrite={canWrite}
+                channels={channels}
+                isLivePublishing={isLivePublishing}
               />
             </CardContent>
           </Card>
