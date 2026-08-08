@@ -32,6 +32,10 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+      # Required by serverEnv() → createAdminClient() even in the worker
+      # context. Set to the production Vercel URL (e.g. https://villiz.app).
+      - key: NEXT_PUBLIC_SITE_URL
+        sync: false
       - key: BLOTATO_API_KEY
         sync: false
 

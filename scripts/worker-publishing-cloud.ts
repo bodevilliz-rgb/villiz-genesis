@@ -32,7 +32,15 @@ import { runWorker, log } from "./publishing-worker-core";
 const REPO_ROOT = path.resolve(__dirname, "..");
 const CLOUD_ENV_PATH = path.join(REPO_ROOT, ".env.cloud.local");
 
-const REQUIRED_VARS = ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY"];
+const REQUIRED_VARS = [
+  "NEXT_PUBLIC_SUPABASE_URL",
+  "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  // serverEnv() (called by createAdminClient) validates NEXT_PUBLIC_SITE_URL as
+  // z.string().url() — the worker crashes deep inside the poll loop if it is
+  // absent. Listing it here surfaces the gap at startup with a clear message.
+  "NEXT_PUBLIC_SITE_URL",
+];
 
 function fail(message: string): never {
   // eslint-disable-next-line no-console
