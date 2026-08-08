@@ -19,10 +19,22 @@ export interface BlotatoAccountSummary {
 
 /** A BlotatoAccountSummary persisted to `blotato_accounts`, with bookkeeping timestamps. */
 export interface BlotatoAccount extends BlotatoAccountSummary {
-  /** Which client organisation owns this account. Null means the row pre-dates org scoping or was stored via a platform-wide Test Connection without an org context — such rows are blocked from driving a real publish until backfilled. */
+  /** Which client organisation owns this account. Null = unassigned (available for assignment if providerActive). */
   organisationId: string | null;
-  /** False once an operator removes this channel from its org. Rows with active=false are never selected for publishing and are excluded from listActiveForOrganisation. The row is kept for history and can be re-activated via re-assignment. */
+  /**
+   * Genesis mapping status. True when the account is assigned to an org and actively used for
+   * publishing. Set false by removeFromOrganisation; reset true by assignToOrganisation.
+   * Irrelevant for unassigned accounts (organisationId = null) — use providerActive instead
+   * to determine whether an unassigned account is available for assignment.
+   */
   active: boolean;
+  /**
+   * Provider availability. True when Blotato's listAccounts returned this account in the most
+   * recent sync. Set true for every account returned by upsertAccounts; set false for accounts
+   * NOT in the batch (sweep). A false row is excluded from assignment and publishing but kept
+   * for history and automatically recovers if the provider reports the account again.
+   */
+  providerActive: boolean;
   firstConnectedAt: string;
   lastVerifiedAt: string;
 }
