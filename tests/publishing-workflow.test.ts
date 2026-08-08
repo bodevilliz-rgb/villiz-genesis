@@ -126,6 +126,7 @@ function createHarness(input: {
         username: `testaccount${i + 1}`,
         organisationId,
         active: true,
+        providerActive: true,
         firstConnectedAt: "2026-01-01T00:00:00Z",
         lastVerifiedAt: "2026-01-01T00:00:00Z",
       }));

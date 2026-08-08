@@ -60,6 +60,7 @@ function account(overrides: Partial<BlotatoAccount> = {}): BlotatoAccount {
     username: "villiz",
     organisationId: ORG_A,
     active: true,
+    providerActive: true,
     firstConnectedAt: "2026-08-01T00:00:00Z",
     lastVerifiedAt: "2026-08-07T00:00:00Z",
     ...overrides,
@@ -307,9 +308,9 @@ describe("removeChannelFromOrganisation", () => {
 // ── 12–13: listAvailableAccountsForAssignment ─────────────────────────────────
 
 describe("listAvailableAccountsForAssignment", () => {
-  it("12 — returns only unassigned (organisationId=null) active accounts", async () => {
-    const unassigned = account({ id: "u1", organisationId: null });
-    const assigned = account({ id: "a1", organisationId: ORG_A });
+  it("12 — returns only unassigned (organisationId=null) provider-active accounts", async () => {
+    const unassigned = account({ id: "u1", organisationId: null, providerActive: true });
+    const assigned = account({ id: "a1", organisationId: ORG_A, providerActive: true });
     const repo = buildRepo({ listAccounts: async () => [unassigned, assigned] });
 
     const result = await listAvailableAccountsForAssignment({ actor: actor(), blotatoAccounts: repo });

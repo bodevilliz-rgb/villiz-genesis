@@ -6,17 +6,17 @@ import type { BlotatoAccount, BlotatoAccountSummary } from "@/core/domain/entiti
  */
 export interface BlotatoAccountRepository {
   /**
-   * Inserts any account not seen before and refreshes `lastVerifiedAt` (plus
-   * fullname/username, in case they changed) for ones already stored.
-   * Never deletes a row an operator no longer sees from Blotato — a
-   * disconnected account should stay visible as history until an operator
-   * explicitly removes it, not silently disappear the next time someone
-   * clicks Test Connection.
+   * Inserts any account not seen before and refreshes lastVerifiedAt (plus
+   * fullname/username in case they changed) for ones already stored.
+   * Marks every returned account as providerActive=true and marks any account
+   * NOT in the batch as providerActive=false (sweep) so the system can
+   * distinguish "provider removed this account" from "Genesis mapping removed".
+   * Never deletes rows — history is preserved; providerActive recovers
+   * automatically on the next sync if the provider reports the account again.
    *
-   * `organisationId` is null when called from a platform-wide Test Connection
-   * without org context (legacy/settings page flow before Sprint 10B). Rows
-   * with a null organisation_id cannot be used by the publishing worker —
-   * they must be backfilled before live publishing works for that org.
+   * organisationId is null when called from a platform-wide Test Connection
+   * without org context. The DB trigger preserves any existing non-null
+   * organisationId when null is passed (never auto-clears a live assignment).
    */
   upsertAccounts(accounts: BlotatoAccountSummary[], organisationId: string | null): Promise<BlotatoAccount[]>;
   listAccounts(): Promise<BlotatoAccount[]>;

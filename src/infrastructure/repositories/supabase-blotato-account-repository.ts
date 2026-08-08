@@ -11,6 +11,7 @@ import { translateError, unwrap } from "./errors";
 type ExtendedRow = BlotatoAccountRow & {
   organisation_id?: string | null;
   active?: boolean | null;
+  provider_active?: boolean | null;
   resolved_account_id?: string | null;
 };
 
@@ -23,6 +24,9 @@ function toBlotatoAccount(row: BlotatoAccountRow): BlotatoAccount {
     username: row.username,
     organisationId: r.organisation_id ?? null,
     active: r.active ?? true,
+    // Default false: fail-closed if the column is somehow null (should not happen after the
+    // NOT NULL migration). Conservative fallback keeps unlisted accounts out of publishing.
+    providerActive: r.provider_active ?? false,
     firstConnectedAt: row.first_connected_at,
     lastVerifiedAt: row.last_verified_at,
   };
@@ -48,18 +52,45 @@ export class SupabaseBlotatoAccountRepository implements BlotatoAccountRepositor
       username: account.username,
       last_verified_at: now,
       organisation_id: organisationId,
+      // Mark every account returned by this sync as provider-available.
+      // The sweep below then marks any account NOT in this batch as unavailable,
+      // separating "provider removed this account" from "Genesis mapping removed".
+      provider_active: true,
     }));
 
     const result = await this.client
       .from("blotato_accounts")
-      // organisation_id exists in DB (migration 20260807120000) but is not yet
+      // organisation_id / active / provider_active exist in DB but are not yet
       // in the generated types — cast required until types are regenerated.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .upsert(payload as any[], { onConflict: "blotato_account_id" })
       .select("*");
 
     const rows = unwrap(result, "Blotato account");
+
+    // Sweep: mark any account the provider no longer reports as provider_active=false.
+    // Only runs with a non-empty batch — guards against a transient empty-response from
+    // the provider being mistaken for genuine account removal.
+    const returnedIds = accounts.map((a) => a.id);
+    await this.sweepMissingAccounts(returnedIds);
+
     return (rows as BlotatoAccountRow[]).map(toBlotatoAccount);
+  }
+
+  /**
+   * After a provider sync, marks any stored account NOT in `returnedIds` as
+   * provider_active=false. Only touches rows currently flagged provider_active=true
+   * to avoid needless writes. PostgREST NOT IN filter: `not.in.("id1","id2",...)`.
+   */
+  private async sweepMissingAccounts(returnedIds: string[]): Promise<void> {
+    if (returnedIds.length === 0) return;
+    const csvList = `(${returnedIds.map((id) => `"${id}"`).join(",")})`;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (this.client.from("blotato_accounts") as any)
+      .update({ provider_active: false })
+      .not("blotato_account_id", "in", csvList)
+      .eq("provider_active", true);
+    if (error) translateError(error as Parameters<typeof translateError>[0], "Blotato account sync sweep");
   }
 
   async listAccounts(): Promise<BlotatoAccount[]> {
@@ -89,6 +120,7 @@ export class SupabaseBlotatoAccountRepository implements BlotatoAccountRepositor
       .eq("platform", blotatoPlatform)
       .eq("organisation_id", organisationId)
       .eq("active", true)
+      .eq("provider_active", true)
       .order("last_verified_at", { ascending: false });
 
     if (error) translateError(error as Parameters<typeof translateError>[0], "Blotato account");
@@ -100,6 +132,7 @@ export class SupabaseBlotatoAccountRepository implements BlotatoAccountRepositor
     const { data, error } = await (this.client.from("blotato_accounts").select("*") as any)
       .eq("organisation_id", organisationId)
       .eq("active", true)
+      .eq("provider_active", true)
       .order("platform", { ascending: true });
 
     if (error) translateError(error as Parameters<typeof translateError>[0], "Blotato account");

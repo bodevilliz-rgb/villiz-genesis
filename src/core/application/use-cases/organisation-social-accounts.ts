@@ -18,7 +18,7 @@ export async function listOrganisationChannels(
   return deps.blotatoAccounts.listActiveForOrganisation(organisationId);
 }
 
-/** All Blotato accounts not yet assigned to any org. Only platform admins may see this. */
+/** All Blotato accounts not yet assigned to any org AND still present in the provider. Only platform admins may see this. */
 export async function listAvailableAccountsForAssignment(
   deps: Pick<ChannelDeps, "actor" | "blotatoAccounts">,
 ): Promise<BlotatoAccount[]> {
@@ -26,7 +26,11 @@ export async function listAvailableAccountsForAssignment(
     throw new ForbiddenError("Only platform administrators may list available accounts for assignment.");
   }
   const all = await deps.blotatoAccounts.listAccounts();
-  return all.filter((a) => a.organisationId === null && a.active);
+  // providerActive (not active) determines availability: removing a Genesis mapping
+  // (which sets active=false) must not prevent reassignment if the provider still
+  // reports the account. active records the mapping state; providerActive records
+  // whether the provider currently returns the account in listAccounts.
+  return all.filter((a) => a.organisationId === null && a.providerActive);
 }
 
 /** Assigns a Blotato account to an org. Enforces the org's max_social_accounts guardrail. */

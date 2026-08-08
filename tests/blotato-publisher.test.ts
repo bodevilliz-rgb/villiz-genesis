@@ -36,6 +36,7 @@ function storedAccount(overrides: Partial<BlotatoAccount> = {}): BlotatoAccount 
     username: "villizpixels",
     organisationId: ORG_ID,
     active: true,
+    providerActive: true,
     firstConnectedAt: "2026-08-01T00:00:00Z",
     lastVerifiedAt: "2026-08-01T00:00:00Z",
     ...overrides,
