@@ -8,6 +8,9 @@ import {
   generateIdempotencyKey,
   retryFailedPublishingJob,
 } from "@/core/application/use-cases/publishing";
+import { checkPublishingPreflight } from "@/core/application/use-cases/publishing/preflight";
+import { blotatoConfig } from "@/infrastructure/blotato/blotato-config";
+import { ValidationError } from "@/core/domain/errors";
 import type { PublishingPlatform } from "@/core/domain/entities/publishing";
 import { errorState, successState, textOrEmpty, type ActionState } from "../action-result";
 import { routes } from "@/lib/routes";
@@ -53,6 +56,16 @@ export async function createImmediatePublishingJobAction(_prev: ActionState, for
     if (!isPublishingPlatform(platform)) throw new Error("Choose a destination platform.");
     if (!idempotencyKey) throw new Error("Missing request identifier — reload the page and try again.");
 
+    if (blotatoConfig().livePublishingEnabled) {
+      const preflight = await checkPublishingPreflight(
+        { content: context.content, media: context.media },
+        { organisationId, draftId, platform },
+      );
+      if (!preflight.ready) {
+        throw new ValidationError(`Cannot publish: ${preflight.blockers.join(" ")}`);
+      }
+    }
+
     const job = await createImmediatePublishingJob(publishingDeps(context), {
       organisationId,
       draftId,
@@ -84,6 +97,16 @@ export async function createScheduledPublishingJobAction(_prev: ActionState, for
     if (!isPublishingPlatform(platform)) throw new Error("Choose a destination platform.");
     if (!scheduledAt) throw new Error("Choose a date and time to publish.");
     if (!idempotencyKey) throw new Error("Missing request identifier — reload the page and try again.");
+
+    if (blotatoConfig().livePublishingEnabled) {
+      const preflight = await checkPublishingPreflight(
+        { content: context.content, media: context.media },
+        { organisationId, draftId, platform },
+      );
+      if (!preflight.ready) {
+        throw new ValidationError(`Cannot schedule: ${preflight.blockers.join(" ")}`);
+      }
+    }
 
     const job = await createScheduledPublishingJob(publishingDeps(context), {
       organisationId,
