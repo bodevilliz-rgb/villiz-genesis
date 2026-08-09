@@ -126,13 +126,18 @@ export function DraftForm({
       let suggestion = "";
 
       if (effectiveAiAction === "generate") {
-        const [orgId, prompt, platform] = buildGenerateCaptionArgs(
+        const [orgId, prompt, platform, intentHints] = buildGenerateCaptionArgs(
           organisationId,
           aiPrompt,
           draft?.title,
           draft?.scheduledPlatform,
+          {
+            hasCampaign: Boolean(draft?.campaign),
+            contentPillar: draft?.category?.label ?? null,
+            userPromptIsExplicit: aiPrompt.trim().length > 0,
+          },
         );
-        const res = await generateCaption(orgId, prompt, platform);
+        const res = await generateCaption(orgId, prompt, platform, intentHints);
         suggestion = res.text;
       } else {
         const instruction = rewriteInstructionForAction(effectiveAiAction);

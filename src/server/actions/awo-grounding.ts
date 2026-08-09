@@ -44,6 +44,35 @@ export interface AwoMembrainContext {
   restrictions: string[];
 }
 
+/**
+ * The four canonical generation intents.  Every caption request resolves to
+ * exactly one of these — the intent determines which instruction block the
+ * model receives alongside the MemBrain context.
+ *
+ * A. brand_general  — whole-brand message; must not arbitrarily centre one service.
+ * B. service_specific — operator explicitly named or requested a specific offering.
+ * C. campaign       — post serves a linked campaign or promotional occasion.
+ * D. educational    — topic/question is primary; expertise without hard sell.
+ */
+export type ContentIntent = "brand_general" | "service_specific" | "campaign" | "educational";
+
+/**
+ * Structured signals passed from the call-site (client) to the server action
+ * so that intent classification can use structured draft/campaign data in
+ * addition to semantic analysis of the prompt text.
+ *
+ * These are deliberately optional so the action degrades gracefully when the
+ * caller cannot supply them (e.g. a programmatic API call).
+ */
+export interface GenerationIntentHints {
+  /** True when the draft is linked to an active campaign. */
+  hasCampaign?: boolean;
+  /** The content pillar label assigned to this draft, if any. */
+  contentPillar?: string | null;
+  /** True when the operator typed an explicit prompt (vs just using the draft title). */
+  userPromptIsExplicit?: boolean;
+}
+
 function activeBodiesForKey(membrain: MembrainOverview, key: string): string[] {
   const group = membrain.groups.find((g) => g.category.key === key);
   if (!group) return [];
@@ -67,6 +96,84 @@ export function extractAwoMembrainContext(membrain: MembrainOverview): AwoMembra
     contentPillars: activeBodiesForKey(membrain, CATEGORY_KEYS.contentPillars),
     restrictions: activeBodiesForKey(membrain, CATEGORY_KEYS.restrictions),
   };
+}
+
+/**
+ * Extracts lowercased discriminating terms (4+ chars, single words and
+ * adjacent 2-word pairs) from the first 120 characters of each offering
+ * description.  The service name is typically at the start of each entry,
+ * so truncating before extracting avoids matching common filler words that
+ * appear later in longer descriptions.
+ *
+ * Generic — reads from actual MemBrain data, no client-specific hardcoding.
+ */
+function buildServiceTermSet(offerings: string[]): string[] {
+  const terms = new Set<string>();
+  for (const offering of offerings) {
+    const cleaned = offering
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .trim()
+      .slice(0, 120);
+    const words = cleaned.split(/\s+/).filter((w) => w.length >= 4);
+    words.forEach((w) => terms.add(w));
+    for (let i = 0; i < words.length - 1; i++) {
+      terms.add(`${words[i]!} ${words[i + 1]!}`);
+    }
+  }
+  return Array.from(terms);
+}
+
+/**
+ * Classifies the operator's request into one of four content intents.
+ *
+ * Precedence:
+ *  1. Structural signals (campaign linked) — most authoritative, no false negatives.
+ *  2. Universal educational patterns — topic-led language ("how to", "tips for", …).
+ *  3. Explicit service reference — user's prompt contains a term from the
+ *     actual MemBrain offerings (generic, no hardcoding).
+ *  4. Promotional language heuristic — campaign-flavoured phrasing without a linked campaign.
+ *  5. Default: brand_general — the safest fallback for ambiguous prompts.
+ *
+ * The default (brand_general) applies the strictest service-weighting rules,
+ * preventing arbitrary single-service dominance on general posts like
+ * "Welcome to August" or "Happy New Month".
+ */
+export function classifyContentIntent(
+  prompt: string,
+  ctx: AwoMembrainContext,
+  hints: GenerationIntentHints = {},
+): ContentIntent {
+  // 1. Structural: campaign linked → campaign intent
+  if (hints.hasCampaign) return "campaign";
+
+  const lower = prompt.toLowerCase();
+
+  // 2. Educational: universal how-to / topic-led patterns
+  if (
+    /\bhow (to|do|can|should|you)\b|\btips?\b|\bsteps?\b|\bguide\b|\btutorial\b/.test(lower) ||
+    /\bwhat (is|are|to)\b|\badvice\b|\blearn\b|\bcare (for|of)\b/.test(lower)
+  ) {
+    return "educational";
+  }
+
+  // 3. Service-specific: explicit prompt references a known offering term.
+  //    Only applies when the operator typed something explicit (not just a title).
+  //    Uses MemBrain offering data generically — no client-specific terms hardcoded.
+  if (hints.userPromptIsExplicit && ctx.productsAndServices.length > 0) {
+    const serviceTerms = buildServiceTermSet(ctx.productsAndServices);
+    if (serviceTerms.some((term) => lower.includes(term))) {
+      return "service_specific";
+    }
+  }
+
+  // 4. Campaign-flavoured phrasing (no linked campaign, but promotional language)
+  if (/\bcampaign\b|\bpromo\b|\boffer\b|\bdiscount\b|\bsale\b|\blaunch\b/.test(lower)) {
+    return "campaign";
+  }
+
+  // 5. Default: brand/general — safest fallback
+  return "brand_general";
 }
 
 function renderSection(label: string, entries: string[]): string {
@@ -96,14 +203,65 @@ const GROUNDING_RULES = [
 ].join("\n");
 
 /**
+ * Per-intent instruction blocks injected between the MemBrain context and the
+ * grounding rules.  These instructions tell the model HOW to weight the context
+ * for this specific request — a critical gap in the previous prompt that caused
+ * multi-service brand posts to collapse onto whichever service happened to
+ * appear first in the MemBrain retrieval order.
+ */
+const INTENT_INSTRUCTIONS: Record<ContentIntent, string> = {
+  brand_general: [
+    "=== CONTENT INTENT: Brand / General ===",
+    "This post should represent the brand at its appropriate level.",
+    "Rules for this intent:",
+    "- Do not select one product or service as the central subject of this post",
+    "  unless the operator has explicitly requested it or a campaign or content pillar requires it.",
+    "- You may reference multiple offerings only when it flows naturally.",
+    "  Do not mechanically list every service.",
+    "- Never infer a 'primary service' from the order services appear in this context.",
+    "  Retrieval order does not imply importance.",
+    "- Apply the brand voice to the whole brand, not to any single offering.",
+  ].join("\n"),
+
+  service_specific: [
+    "=== CONTENT INTENT: Service-focused ===",
+    "The operator has requested a post focused on a specific offering.",
+    "- Focus on the most relevant product or service from the Products & Services section above.",
+    "- Use service detail from MemBrain context; do not invent additional claims about it.",
+  ].join("\n"),
+
+  campaign: [
+    "=== CONTENT INTENT: Campaign / Promotional ===",
+    "This post serves a campaign or promotional occasion.",
+    "- The campaign context or occasion is the primary frame.",
+    "- Include services only where they naturally support the campaign objective.",
+    "- Do not foreground a service that is not relevant to the campaign.",
+  ].join("\n"),
+
+  educational: [
+    "=== CONTENT INTENT: Educational / Value content ===",
+    "This post is topic-led, not sales-led.",
+    "- The topic or question in the operator prompt is the primary subject.",
+    "- Use relevant expertise from MemBrain; do not turn every point into a sales statement.",
+    "- A soft reference to a relevant offering is acceptable; a hard sell is not.",
+  ].join("\n"),
+};
+
+/**
  * Builds the grounded system prompt for generateCaption.
  * Includes all six MemBrain categories so the model sees the full factual
  * boundary — previous prompts included only two.
+ *
+ * The `intent` parameter selects the instruction block that governs how the
+ * model weights the brand context for this specific request.  Defaults to
+ * `brand_general` — the strictest, safest option — so all callers that do not
+ * supply an intent get the no-single-service-dominance rule automatically.
  */
 export function buildCaptionSystemPrompt(
   orgName: string,
   platform: string,
   ctx: AwoMembrainContext,
+  intent: ContentIntent = "brand_general",
 ): string {
   const membrainBlock = [
     "=== MEMBRAIN CONTEXT ===",
@@ -125,6 +283,8 @@ export function buildCaptionSystemPrompt(
     `You write high-quality social media content for ${platform}.`,
     "",
     membrainBlock,
+    "",
+    INTENT_INSTRUCTIONS[intent],
     "",
     GROUNDING_RULES,
     "",

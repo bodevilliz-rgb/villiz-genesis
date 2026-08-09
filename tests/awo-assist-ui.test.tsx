@@ -245,7 +245,7 @@ describe("AWO AI Assist — 12 component interaction tests", () => {
 
     await clickApplyAI();
 
-    expect(mockGenerateCaption).toHaveBeenCalledWith(ORG_ID, expect.any(String), expect.any(String));
+    expect(mockGenerateCaption).toHaveBeenCalledWith(ORG_ID, expect.any(String), expect.any(String), expect.anything());
   });
 
   // 12 ────────────────────────────────────────────────────────────────────────
