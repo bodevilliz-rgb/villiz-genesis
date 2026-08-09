@@ -91,6 +91,7 @@ export function toDraftVersion(
     reviewDeadline: row.review_deadline,
     categoryId: row.category_id,
     campaignId: row.campaign_id,
+    hashtags: (row as unknown as Record<string, unknown>).hashtags as string[] ?? [],
   };
 }
 

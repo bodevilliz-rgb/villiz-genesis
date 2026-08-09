@@ -318,7 +318,7 @@ export async function restoreVersionAction(_prev: ActionState, formData: FormDat
       priority: targetVersion.priority,
       reviewDeadline: targetVersion.reviewDeadline,
       updatedBy: context.actor.id,
-      hashtags: currentDraft.hashtags ?? [],
+      hashtags: targetVersion.hashtags ?? [],
     });
 
     // Annotate restored version comment

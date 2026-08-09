@@ -154,6 +154,7 @@ export interface ContentDraftVersion {
   reviewDeadline: string | null;
   categoryId: string | null;
   campaignId: string | null;
+  hashtags: string[];
 }
 
 export interface ContentGenerationRequest {
