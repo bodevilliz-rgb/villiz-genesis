@@ -17,6 +17,8 @@ export interface CreatePublishingJobInput {
   maxRetries: number;
   devSimulationMode: "always_succeed" | "fail_next_attempt" | "always_fail" | null;
   resolvedAccountId: string | null;
+  /** Operator's per-post AI-generated-content declaration (see PublishingJob.isAiGenerated). Null = never declared. */
+  isAiGenerated: boolean | null;
 }
 
 export interface PublishingQueueFilters {

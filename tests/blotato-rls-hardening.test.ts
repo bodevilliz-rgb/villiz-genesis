@@ -129,6 +129,7 @@ function baseJob(overrides: Partial<PublishingJob> = {}): PublishingJob {
     cancelledAt: null,
     devSimulationMode: null,
     resolvedAccountId: null,
+    isAiGenerated: null,
     ...overrides,
   };
 }

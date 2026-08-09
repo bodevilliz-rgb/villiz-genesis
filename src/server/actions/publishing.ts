@@ -35,6 +35,20 @@ function revalidatePublishing(organisationId: string, draftId?: string) {
   if (draftId) revalidatePath(routes.organisations.content.draft(organisationId, draftId));
 }
 
+/**
+ * Parses the publishing panel's AI-generated-content declaration. Strictly
+ * three-state: only the literal strings "true"/"false" count as a
+ * declaration; anything else (missing field, empty string, tampered value)
+ * is null = "never declared", which deterministic preflight blocks for
+ * platforms that require the disclosure. Never defaults.
+ */
+function parseAiDisclosure(formData: FormData): boolean | null {
+  const raw = formData.get("isAiGenerated")?.toString();
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  return null;
+}
+
 export async function createImmediatePublishingJobAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
   try {
     const context = await requireContext();
@@ -49,6 +63,7 @@ export async function createImmediatePublishingJobAction(_prev: ActionState, for
         : null;
 
     const resolvedAccountId = formData.get("resolvedAccountId")?.toString() || null;
+    const isAiGenerated = parseAiDisclosure(formData);
 
     if (!isPublishingPlatform(platform)) throw new Error("Choose a destination platform.");
     if (!idempotencyKey) throw new Error("Missing request identifier — reload the page and try again.");
@@ -56,7 +71,7 @@ export async function createImmediatePublishingJobAction(_prev: ActionState, for
     if (blotatoConfig().livePublishingEnabled) {
       const preflight = await checkPublishingPreflight(
         { content: context.content, media: context.media },
-        { organisationId, draftId, platform },
+        { organisationId, draftId, platform, aiGeneratedDisclosure: isAiGenerated },
       );
       if (!preflight.ready) {
         throw new ValidationError(`Cannot publish: ${preflight.blockers.join(" ")}`);
@@ -70,6 +85,7 @@ export async function createImmediatePublishingJobAction(_prev: ActionState, for
       idempotencyKey,
       devSimulationMode,
       resolvedAccountId,
+      isAiGenerated,
     });
 
     revalidatePublishing(organisationId, draftId);
@@ -98,6 +114,7 @@ export async function createScheduledPublishingJobAction(_prev: ActionState, for
     const idempotencyKey = textOrEmpty(formData, "idempotencyKey");
 
     const resolvedAccountId = formData.get("resolvedAccountId")?.toString() || null;
+    const isAiGenerated = parseAiDisclosure(formData);
 
     if (!isPublishingPlatform(platform)) throw new Error("Choose a destination platform.");
     if (!scheduledForUtc) throw new Error("Choose a date and time to publish.");
@@ -108,7 +125,7 @@ export async function createScheduledPublishingJobAction(_prev: ActionState, for
     if (blotatoConfig().livePublishingEnabled) {
       const preflight = await checkPublishingPreflight(
         { content: context.content, media: context.media },
-        { organisationId, draftId, platform },
+        { organisationId, draftId, platform, aiGeneratedDisclosure: isAiGenerated },
       );
       if (!preflight.ready) {
         throw new ValidationError(`Cannot schedule: ${preflight.blockers.join(" ")}`);
@@ -123,6 +140,7 @@ export async function createScheduledPublishingJobAction(_prev: ActionState, for
       timezone,
       idempotencyKey,
       resolvedAccountId,
+      isAiGenerated,
     });
 
     revalidatePublishing(organisationId, draftId);
@@ -168,9 +186,18 @@ export async function retryPublishingJobAction(_prev: ActionState, formData: For
       }
 
       if (blotatoConfig().livePublishingEnabled) {
+        // The retry reuses the SAME job row, so the governed AI-disclosure
+        // value for this publication is the one persisted on it at creation
+        // — passed through here so the disclosure check reflects what the
+        // worker will actually send, not an unset form field.
         const preflight = await checkPublishingPreflight(
           { content: context.content, media: context.media },
-          { organisationId, draftId: existingJob.draftId, platform: existingJob.platform },
+          {
+            organisationId,
+            draftId: existingJob.draftId,
+            platform: existingJob.platform,
+            aiGeneratedDisclosure: existingJob.isAiGenerated,
+          },
         );
         if (!preflight.ready) {
           throw new ValidationError(`Cannot retry: ${preflight.blockers.join(" ")} Correct the draft, then retry again.`);
@@ -232,6 +259,10 @@ export async function reschedulePublishingJob(
       // Preserve the original destination lock so a drag-and-drop reschedule never
       // re-opens account resolution and never fails on 2+ same-platform accounts.
       resolvedAccountId: activeJob.resolvedAccountId ?? null,
+      // Same preservation for the AI disclosure: dragging to a new time is not
+      // a new declaration — the content is unchanged, so the operator's
+      // original declaration carries to the replacement job.
+      isAiGenerated: activeJob.isAiGenerated ?? null,
     });
 
     revalidatePublishing(organisationId, draftId);

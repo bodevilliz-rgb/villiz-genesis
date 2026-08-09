@@ -49,6 +49,7 @@ export class SupabasePublishingRepository implements PublishingRepository {
         max_retries: input.maxRetries,
         dev_simulation_mode: input.devSimulationMode,
         resolved_account_id: input.resolvedAccountId,
+        is_ai_generated: input.isAiGenerated,
       })
       .select(JOB_SELECT)
       .single();

@@ -6,6 +6,7 @@ import {
   textLengthPolicyViolationMessage,
   getPlatformPublishingPolicy,
   mediaRequiredViolationMessage,
+  aiDisclosureRequiredMessage,
 } from "./platform-policy";
 
 export interface PlatformPreflightResult {
@@ -52,6 +53,16 @@ export interface PlatformPreflightResult {
  *     TikTok source: Blotato's published TikTok docs — caption limit of
  *     2200 characters across image, video, and slideshow post types.
  *
+ *   AI-generated-content declaration (per-platform, see platform-policy.ts
+ *   `requiresAiDisclosure`)
+ *     TikTok source: Blotato's TikTok target schema makes isAiGenerated a
+ *     REQUIRED field, and it is a per-post truthfulness declaration Genesis
+ *     can never make globally. Deliberately FAIL-CLOSED: a call site that
+ *     does not pass `aiGeneratedDisclosure` at all (undefined) blocks
+ *     exactly like an operator who never chose (null) — forgetting to
+ *     thread the value through a new code path can only ever block a
+ *     publish, never send an undeclared value.
+ *
  * `hashtags` defaults to `[]` — existing callers that don't yet pass it are
  * unaffected (an empty list can never exceed any platform's limit).
  */
@@ -60,6 +71,7 @@ export function evaluatePlatformPreflight(
   body: string,
   publishableMediaCount: number,
   hashtags: string[] = [],
+  aiGeneratedDisclosure?: boolean | null,
 ): PlatformPreflightResult {
   const blockers: string[] = [];
 
@@ -70,6 +82,10 @@ export function evaluatePlatformPreflight(
   const policy = getPlatformPublishingPolicy(platform);
   if (policy.mediaRequired && publishableMediaCount === 0) {
     blockers.push(mediaRequiredViolationMessage(platform));
+  }
+
+  if (policy.requiresAiDisclosure && (aiGeneratedDisclosure === null || aiGeneratedDisclosure === undefined)) {
+    blockers.push(aiDisclosureRequiredMessage(platform));
   }
 
   const hashtagPolicy = evaluateHashtagPolicy(platform, hashtags);

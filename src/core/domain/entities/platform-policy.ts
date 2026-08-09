@@ -43,6 +43,16 @@ export interface PlatformPublishingPolicy {
   mediaRequired?: boolean;
   /** Undefined = no verified caption/body character limit for this platform yet. */
   textLimit?: number;
+  /**
+   * True when the provider's contract requires an explicit AI-generated-
+   * content declaration on every publish (Blotato's TikTok target schema
+   * makes isAiGenerated mandatory). This is a per-post COMPLIANCE
+   * declaration, not a product setting: Genesis never infers or defaults
+   * it — the operator must declare Yes/No for the specific content being
+   * published, and deterministic preflight blocks live publishing until
+   * they have.
+   */
+  requiresAiDisclosure?: boolean;
 }
 
 export const PLATFORM_PUBLISHING_POLICIES: Record<PublishingPlatform, PlatformPublishingPolicy> = {
@@ -58,7 +68,11 @@ export const PLATFORM_PUBLISHING_POLICIES: Record<PublishingPlatform, PlatformPu
   // required — TikTok has no text-only post type — and captions are capped
   // at 2200 characters. No verified hashtag COUNT limit exists, so
   // maxHashtags stays undefined (Genesis does not invent one).
-  tiktok: { platform: "tiktok", mediaRequired: true, textLimit: 2200 },
+  // requiresAiDisclosure: Blotato's TikTok target schema makes isAiGenerated
+  // a REQUIRED field, and TikTok policy requires the declaration to be
+  // truthful per post — so Genesis demands an explicit operator choice
+  // instead of ever sending a blanket default.
+  tiktok: { platform: "tiktok", mediaRequired: true, textLimit: 2200, requiresAiDisclosure: true },
 };
 
 export function getPlatformPublishingPolicy(platform: PublishingPlatform): PlatformPublishingPolicy {
@@ -118,4 +132,10 @@ export function textLengthPolicyViolationMessage(platform: PublishingPlatform, r
   const label = PUBLISHING_PLATFORM_LABELS[platform];
   const plural = result.excessCount === 1 ? "" : "s";
   return `${label} allows a maximum of ${result.textLimit} characters. Remove ${result.excessCount} character${plural} before publishing.`;
+}
+
+/** The exact operator-facing message when a platform requires an AI-generated-content declaration and none has been made for this post. */
+export function aiDisclosureRequiredMessage(platform: PublishingPlatform): string {
+  const label = PUBLISHING_PLATFORM_LABELS[platform];
+  return `${label} requires an AI-generated content declaration. Choose Yes or No under "AI-generated content?" before publishing.`;
 }

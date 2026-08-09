@@ -25,6 +25,13 @@ export async function checkPublishingPreflight(
     organisationId: string;
     draftId: string;
     platform: PublishingPlatform;
+    /**
+     * The operator's AI-generated-content declaration for this publish —
+     * from the form at job creation, or from the persisted job row on
+     * retry. Omitting it is fail-closed for platforms that require the
+     * declaration (see evaluatePlatformPreflight).
+     */
+    aiGeneratedDisclosure?: boolean | null;
   },
 ): Promise<PlatformPreflightResult> {
   const [draft, allAssets] = await Promise.all([
@@ -36,5 +43,5 @@ export async function checkPublishingPreflight(
   const { allowed } = filterAssetsForOrganisation(allAssets, input.organisationId);
   const publishableCount = allowed.filter(isPublishableMediaAsset).length;
 
-  return evaluatePlatformPreflight(input.platform, body, publishableCount, draft?.hashtags ?? []);
+  return evaluatePlatformPreflight(input.platform, body, publishableCount, draft?.hashtags ?? [], input.aiGeneratedDisclosure);
 }

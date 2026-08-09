@@ -83,9 +83,12 @@ export abstract class BlotatoPublisherBase implements PublisherPort {
    * object alongside `targetType`. Undefined by default — LinkedIn/
    * Facebook/Instagram/X have no mandatory target-level fields today. A
    * subclass overrides this only when the provider's own schema requires
-   * it (see BlotatoTikTokPublisher).
+   * it (see BlotatoTikTokPublisher). Receives the full PublishInput because
+   * some target fields are per-post declarations (TikTok's isAiGenerated),
+   * never class-level constants. Only ever invoked on the LIVE path —
+   * simulation returns before any target construction.
    */
-  protected buildTargetOptions(): Record<string, unknown> | undefined {
+  protected buildTargetOptions(_input: PublishInput): Record<string, unknown> | undefined {
     return undefined;
   }
 
@@ -195,7 +198,7 @@ export abstract class BlotatoPublisherBase implements PublisherPort {
       platform: blotatoPlatform,
       text: input.body,
       mediaUrls: blotatoMediaUrls,
-      targetOptions: this.buildTargetOptions(),
+      targetOptions: this.buildTargetOptions(input),
     });
 
     const baseMetadata = {

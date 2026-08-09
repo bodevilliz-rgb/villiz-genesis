@@ -59,10 +59,12 @@ export async function getPlatformPreflightAction(
   organisationId: string,
   draftId: string,
   platform: PublishingPlatform,
+  /** The operator's AI-generated-content declaration from the publishing panel, when the destination requires one (TikTok). Omitted/null = not declared, which the preflight reports as a blocker for those platforms. */
+  aiGeneratedDisclosure?: boolean | null,
 ): Promise<PlatformPreflightResult> {
   const context = await requireContext();
   return checkPublishingPreflight(
     { content: context.content, media: context.media },
-    { organisationId, draftId, platform },
+    { organisationId, draftId, platform, aiGeneratedDisclosure },
   );
 }

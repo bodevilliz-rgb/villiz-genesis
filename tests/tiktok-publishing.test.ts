@@ -84,7 +84,7 @@ import { assignChannelToOrganisation } from "@/core/application/use-cases/organi
 import { reconcileBlotatoStatusTimeout } from "@/core/application/use-cases/publishing";
 import { ConflictError } from "@/core/domain/errors";
 import { resolvePublisher } from "@/infrastructure/publishers/publisher-factory";
-import { BlotatoTikTokPublisher, DEFAULT_TIKTOK_TARGET_OPTIONS } from "@/infrastructure/publishers/blotato/blotato-tiktok-publisher";
+import { BlotatoTikTokPublisher, TIKTOK_PRODUCT_DEFAULT_TARGET_OPTIONS } from "@/infrastructure/publishers/blotato/blotato-tiktok-publisher";
 import type { BlotatoPublisherDeps } from "@/infrastructure/publishers/blotato/blotato-publisher-base";
 import type { BlotatoAccountRepository } from "@/core/application/ports/blotato-account-port";
 import type { BlotatoClient, BlotatoPostStatus, BlotatoPublishInput } from "@/core/application/ports/blotato-client-port";
@@ -190,6 +190,10 @@ function publishInput(overrides: Partial<PublishInput> = {}): PublishInput {
     body: "Body text",
     assetUrls: ["https://cdn.example.com/video.mp4"],
     devSimulationMode: "always_succeed",
+    // AI-disclosure compliance correction: an explicit operator declaration is
+    // now mandatory before any live TikTok publish — tests that exercise the
+    // live path declare "No" unless the test is specifically about the value.
+    isAiGenerated: false,
     ...overrides,
   };
 }
@@ -350,8 +354,8 @@ describe("4 — TikTok destination appears only when a connected account maps on
 // ── 5/6: TikTok preflight ────────────────────────────────────────────────────────
 
 describe("5 — TikTok preflight accepts verified-valid media", () => {
-  it("body + at least one publishable asset -> ready:true", () => {
-    const result = evaluatePlatformPreflight("tiktok", "Caption text", 1);
+  it("body + at least one publishable asset + an explicit AI declaration -> ready:true", () => {
+    const result = evaluatePlatformPreflight("tiktok", "Caption text", 1, [], false);
     expect(result.ready).toBe(true);
     expect(result.blockers).toHaveLength(0);
   });
@@ -360,7 +364,7 @@ describe("5 — TikTok preflight accepts verified-valid media", () => {
     const asset = makeAsset({ organisationId: ORG_ALPHA, mimeType: "video/mp4" });
     const result = await checkPublishingPreflight(
       { content: { findDraft: async () => ({ body: "Caption", id: DRAFT_ID }) } as never, media: { listAssetsForDraft: async () => [asset] } as never },
-      { organisationId: ORG_ALPHA, draftId: DRAFT_ID, platform: "tiktok" },
+      { organisationId: ORG_ALPHA, draftId: DRAFT_ID, platform: "tiktok", aiGeneratedDisclosure: false },
     );
     expect(result.ready).toBe(true);
   });
@@ -369,7 +373,7 @@ describe("5 — TikTok preflight accepts verified-valid media", () => {
     const asset = makeAsset({ organisationId: ORG_ALPHA, mimeType: "image/jpeg" });
     const result = await checkPublishingPreflight(
       { content: { findDraft: async () => ({ body: "Caption", id: DRAFT_ID }) } as never, media: { listAssetsForDraft: async () => [asset] } as never },
-      { organisationId: ORG_ALPHA, draftId: DRAFT_ID, platform: "tiktok" },
+      { organisationId: ORG_ALPHA, draftId: DRAFT_ID, platform: "tiktok", aiGeneratedDisclosure: false },
     );
     expect(result.ready).toBe(true);
   });
@@ -377,21 +381,21 @@ describe("5 — TikTok preflight accepts verified-valid media", () => {
 
 describe("6 — TikTok preflight rejects no-media (verified: TikTok has no text-only post type)", () => {
   it("returns ready:false with an actionable TikTok media blocker", () => {
-    const result = evaluatePlatformPreflight("tiktok", "Caption text", 0);
+    const result = evaluatePlatformPreflight("tiktok", "Caption text", 0, [], false);
     expect(result.ready).toBe(false);
     expect(result.blockers).toContain("TikTok requires at least one image or video.");
   });
 
   it("caption over the verified 2200-character limit is also blocked", () => {
     const longBody = "a".repeat(2201);
-    const result = evaluatePlatformPreflight("tiktok", longBody, 1);
+    const result = evaluatePlatformPreflight("tiktok", longBody, 1, [], false);
     expect(result.ready).toBe(false);
     expect(result.blockers).toContain("TikTok allows a maximum of 2200 characters. Remove 1 character before publishing.");
   });
 
   it("a caption at exactly 2200 characters does not exceed", () => {
     const exactBody = "a".repeat(2200);
-    const result = evaluatePlatformPreflight("tiktok", exactBody, 1);
+    const result = evaluatePlatformPreflight("tiktok", exactBody, 1, [], false);
     expect(result.ready).toBe(true);
   });
 });
@@ -403,7 +407,7 @@ describe("7 — a provider-invalid TikTok payload never reaches publishPost", ()
     const asset: MediaAsset[] = [];
     const result = await checkPublishingPreflight(
       { content: { findDraft: async () => ({ body: "Caption", id: DRAFT_ID }) } as never, media: { listAssetsForDraft: async () => asset } as never },
-      { organisationId: ORG_ALPHA, draftId: DRAFT_ID, platform: "tiktok" },
+      { organisationId: ORG_ALPHA, draftId: DRAFT_ID, platform: "tiktok", aiGeneratedDisclosure: false },
     );
     expect(result.ready).toBe(false);
     expect(vi.mocked(resolvePublisher)).not.toHaveBeenCalled();
@@ -447,7 +451,7 @@ describe("12/13/14/15 — TikTok publishPost payload matches the verified Blotat
       platform: "tiktok",
       text: "Caption for TikTok",
       mediaUrls: ["https://media.blotato.com/uploaded-tiktok-asset.mp4"],
-      targetOptions: DEFAULT_TIKTOK_TARGET_OPTIONS,
+      targetOptions: { ...TIKTOK_PRODUCT_DEFAULT_TARGET_OPTIONS, isAiGenerated: false },
     });
   });
 
@@ -467,7 +471,7 @@ describe("12/13/14/15 — TikTok publishPost payload matches the verified Blotat
         platform: "tiktok",
         text: "Caption",
         mediaUrls: ["https://media.blotato.com/v.mp4"],
-        targetOptions: DEFAULT_TIKTOK_TARGET_OPTIONS,
+        targetOptions: { ...TIKTOK_PRODUCT_DEFAULT_TARGET_OPTIONS, isAiGenerated: false },
       };
       await client.publishPost(input);
 
@@ -745,7 +749,7 @@ describe("25 — TikTok analytics figures are computed only from the jobs/attemp
 
 describe("27 — TikTok's policy fields do not leak onto Instagram/Facebook/LinkedIn/X", () => {
   it("only TikTok has mediaRequired+textLimit; only Instagram has maxHashtags+mediaRequired; Facebook/LinkedIn/X have neither", () => {
-    expect(PLATFORM_PUBLISHING_POLICIES.tiktok).toEqual({ platform: "tiktok", mediaRequired: true, textLimit: 2200 });
+    expect(PLATFORM_PUBLISHING_POLICIES.tiktok).toEqual({ platform: "tiktok", mediaRequired: true, textLimit: 2200, requiresAiDisclosure: true });
     expect(PLATFORM_PUBLISHING_POLICIES.instagram.maxHashtags).toBe(5);
     expect(PLATFORM_PUBLISHING_POLICIES.instagram.textLimit).toBeUndefined();
     expect(PLATFORM_PUBLISHING_POLICIES.tiktok.maxHashtags).toBeUndefined();
@@ -764,7 +768,7 @@ describe("27 — TikTok's policy fields do not leak onto Instagram/Facebook/Link
   });
 
   it("a 6-hashtag TikTok post is never blocked by Instagram's maxHashtags:5 — no verified TikTok hashtag limit exists", () => {
-    const result = evaluatePlatformPreflight("tiktok", "Caption", 1, ["a", "b", "c", "d", "e", "f"]);
+    const result = evaluatePlatformPreflight("tiktok", "Caption", 1, ["a", "b", "c", "d", "e", "f"], false);
     expect(result.blockers.some((b) => b.includes("hashtag"))).toBe(false);
   });
 });

@@ -24,6 +24,15 @@ export interface PublishInput {
    * Null or absent when only one account is connected (no disambiguation needed).
    */
   resolvedAccountId?: string | null;
+  /**
+   * Operator's explicit per-post AI-generated-content declaration, read from
+   * the job row (PublishingJob.isAiGenerated) at execution time. Null/absent =
+   * never declared — platforms that require the disclosure (TikTok) are
+   * blocked by preflight before the publisher runs; the TikTok publisher
+   * additionally refuses (defense in depth) rather than ever sending a
+   * fabricated value.
+   */
+  isAiGenerated?: boolean | null;
 }
 
 /**

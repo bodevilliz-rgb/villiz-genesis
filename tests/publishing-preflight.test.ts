@@ -795,3 +795,109 @@ describe("T28 (mandate 20/21) — deterministic preflight still runs on retry; a
     expect(publishFn).not.toHaveBeenCalled();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T29–T30 (TikTok AI-disclosure compliance correction) — the job row's
+// persisted is_ai_generated value is what the worker enforces and transmits
+// at execution time. This is the execution-side proof that a scheduled
+// TikTok job "preserves the selected value": the worker reads it from the
+// claimed job row (set once at creation), re-checks it in preflight, and
+// hands it to the publisher verbatim — hours or days after the operator
+// declared it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function makeTikTokJobPollDeps(isAiGenerated: boolean | null) {
+  const attempt = { id: "attempt-1", attemptNumber: 1 };
+  const job = {
+    id: "job-1",
+    organisationId: "org-1",
+    draftId: "draft-1",
+    platform: "tiktok" as const,
+    triggerType: "scheduled" as const,
+    scheduledFor: new Date().toISOString(),
+    status: "queued" as const,
+    idempotencyKey: "idem-1",
+    requestedBy: "user-1",
+    requestedByProfile: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    claimedBy: null,
+    nextAttemptAt: null,
+    retryCount: 0,
+    maxRetries: 3,
+    completedAt: null,
+    cancelledAt: null,
+    devSimulationMode: null,
+    resolvedAccountId: null,
+    isAiGenerated,
+  };
+  const failAttempt = vi.fn(async () => {});
+  const asset = makeAsset({ organisationId: "org-1", mimeType: "video/mp4" });
+  const { deps } = makePollDeps({
+    blotatoLivePublishingEnabled: true,
+    publishing: {
+      claimNextJob: vi.fn().mockResolvedValueOnce(job).mockResolvedValue(null),
+      listAttemptsForJob: vi.fn(async () => []),
+      createAttempt: vi.fn(async () => attempt),
+      startAttempt: vi.fn(async () => ({ ...attempt })),
+      completeAttempt: vi.fn(async () => {}),
+      failAttempt,
+      markJobPublished: vi.fn(async () => {}),
+      markJobFailed: vi.fn(async () => {}),
+    },
+    content: {
+      findDraft: vi.fn(async () => ({
+        id: "draft-1",
+        organisationId: "org-1",
+        title: "TikTok post",
+        body: "Caption",
+        status: "approved",
+        hashtags: ["a", "b"],
+      })),
+      updateStatus: vi.fn(async () => ({})),
+    },
+    media: { listAssetsForDraft: vi.fn(async () => [asset]) },
+  });
+  return { deps, failAttempt };
+}
+
+describe("T29 (AI disclosure) — a live TikTok job whose row was never declared fails preflight at execution; the publisher is never invoked", () => {
+  it("is_ai_generated null -> preflight_failed with the disclosure blocker", async () => {
+    const publishFn = vi.fn();
+    const { resolvePublisher } = await import("@/infrastructure/publishers/publisher-factory");
+    vi.mocked(resolvePublisher).mockReturnValue({ publish: publishFn } as never);
+
+    const { deps, failAttempt } = makeTikTokJobPollDeps(null);
+    await pollOnce(deps as never);
+
+    expect(failAttempt).toHaveBeenCalledWith(
+      "attempt-1",
+      expect.objectContaining({
+        errorCode: "preflight_failed",
+        providerMetadata: expect.objectContaining({
+          blockers: expect.arrayContaining([expect.stringContaining("AI-generated content declaration")]),
+        }),
+      }),
+    );
+    expect(publishFn).not.toHaveBeenCalled();
+  });
+});
+
+describe("T30 (AI disclosure) — the job row's persisted declaration reaches the publisher's PublishInput at execution", () => {
+  it("is_ai_generated true on the claimed job -> publish input carries isAiGenerated: true", async () => {
+    const publishFn = vi.fn(async (_input: { isAiGenerated?: boolean | null }) => ({
+      success: true as const,
+      externalPostId: "post-tk-1",
+      externalUrl: "https://tiktok.com/@a/video/1",
+      publishedAt: new Date().toISOString(),
+    }));
+    const { resolvePublisher } = await import("@/infrastructure/publishers/publisher-factory");
+    vi.mocked(resolvePublisher).mockReturnValue({ publish: publishFn } as never);
+
+    const { deps } = makeTikTokJobPollDeps(true);
+    await pollOnce(deps as never);
+
+    expect(publishFn).toHaveBeenCalledTimes(1);
+    expect(publishFn.mock.calls[0]![0].isAiGenerated).toBe(true);
+  });
+});

@@ -76,7 +76,11 @@ export function PrePublishDialog({ organisationId, draft, open, onOpenChange, on
 
       if (platform) {
         fetches.push(
-          getPlatformPreflightAction(organisationId, draft.id, platform)
+          // The intent snapshot's AI declaration rides along so the dialog's
+          // deterministic blocker list reflects exactly what will be
+          // submitted — for platforms requiring the disclosure (TikTok), an
+          // undeclared value surfaces here as a hard blocker.
+          getPlatformPreflightAction(organisationId, draft.id, platform, intent?.isAiGenerated ?? null)
             .then(setPreflight)
             .catch(() => {
               // Preflight fetch failure → treat as unknown; don't block the dialog
@@ -89,7 +93,7 @@ export function PrePublishDialog({ organisationId, draft, open, onOpenChange, on
       setReport(null);
       setPreflight(null);
     }
-  }, [open, draft, organisationId, channel]);
+  }, [open, draft, organisationId, channel, intent]);
 
   const liveBlocked = isLivePublishing && preflight !== null && !preflight.ready;
   const publishButtonDisabled = loading || !report || liveBlocked || submitting || !intent;

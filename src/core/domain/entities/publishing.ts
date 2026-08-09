@@ -78,6 +78,8 @@ export type PublishingIntent =
       draftId: string;
       platform: PublishingPlatform;
       resolvedAccountId: string;
+      /** Operator's explicit AI-generated-content declaration for THIS post. Only meaningful for platforms whose policy sets requiresAiDisclosure (TikTok today); null = not declared, which deterministic preflight blocks for those platforms. Never defaulted. */
+      isAiGenerated?: boolean | null;
     }
   | {
       mode: "scheduled";
@@ -85,6 +87,8 @@ export type PublishingIntent =
       draftId: string;
       platform: PublishingPlatform;
       resolvedAccountId: string;
+      /** See the immediate variant — same declaration, captured in the same immutable snapshot. */
+      isAiGenerated?: boolean | null;
       /** Canonical instant — always UTC, always DST-correct for displayTimezone at that instant. */
       scheduledForUtc: string;
       /** The IANA zone the operator selected — preserved for display, never used to re-derive scheduledForUtc after this snapshot is taken. */
@@ -146,6 +150,17 @@ export interface PublishingJob {
   devSimulationMode: "always_succeed" | "fail_next_attempt" | "always_fail" | null;
   /** Destination lock: the exact blotato_account_id resolved at scheduling time. The worker passes this to the publisher so it can route to the correct account even when multiple accounts are connected for the same platform. Null for jobs scheduled before Sprint 10B or when only one account is connected (no ambiguity). */
   resolvedAccountId: string | null;
+  /**
+   * Operator's explicit AI-generated-content declaration, captured at job
+   * creation from the publishing panel — the same capture-once pattern as
+   * resolvedAccountId. Only platforms whose policy sets requiresAiDisclosure
+   * (TikTok today) require it; for them, null means "never declared" and
+   * deterministic preflight blocks live publishing at BOTH job creation and
+   * worker execution. Never inferred (not from Awo usage, organisation,
+   * account, or media), never defaulted — this is a per-post compliance
+   * declaration only the operator can truthfully make.
+   */
+  isAiGenerated: boolean | null;
 }
 
 export interface PublishingAttempt {

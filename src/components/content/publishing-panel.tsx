@@ -113,13 +113,24 @@ export function PublishingPanel({
 
   const selectedAccount = supportedChannels.find((c) => c.id === selectedAccountId) ?? null;
   const derivedPlatform = selectedAccount ? mapBlotatoPlatform(selectedAccount.platform) : null;
-  const canPublish = isPublishable && !!derivedPlatform && !!selectedAccountId;
+
+  // TikTok-only per-post compliance declaration. Deliberately starts null
+  // (no default — the operator must actively choose Yes or No) and is only
+  // meaningful when the destination is TikTok; the server's deterministic
+  // preflight is the real authority and blocks live publishing while null.
+  const [aiDisclosure, setAiDisclosure] = useState<boolean | null>(null);
+  const requiresAiDisclosure = derivedPlatform === "tiktok";
+  const aiDisclosureMissing = requiresAiDisclosure && aiDisclosure === null;
+
+  const canPublish = isPublishable && !!derivedPlatform && !!selectedAccountId && !aiDisclosureMissing;
 
   const handlePublishIntercept = (e: React.MouseEvent, type: "publish" | "schedule") => {
     e.preventDefault();
     setScheduleTimeError(null);
 
-    if (!derivedPlatform || !selectedAccountId) return;
+    if (!derivedPlatform || !selectedAccountId || aiDisclosureMissing) return;
+
+    const intentAiDisclosure = requiresAiDisclosure ? aiDisclosure : null;
 
     if (type === "publish") {
       setIntent({
@@ -128,6 +139,7 @@ export function PublishingPanel({
         draftId: draft.id,
         platform: derivedPlatform,
         resolvedAccountId: selectedAccountId,
+        isAiGenerated: intentAiDisclosure,
       });
       setDialogOpen(true);
       return;
@@ -151,6 +163,7 @@ export function PublishingPanel({
       draftId: draft.id,
       platform: derivedPlatform,
       resolvedAccountId: selectedAccountId,
+      isAiGenerated: intentAiDisclosure,
       scheduledForUtc: scheduledForUtc.toISOString(),
       displayTimezone: timezone,
       scheduledForLocalDisplay: formatInTimeZone(scheduledForUtc, timezone),
@@ -281,6 +294,48 @@ export function PublishingPanel({
             </div>
           )}
 
+          {/* TikTok AI-generated-content declaration — required, no default */}
+          {isPublishable && requiresAiDisclosure && (
+            <fieldset className="flex flex-col gap-2.5 border-t border-border pt-3" disabled={dialogOpen}>
+              <legend className="sr-only">AI-generated content declaration</legend>
+              <span className="text-[11px] uppercase tracking-wider text-subtle-foreground font-semibold">
+                AI-generated content?
+              </span>
+              <p className="text-[12px] text-subtle-foreground leading-relaxed">
+                TikTok requires an accurate disclosure when a post&rsquo;s caption, image, or video was
+                created or significantly edited with AI. Your answer labels this specific post on TikTok —
+                choose what is true for this content.
+              </p>
+              <div className="flex gap-2">
+                <label className="flex flex-1 items-center gap-2 rounded-md border border-border px-3 py-2 cursor-pointer hover:bg-muted/40 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+                  <input
+                    type="radio"
+                    name="tiktok-ai-disclosure-choice"
+                    className="accent-primary"
+                    checked={aiDisclosure === true}
+                    onChange={() => setAiDisclosure(true)}
+                  />
+                  <span className="text-[13px] font-medium">Yes — AI-generated</span>
+                </label>
+                <label className="flex flex-1 items-center gap-2 rounded-md border border-border px-3 py-2 cursor-pointer hover:bg-muted/40 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+                  <input
+                    type="radio"
+                    name="tiktok-ai-disclosure-choice"
+                    className="accent-primary"
+                    checked={aiDisclosure === false}
+                    onChange={() => setAiDisclosure(false)}
+                  />
+                  <span className="text-[13px] font-medium">No — not AI-generated</span>
+                </label>
+              </div>
+              {aiDisclosureMissing && (
+                <p className="text-[12px] text-subtle-foreground">
+                  Choose Yes or No before publishing or scheduling to TikTok.
+                </p>
+              )}
+            </fieldset>
+          )}
+
           {/* Schedule Form */}
           {isPublishable && (
             <form ref={scheduleFormRef} action={scheduleAction} className="flex flex-col gap-3.5 border-t border-border pt-3">
@@ -305,6 +360,10 @@ export function PublishingPanel({
               */}
               <input type="hidden" name="scheduledForUtc" value={intent?.mode === "scheduled" ? intent.scheduledForUtc : ""} />
               <input type="hidden" name="timezone" value={intent?.mode === "scheduled" ? intent.displayTimezone : timezone} />
+              {/* Same always-enabled-hidden-input pattern as scheduledForUtc above:
+                  carries the immutable intent snapshot's AI declaration ("" = never
+                  declared; the server treats anything but "true"/"false" as null). */}
+              <input type="hidden" name="isAiGenerated" value={intent?.isAiGenerated != null ? String(intent.isAiGenerated) : ""} />
 
               <span className="text-[11px] uppercase tracking-wider text-subtle-foreground font-semibold">Schedule Post</span>
 
@@ -356,6 +415,8 @@ export function PublishingPanel({
               <input type="hidden" name="resolvedAccountId" value={selectedAccountId ?? ""} />
               <input type="hidden" name="idempotencyKey" value={publishIdempotencyKey} />
               <input type="hidden" name="devSimulationMode" value={devSimulationMode} />
+              {/* Immutable intent snapshot's AI declaration — see the schedule form's identical input. */}
+              <input type="hidden" name="isAiGenerated" value={intent?.isAiGenerated != null ? String(intent.isAiGenerated) : ""} />
 
               {showSimulationControls && (
                 <Field id="dev-simulation-mode" label="Dev: mock publish outcome">
