@@ -71,7 +71,7 @@ describe("computePublishingAnalytics — empty state", () => {
     expect(analytics.retrySuccessRate).toBeNull();
     expect(analytics.jobsQueued).toBe(0);
     expect(analytics.publishedToday).toBe(0);
-    expect(analytics.platformBreakdown).toHaveLength(4);
+    expect(analytics.platformBreakdown).toHaveLength(5);
     expect(analytics.platformBreakdown.every((p) => p.totalAttempts === 0)).toBe(true);
   });
 });
@@ -187,7 +187,7 @@ describe("computePublishingAnalytics — scheduled vs immediate", () => {
 });
 
 describe("computePublishingAnalytics — platform breakdown", () => {
-  it("always returns exactly 4 platforms, each computed independently from the others' attempts", () => {
+  it("always returns exactly 5 platforms, each computed independently from the others' attempts", () => {
     const attempts = [
       attempt({ platform: "linkedin", status: "completed" }),
       attempt({ platform: "linkedin", status: "completed" }),
@@ -196,7 +196,7 @@ describe("computePublishingAnalytics — platform breakdown", () => {
     ];
     const analytics = computePublishingAnalytics([], attempts, REFERENCE_DATE);
     const platforms = new Set(analytics.platformBreakdown.map((p) => p.platform));
-    expect(platforms).toEqual(new Set(["linkedin", "facebook", "instagram", "x"]));
+    expect(platforms).toEqual(new Set(["linkedin", "facebook", "instagram", "x", "tiktok"]));
 
     const linkedin = analytics.platformBreakdown.find((p) => p.platform === "linkedin");
     expect(linkedin?.totalAttempts).toBe(3);

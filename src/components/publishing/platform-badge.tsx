@@ -1,12 +1,14 @@
-import { Linkedin, Facebook, Instagram, X as XIcon, type LucideIcon } from "lucide-react";
+import { Linkedin, Facebook, Instagram, X as XIcon, Music2, type LucideIcon } from "lucide-react";
 import { PUBLISHING_PLATFORM_LABELS, type PublishingPlatform } from "@/core/domain/entities/publishing";
 import { cn } from "@/lib/utils";
 
+/** lucide-react ships no dedicated TikTok brand mark (only a small set of social logos: Facebook/Instagram/Linkedin/Twitter); Music2 is the conventional stand-in used across this ecosystem for TikTok's note motif. */
 const PLATFORM_ICONS: Record<PublishingPlatform, LucideIcon> = {
   linkedin: Linkedin,
   facebook: Facebook,
   instagram: Instagram,
   x: XIcon,
+  tiktok: Music2,
 };
 
 /**
@@ -20,6 +22,7 @@ const PLATFORM_COLORS: Record<PublishingPlatform, string> = {
   facebook: "text-[#1877F2]",
   instagram: "text-[#E1306C]",
   x: "text-foreground",
+  tiktok: "text-foreground",
 };
 
 /**

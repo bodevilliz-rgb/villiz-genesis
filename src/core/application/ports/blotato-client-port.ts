@@ -7,6 +7,16 @@ export interface BlotatoPublishInput {
   text: string;
   /** Must contain Blotato-domain URLs only (from uploadMedia). Sending Supabase or other external URLs directly causes an async "requires an image or a video" failure from Blotato. */
   mediaUrls: string[];
+  /**
+   * Merged into the outbound `target` object alongside `targetType`. Every
+   * platform except TikTok has no mandatory target-level fields today, so
+   * this stays undefined for them (BlotatoPublisherBase.buildTargetOptions()
+   * returns undefined by default). TikTok's target schema requires
+   * privacyLevel/disabledComments/disabledDuet/disabledStitch/
+   * isBrandedContent/isYourBrand/isAiGenerated on every publish — see
+   * BlotatoTikTokPublisher for the verified field list and default values.
+   */
+  targetOptions?: Record<string, unknown>;
 }
 
 export interface BlotatoPublishResult {

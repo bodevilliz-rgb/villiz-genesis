@@ -95,7 +95,7 @@ export class HttpBlotatoClient implements BlotatoClient {
             mediaUrls: input.mediaUrls,
             platform: input.platform,
           },
-          target: { targetType: input.platform },
+          target: { targetType: input.platform, ...input.targetOptions },
         },
       }),
     });

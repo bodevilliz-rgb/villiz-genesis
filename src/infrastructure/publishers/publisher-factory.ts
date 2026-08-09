@@ -6,6 +6,7 @@ import { BlotatoLinkedInPublisher } from "./blotato/blotato-linkedin-publisher";
 import { BlotatoFacebookPublisher } from "./blotato/blotato-facebook-publisher";
 import { BlotatoInstagramPublisher } from "./blotato/blotato-instagram-publisher";
 import { BlotatoXPublisher } from "./blotato/blotato-x-publisher";
+import { BlotatoTikTokPublisher } from "./blotato/blotato-tiktok-publisher";
 
 /**
  * The only place that maps a platform to a concrete publisher. Nothing else
@@ -30,6 +31,7 @@ const registry: Record<PublishingPlatform, (deps: BlotatoPublisherDeps) => Publi
   facebook: (deps) => new BlotatoFacebookPublisher(deps),
   instagram: (deps) => new BlotatoInstagramPublisher(deps),
   x: (deps) => new BlotatoXPublisher(deps),
+  tiktok: (deps) => new BlotatoTikTokPublisher(deps),
 };
 
 export function resolvePublisher(platform: PublishingPlatform, deps: BlotatoPublisherDeps): PublisherPort {

@@ -13,20 +13,21 @@
  * for the provider-neutral publishing abstraction those live behind.
  */
 
-export type PublishingPlatform = "linkedin" | "facebook" | "instagram" | "x";
+export type PublishingPlatform = "linkedin" | "facebook" | "instagram" | "x" | "tiktok";
 
 export const PUBLISHING_PLATFORM_LABELS: Record<PublishingPlatform, string> = {
   linkedin: "LinkedIn",
   facebook: "Facebook",
   instagram: "Instagram",
   x: "X",
+  tiktok: "TikTok",
 };
 
-export const PUBLISHING_PLATFORMS: PublishingPlatform[] = ["linkedin", "facebook", "instagram", "x"];
+export const PUBLISHING_PLATFORMS: PublishingPlatform[] = ["linkedin", "facebook", "instagram", "x", "tiktok"];
 
 /** Narrows an arbitrary string (e.g. a loosely-typed `string | null` draft field) to a real PublishingPlatform — the one shared guard, reused wherever a platform value needs validating rather than re-implemented per call site. */
 export function isPublishingPlatform(value: string | null | undefined): value is PublishingPlatform {
-  return value === "linkedin" || value === "facebook" || value === "instagram" || value === "x";
+  return value === "linkedin" || value === "facebook" || value === "instagram" || value === "x" || value === "tiktok";
 }
 
 /**
