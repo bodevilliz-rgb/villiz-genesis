@@ -56,6 +56,28 @@ export interface AwoMembrainContext {
  */
 export type ContentIntent = "brand_general" | "service_specific" | "campaign" | "educational";
 
+export type ServiceTreatment = "brand_overview" | "specific_service" | "no_service_mention";
+export type PromotionLevel = "none" | "soft" | "promotional";
+export type CtaMode = "auto" | "soft_enquiry" | "book" | "custom" | "none";
+
+/**
+ * Operator-supplied generation brief for a single post.
+ * All fields are optional — omitting the entire structure falls back to
+ * existing prompt-only generation with no regression.
+ */
+export interface GenerationGuidedContext {
+  topic?: string;
+  goal?: string;
+  serviceTreatment?: ServiceTreatment;
+  /** Only used when serviceTreatment === "specific_service". Free text — no parser. */
+  specificService?: string;
+  promotionLevel?: PromotionLevel;
+  ctaMode?: CtaMode;
+  /** Only used when ctaMode === "custom". */
+  customCta?: string;
+  extraDirection?: string;
+}
+
 /**
  * Structured signals passed from the call-site (client) to the server action
  * so that intent classification can use structured draft/campaign data in
@@ -176,6 +198,77 @@ export function classifyContentIntent(
   return "brand_general";
 }
 
+const SERVICE_TREATMENT_INSTRUCTIONS: Record<ServiceTreatment, string> = {
+  brand_overview:
+    "Brand overview — services may be referenced naturally when relevant; no single service should dominate",
+  specific_service: "Specific service focus",
+  no_service_mention:
+    "No service mention — keep content service-neutral unless the operator explicitly requires otherwise",
+};
+
+const PROMOTION_INSTRUCTIONS: Record<PromotionLevel, string> = {
+  none: "None — no commercial promotion",
+  soft: "Soft — brand or service awareness may appear naturally without overpowering the main subject",
+  promotional:
+    "Promotional — a clear commercial objective is appropriate, while respecting MemBrain rules and factual grounding",
+};
+
+const CTA_INSTRUCTIONS: Record<CtaMode, string> = {
+  auto: "Auto — include only if appropriate to the content intent and grounded booking information in MemBrain",
+  soft_enquiry: "Soft enquiry — a natural invitation to enquire or make contact",
+  book: "Booking — clear booking invitation; use only grounded booking information from MemBrain; if none is in context, use a generic non-channel-specific invitation",
+  custom: "Custom",
+  none: "None — do not include a call to action",
+};
+
+/**
+ * Converts a GenerationGuidedContext into a clearly delimited system-prompt
+ * block.  Returns null when the context is entirely empty so callers can skip
+ * injection cleanly.
+ *
+ * This is the single authoritative builder — no ad-hoc string concatenation
+ * in components.
+ */
+export function buildGuidedContextBlock(ctx: GenerationGuidedContext): string | null {
+  const lines: string[] = [];
+
+  if (ctx.topic) lines.push(`Topic: ${ctx.topic}`);
+  if (ctx.goal) lines.push(`Goal: ${ctx.goal}`);
+
+  if (ctx.serviceTreatment) {
+    lines.push(`Service treatment: ${SERVICE_TREATMENT_INSTRUCTIONS[ctx.serviceTreatment]}`);
+    if (ctx.serviceTreatment === "specific_service" && ctx.specificService) {
+      lines.push(`Specific service: ${ctx.specificService}`);
+    }
+  }
+
+  if (ctx.promotionLevel) {
+    lines.push(`Promotion level: ${PROMOTION_INSTRUCTIONS[ctx.promotionLevel]}`);
+  }
+
+  if (ctx.ctaMode) {
+    const ctaLabel =
+      ctx.ctaMode === "custom" && ctx.customCta
+        ? `Custom — ${ctx.customCta}`
+        : CTA_INSTRUCTIONS[ctx.ctaMode];
+    lines.push(`CTA: ${ctaLabel}`);
+  }
+
+  if (ctx.extraDirection) lines.push(`Extra direction: ${ctx.extraDirection}`);
+
+  if (lines.length === 0) return null;
+
+  return [
+    "=== GUIDED CONTEXT ===",
+    ...lines,
+    "",
+    "Rules for Guided Context:",
+    "- The operator's explicit subject and this guided context define the desired treatment.",
+    "- Guided Context must never authorise invention of facts not present in MemBrain.",
+    "- Rules & Compliance from MemBrain remain authoritative over all other guidance.",
+  ].join("\n");
+}
+
 function renderSection(label: string, entries: string[]): string {
   const body = entries.length > 0 ? entries.join("\n") : "(none recorded)";
   return `[${label}]\n${body}`;
@@ -284,6 +377,7 @@ export function buildCaptionSystemPrompt(
   ctx: AwoMembrainContext,
   intent: ContentIntent = "brand_general",
   operatorPrompt?: string,
+  guidedContext?: GenerationGuidedContext,
 ): string {
   const membrainBlock = [
     "=== MEMBRAIN CONTEXT ===",
@@ -310,6 +404,11 @@ export function buildCaptionSystemPrompt(
 
   if (operatorPrompt) {
     parts.push(buildOperatorRequestBlock(operatorPrompt), "");
+  }
+
+  const guidedBlock = guidedContext ? buildGuidedContextBlock(guidedContext) : null;
+  if (guidedBlock) {
+    parts.push(guidedBlock, "");
   }
 
   parts.push(
