@@ -11,7 +11,6 @@ import {
 import { checkPublishingPreflight } from "@/core/application/use-cases/publishing/preflight";
 import { blotatoConfig } from "@/infrastructure/blotato/blotato-config";
 import { ValidationError } from "@/core/domain/errors";
-import { convertLocalTimeToUtc } from "@/core/domain/entities/scheduling";
 import type { PublishingPlatform } from "@/core/domain/entities/publishing";
 import { errorState, successState, textOrEmpty, type ActionState } from "../action-result";
 import { routes } from "@/lib/routes";
@@ -89,14 +88,24 @@ export async function createScheduledPublishingJobAction(_prev: ActionState, for
     const organisationId = textOrEmpty(formData, "organisationId");
     const draftId = textOrEmpty(formData, "id");
     const platform = textOrEmpty(formData, "platform");
-    const scheduledAt = textOrEmpty(formData, "scheduledAt");
+    // Read the pre-converted UTC instant, not the raw local datetime — the
+    // browser already resolved it (via the same convertLocalTimeToUtc, at
+    // the moment the operator clicked Schedule) into the always-enabled
+    // hidden `scheduledForUtc` field. Re-deriving it here from the visible
+    // scheduledAt/timezone controls is what broke: those controls disable
+    // themselves the instant the review dialog opens, and a disabled native
+    // form control is excluded from FormData entirely, so a submission that
+    // happens while the dialog is open (the normal case) silently lost them.
+    const scheduledForUtc = textOrEmpty(formData, "scheduledForUtc");
     const timezone = textOrEmpty(formData, "timezone") || "UTC";
     const idempotencyKey = textOrEmpty(formData, "idempotencyKey");
 
     const resolvedAccountId = formData.get("resolvedAccountId")?.toString() || null;
 
     if (!isPublishingPlatform(platform)) throw new Error("Choose a destination platform.");
-    if (!scheduledAt) throw new Error("Choose a date and time to publish.");
+    if (!scheduledForUtc) throw new Error("Choose a date and time to publish.");
+    const scheduledForDate = new Date(scheduledForUtc);
+    if (Number.isNaN(scheduledForDate.getTime())) throw new Error("That date and time could not be understood.");
     if (!idempotencyKey) throw new Error("Missing request identifier — reload the page and try again.");
 
     if (blotatoConfig().livePublishingEnabled) {
@@ -109,17 +118,11 @@ export async function createScheduledPublishingJobAction(_prev: ActionState, for
       }
     }
 
-    // Authoritative conversion: the operator's selected IANA timezone is
-    // applied here, DST-aware — this is not the same value the browser may
-    // have already computed for the review dialog's preview, and this
-    // value is what the job actually persists as scheduled_for (UTC).
-    const scheduledForUtc = convertLocalTimeToUtc(scheduledAt, timezone);
-
     const job = await createScheduledPublishingJob(publishingDeps(context), {
       organisationId,
       draftId,
       platform,
-      scheduledFor: scheduledForUtc.toISOString(),
+      scheduledFor: scheduledForDate.toISOString(),
       timezone,
       idempotencyKey,
       resolvedAccountId,

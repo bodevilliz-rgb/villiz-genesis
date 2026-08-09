@@ -384,7 +384,11 @@ describe("T14 — Scheduled action: live mode + no media → error returned", ()
 
   it("returns error state for Instagram scheduled job in live mode with no media", async () => {
     const fd = makePublishFormData("instagram");
-    fd.append("scheduledAt", new Date(Date.now() + 3_600_000).toISOString());
+    // scheduledForUtc is the pre-converted UTC instant the browser now sends
+    // (see fix/scheduled-publishing-integrity) — the action no longer reads
+    // a raw scheduledAt/timezone pair server-side.
+    fd.append("scheduledForUtc", new Date(Date.now() + 3_600_000).toISOString());
+    fd.append("timezone", "UTC");
 
     const result = await createScheduledPublishingJobAction(
       { status: "idle", message: "" },

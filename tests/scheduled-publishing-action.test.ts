@@ -1,20 +1,32 @@
 /**
- * createScheduledPublishingJobAction — timezone-correct scheduling, wired
- * end-to-end from the raw form fields through to the use-case call
- * (fix/scheduled-publishing-integrity).
+ * createScheduledPublishingJobAction — timezone-correct scheduling
+ * (fix/scheduled-publishing-integrity, revised after a P0 regression).
  *
- * Complements tests/scheduling-timezone.test.ts (the pure conversion
- * function) by proving the SERVER ACTION actually applies it — this is
- * exactly the code that used to do `new Date(scheduledAt).toISOString()`
- * and silently ignore the operator's selected timezone.
+ * Contract: the action reads a PRE-CONVERTED `scheduledForUtc` ISO instant
+ * from a hidden, always-enabled form field — it no longer re-derives the
+ * instant from raw `scheduledAt`/`timezone` fields server-side. That
+ * conversion (Europe/London, America/New_York DST correctness etc.) is
+ * proven once in tests/scheduling-timezone.test.ts and applied client-side
+ * at the moment the operator clicks Schedule (publishing-panel.tsx).
  *
- * A1 — a DST-affected timezone (Europe/London, summer) produces the exact expected UTC instant
- * A2 — a second DST case (America/New_York, winter) produces the exact expected UTC instant
- * A3 — createScheduledPublishingJob is called with triggerType-determining scheduled semantics only (never the immediate use-case)
+ * Why the contract changed: the visible scheduledAt/timezone controls
+ * disable themselves the instant Pre-Publish Review opens (so nothing can
+ * drift from what's under review), but confirmAction() submits the form
+ * WHILE the dialog is still open. A native `disabled` form control is
+ * EXCLUDED from FormData entirely on submission — so the old contract
+ * (reading `scheduledAt`/`timezone` directly) reached this action empty on
+ * every real confirm, throwing "Choose a date and time to publish." with
+ * no job ever created. Proven against a real production UAT: confirmed at
+ * 2026-08-09T18:07:25Z, zero publishing_jobs row, zero audit event, and the
+ * exact "Choose a date and time to publish." error in Vercel logs.
+ *
+ * A1 — a valid pre-converted scheduledForUtc flows through to the use-case unchanged
+ * A2 — scheduledForUtc survives byte-for-byte (no re-parsing/re-derivation)
+ * A3 — createScheduledPublishingJob is the only use-case invoked (never immediate)
  * A4 — createImmediatePublishingJobAction never calls the scheduled use-case
- * A5 — an invalid timezone reaching the server directly is rejected (defense in depth beyond the browser check)
- * A6 — a malformed datetime reaching the server directly is rejected
- * A7 — the resolvedAccountId and platform the operator selected survive unchanged into the use-case call (destination-locking preserved)
+ * A5 — an empty scheduledForUtc is rejected — THE EXACT PRODUCTION FAILURE MODE
+ * A6 — a malformed/unparseable scheduledForUtc is rejected
+ * A7 — resolvedAccountId and platform survive unchanged (destination-locking preserved)
  */
 
 vi.mock("@/server/container", () => ({
@@ -75,8 +87,8 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("A1/A2 — the action applies the DST-aware conversion, not a naive Date() parse", () => {
-  it("A1: Europe/London summer time converts to the correct UTC instant before reaching the use-case", async () => {
+describe("A1/A2 — a pre-converted scheduledForUtc flows through unchanged", () => {
+  it("A1: a valid UTC instant reaches createScheduledPublishingJob verbatim", async () => {
     fakeContext();
     const result = await createScheduledPublishingJobAction(
       { status: "idle", message: "" },
@@ -84,7 +96,7 @@ describe("A1/A2 — the action applies the DST-aware conversion, not a naive Dat
         organisationId: ORG_ID,
         id: DRAFT_ID,
         platform: "instagram",
-        scheduledAt: "2026-07-15T14:00",
+        scheduledForUtc: "2026-07-15T13:00:00.000Z",
         timezone: "Europe/London",
         idempotencyKey: "key-1",
         resolvedAccountId: "acc-1",
@@ -94,11 +106,11 @@ describe("A1/A2 — the action applies the DST-aware conversion, not a naive Dat
     expect(result.status).toBe("success");
     expect(createScheduledPublishingJob).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ scheduledFor: "2026-07-15T13:00:00.000Z" }),
+      expect.objectContaining({ scheduledFor: "2026-07-15T13:00:00.000Z", timezone: "Europe/London" }),
     );
   });
 
-  it("A2: America/New_York winter time converts to the correct UTC instant", async () => {
+  it("A2: a second instant (different zone) also survives byte-for-byte", async () => {
     fakeContext();
     await createScheduledPublishingJobAction(
       { status: "idle", message: "" },
@@ -106,7 +118,7 @@ describe("A1/A2 — the action applies the DST-aware conversion, not a naive Dat
         organisationId: ORG_ID,
         id: DRAFT_ID,
         platform: "instagram",
-        scheduledAt: "2026-01-15T09:00",
+        scheduledForUtc: "2026-01-15T14:00:00.000Z",
         timezone: "America/New_York",
         idempotencyKey: "key-2",
         resolvedAccountId: "acc-1",
@@ -129,7 +141,7 @@ describe("A3/A4 — exactly one use-case is ever invoked per action", () => {
         organisationId: ORG_ID,
         id: DRAFT_ID,
         platform: "instagram",
-        scheduledAt: "2026-07-15T14:00",
+        scheduledForUtc: "2026-07-15T14:00:00.000Z",
         timezone: "UTC",
         idempotencyKey: "key-3",
         resolvedAccountId: "acc-1",
@@ -157,8 +169,8 @@ describe("A3/A4 — exactly one use-case is ever invoked per action", () => {
   });
 });
 
-describe("A5/A6 — server-side rejection is authoritative, independent of any browser check", () => {
-  it("A5: an invalid timezone is rejected and no job is created", async () => {
+describe("A5/A6 — malformed input is rejected server-side", () => {
+  it("A5: an empty scheduledForUtc is rejected — the exact production failure mode (a disabled field silently excluded from FormData)", async () => {
     fakeContext();
     const result = await createScheduledPublishingJobAction(
       { status: "idle", message: "" },
@@ -166,8 +178,8 @@ describe("A5/A6 — server-side rejection is authoritative, independent of any b
         organisationId: ORG_ID,
         id: DRAFT_ID,
         platform: "instagram",
-        scheduledAt: "2026-07-15T14:00",
-        timezone: "Not/AZone",
+        scheduledForUtc: "",
+        timezone: "Europe/London",
         idempotencyKey: "key-5",
         resolvedAccountId: "acc-1",
       }),
@@ -176,7 +188,7 @@ describe("A5/A6 — server-side rejection is authoritative, independent of any b
     expect(createScheduledPublishingJob).not.toHaveBeenCalled();
   });
 
-  it("A6: a malformed datetime is rejected and no job is created", async () => {
+  it("A6: a malformed scheduledForUtc is rejected and no job is created", async () => {
     fakeContext();
     const result = await createScheduledPublishingJobAction(
       { status: "idle", message: "" },
@@ -184,7 +196,7 @@ describe("A5/A6 — server-side rejection is authoritative, independent of any b
         organisationId: ORG_ID,
         id: DRAFT_ID,
         platform: "instagram",
-        scheduledAt: "not-a-date",
+        scheduledForUtc: "not-a-date",
         timezone: "UTC",
         idempotencyKey: "key-6",
         resolvedAccountId: "acc-1",
@@ -204,7 +216,7 @@ describe("A7 — destination-locking: the selected account and platform survive 
         organisationId: ORG_ID,
         id: DRAFT_ID,
         platform: "linkedin",
-        scheduledAt: "2026-07-15T14:00",
+        scheduledForUtc: "2026-07-15T14:00:00.000Z",
         timezone: "UTC",
         idempotencyKey: "key-7",
         resolvedAccountId: "acc-locked-42",
