@@ -60,6 +60,9 @@ import type { ContentRepository } from "@/core/application/ports/content-port";
 import type { PublishingJob, PublishingAttempt } from "@/core/domain/entities/publishing";
 import type { AuditEvent, AuditRepository } from "@/core/application/ports/audit-port";
 import type { NotificationRecord, NotificationRepository } from "@/core/application/ports/notification-port";
+import type { MediaRepository } from "@/core/application/ports/media-port";
+import type { StoragePort } from "@/core/application/ports/storage-port";
+import type { MediaAsset } from "@/core/domain/entities/media";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -352,6 +355,57 @@ function createPublishingHarness(initialJob: PublishingJob | null = baseJob()) {
   };
 }
 
+// One image asset per job's own organisation, so instagram preflight passes
+// and the account-isolation behaviour under test is what actually decides the
+// outcome. The asset's organisationId mirrors whichever org the resolver asks
+// for — this is a test convenience only; the resolver still enforces the
+// org boundary via filterAssetsForOrganisation on the returned rows.
+function rlsMediaAsset(organisationId: string): MediaAsset {
+  return {
+    id: "rls-asset-1",
+    organisationId,
+    storagePath: `organisations/${organisationId}/rls-img.jpg`,
+    fileName: "rls-img.jpg",
+    mimeType: "image/jpeg",
+    sizeBytes: 100000,
+    width: 1080,
+    height: 1080,
+    uploadedBy: null,
+    createdAt: "2026-08-01T00:00:00Z",
+    updatedAt: "2026-08-01T00:00:00Z",
+    title: null,
+    thumbnailPath: null,
+    category: null,
+    description: null,
+    altText: null,
+    tags: [],
+    brand: null,
+    duration: null,
+    copyrightOwner: null,
+    usageRights: null,
+    expiresAt: null,
+    isAiGenerated: false,
+    isArchived: false,
+  };
+}
+
+function fakeMediaRepo(): MediaRepository {
+  const stub: Partial<MediaRepository> = {
+    listAssetsForDraft: vi.fn(async () => [rlsMediaAsset(ORG_A)]),
+  };
+  return stub as MediaRepository;
+}
+
+function fakeStoragePort(): StoragePort {
+  const stub: Partial<StoragePort> = {
+    getSignedUrl: vi.fn(
+      async (storagePath: string) =>
+        `https://example.supabase.co/storage/v1/object/sign/organisation-media/${storagePath}?token=rls-jwt`,
+    ),
+  };
+  return stub as StoragePort;
+}
+
 function workerDeps(
   publishing: PublishingRepository,
   content: ContentRepository,
@@ -365,6 +419,8 @@ function workerDeps(
     blotatoClient: client,
     audits: fakeAudits(),
     notifications: fakeNotifications(),
+    media: fakeMediaRepo(),
+    storage: fakeStoragePort(),
   };
 }
 

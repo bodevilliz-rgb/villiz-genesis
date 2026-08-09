@@ -6,6 +6,8 @@ import { SupabaseBlotatoAccountRepository } from "@/infrastructure/repositories/
 import { SupabaseContentRepository } from "@/infrastructure/repositories/supabase-content-repository";
 import { SupabaseAuditRepository } from "@/infrastructure/repositories/supabase-audit-repository";
 import { SupabaseNotificationRepository } from "@/infrastructure/repositories/supabase-notification-repository";
+import { SupabaseMediaRepository } from "@/infrastructure/repositories/supabase-media-repository";
+import { SupabaseStoragePort } from "@/infrastructure/ports/supabase-storage-port";
 import { HttpBlotatoClient } from "@/infrastructure/blotato/http-blotato-client";
 import { blotatoConfig } from "@/infrastructure/blotato/blotato-config";
 import { runPublishingWorkerIteration } from "@/core/application/use-cases/publishing/worker";
@@ -70,6 +72,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     audits: new SupabaseAuditRepository(adminClient),
     notifications: new SupabaseNotificationRepository(adminClient),
     blotatoClient: new HttpBlotatoClient(config.apiKey),
+    media: new SupabaseMediaRepository(adminClient),
+    storage: new SupabaseStoragePort(adminClient),
   };
 
   const result = await runPublishingWorkerIteration(deps);
