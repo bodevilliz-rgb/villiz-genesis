@@ -6,6 +6,11 @@ import { routes } from "@/lib/routes";
 import { canEditOrganisation } from "@/core/domain/entities/identity";
 import { loadMediaLibraryPage, type MediaLibraryPageResult } from "@/core/application/use-cases/media/list-media-library-page";
 import type { MediaLibraryPageFilters } from "@/core/application/ports/media-port";
+import {
+  buildOrganisationStoragePath,
+  storagePathBelongsToOrganisation,
+  validateMediaUpload,
+} from "@/core/domain/entities/media-upload";
 
 function revalidateMedia(organisationId: string, assetId?: string) {
   revalidatePath(routes.organisations.media.index(organisationId));
@@ -15,61 +20,166 @@ function revalidateMedia(organisationId: string, assetId?: string) {
   }
 }
 
-export async function uploadMediaAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+/**
+ * Direct-to-storage upload transport (fix/direct-media-upload).
+ *
+ * The old uploadMediaAction/replaceMediaVersionAction routed the entire
+ * multipart file body through a Vercel serverless function — Vercel rejects
+ * request bodies over 4.5 MB with FUNCTION_PAYLOAD_TOO_LARGE before the
+ * action ever runs, so any larger upload could never succeed. The transport
+ * is now: (1) requestMediaUploadAction issues a short-lived signed upload
+ * token for a server-generated organisation-scoped path, (2) the browser
+ * PUTs the bytes straight into the private bucket with that token,
+ * (3) registerUploadedMediaAction / registerMediaReplacementAction record
+ * the metadata. Only small JSON ever crosses a serverless function.
+ */
+export interface MediaUploadTicket {
+  status: "ready";
+  storagePath: string;
+  token: string;
+}
+
+export type MediaUploadTicketResult = MediaUploadTicket | { status: "error"; message: string };
+
+async function requireOrganisationMember(
+  context: Awaited<ReturnType<typeof requireContext>>,
+  organisationId: string,
+): Promise<string | null> {
+  if (context.actor.isPlatformAdmin) return null;
+  const role = await context.organisations.viewerRole(organisationId);
+  if (!role) return "You do not have access to this organisation's Media Library.";
+  return null;
+}
+
+export async function requestMediaUploadAction(
+  organisationId: string,
+  file: { fileName: string; mimeType: string; sizeBytes: number },
+): Promise<MediaUploadTicketResult> {
+  try {
+    const context = await requireContext();
+
+    const membershipError = await requireOrganisationMember(context, organisationId);
+    if (membershipError) return { status: "error", message: membershipError };
+
+    const validation = validateMediaUpload(file);
+    if (!validation.valid) return { status: "error", message: validation.reason };
+
+    // The path is generated here, never accepted from the browser — the
+    // signed token Supabase issues is only valid for this exact path.
+    const storagePath = buildOrganisationStoragePath(organisationId, file.fileName);
+    const { path, token } = await context.storage.createSignedUploadUrl(storagePath);
+
+    return { status: "ready", storagePath: path, token };
+  } catch (error) {
+    const state = errorState(error);
+    return { status: "error", message: state.message };
+  }
+}
+
+export async function registerUploadedMediaAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
   try {
     const organisationId = textOrEmpty(formData, "organisationId");
-    const file = formData.get("file") as File;
-    if (!file || file.size === 0) {
-      return { status: "error", message: "No file was selected for upload." };
-    }
+    const storagePath = textOrEmpty(formData, "storagePath");
+    const fileName = textOrEmpty(formData, "fileName");
+    const mimeType = textOrEmpty(formData, "mimeType");
+    const sizeBytes = Number(textOrEmpty(formData, "sizeBytes"));
 
     const context = await requireContext();
-    const arrayBuffer = await file.arrayBuffer();
-    const fileBuffer = Buffer.from(arrayBuffer);
 
-    // 1. Upload file to Supabase storage bucket
-    const storagePath = await context.storage.uploadMedia(organisationId, {
-      fileName: file.name,
-      mimeType: file.type,
-      fileBuffer,
-    });
+    const membershipError = await requireOrganisationMember(context, organisationId);
+    if (membershipError) return { status: "error", message: membershipError };
 
-    // 2. Create the asset record in the database
-    const asset = await context.media.createAsset(
-      organisationId,
-      storagePath,
-      file.name,
-      file.type,
-      file.size,
-      context.actor.id
-    );
+    if (!storagePathBelongsToOrganisation(storagePath, organisationId)) {
+      return { status: "error", message: "The uploaded file's storage path does not belong to this organisation." };
+    }
 
-    // 3. Update optional initial metadata if provided
-    const title = text(formData, "title") || file.name;
-    const category = text(formData, "category") || null;
-    const description = text(formData, "description") || null;
-    const tags = list(formData, "tags");
-    const brand = text(formData, "brand") || null;
-    const isAiGenerated = formData.get("isAiGenerated") === "true";
+    const validation = validateMediaUpload({ mimeType, sizeBytes });
+    if (!validation.valid) return { status: "error", message: validation.reason };
 
-    await context.media.updateAssetMetadata(asset.id, {
-      title,
-      thumbnailPath: null,
-      category,
-      description,
-      altText: text(formData, "altText") || null,
-      tags,
-      brand,
-      duration: null,
-      copyrightOwner: text(formData, "copyrightOwner") || null,
-      usageRights: text(formData, "usageRights") || null,
-      expiresAt: text(formData, "expiresAt") || null,
-      isAiGenerated,
-      isArchived: false,
-    });
+    let asset;
+    try {
+      asset = await context.media.createAsset(
+        organisationId,
+        storagePath,
+        fileName,
+        mimeType,
+        sizeBytes,
+        context.actor.id
+      );
+
+      const title = text(formData, "title") || fileName;
+      await context.media.updateAssetMetadata(asset.id, {
+        title,
+        thumbnailPath: null,
+        category: text(formData, "category") || null,
+        description: text(formData, "description") || null,
+        altText: text(formData, "altText") || null,
+        tags: list(formData, "tags"),
+        brand: text(formData, "brand") || null,
+        duration: null,
+        copyrightOwner: text(formData, "copyrightOwner") || null,
+        usageRights: text(formData, "usageRights") || null,
+        expiresAt: text(formData, "expiresAt") || null,
+        isAiGenerated: formData.get("isAiGenerated") === "true",
+        isArchived: false,
+      });
+    } catch (registrationError) {
+      // The bytes are already in storage but no asset row exists — remove the
+      // orphaned object so a failed registration leaves nothing behind. If
+      // this row was created but metadata failed, the asset still exists and
+      // is usable; only a createAsset failure triggers cleanup.
+      if (!asset) {
+        await context.storage.deleteMedia(storagePath).catch(() => undefined);
+      }
+      throw registrationError;
+    }
 
     revalidateMedia(organisationId, asset.id);
     return successState("Media asset uploaded successfully.", asset.id);
+  } catch (error) {
+    return errorState(error);
+  }
+}
+
+export async function registerMediaReplacementAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  try {
+    const assetId = textOrEmpty(formData, "assetId");
+    const organisationId = textOrEmpty(formData, "organisationId");
+    const storagePath = textOrEmpty(formData, "storagePath");
+    const fileName = textOrEmpty(formData, "fileName");
+    const mimeType = textOrEmpty(formData, "mimeType");
+    const sizeBytes = Number(textOrEmpty(formData, "sizeBytes"));
+
+    const context = await requireContext();
+
+    const membershipError = await requireOrganisationMember(context, organisationId);
+    if (membershipError) return { status: "error", message: membershipError };
+
+    if (!storagePathBelongsToOrganisation(storagePath, organisationId)) {
+      return { status: "error", message: "The uploaded file's storage path does not belong to this organisation." };
+    }
+
+    const validation = validateMediaUpload({ mimeType, sizeBytes });
+    if (!validation.valid) return { status: "error", message: validation.reason };
+
+    // Cross-org assetId forgery guard: the asset being replaced must itself
+    // belong to this organisation.
+    const existing = await context.media.getAsset(organisationId, assetId);
+    if (!existing) {
+      return { status: "error", message: "Asset not found or does not belong to this organisation." };
+    }
+
+    try {
+      await context.media.replaceAssetVersion(assetId, storagePath, fileName, mimeType, sizeBytes, context.actor.id);
+    } catch (replacementError) {
+      // Version bookkeeping failed — the current valid asset/version is
+      // untouched; remove only the newly uploaded replacement bytes.
+      await context.storage.deleteMedia(storagePath).catch(() => undefined);
+      throw replacementError;
+    }
+
+    revalidateMedia(organisationId, assetId);
+    return successState("New file version uploaded and replaced successfully.", assetId);
   } catch (error) {
     return errorState(error);
   }
@@ -107,42 +217,6 @@ export async function updateMediaMetadataAction(_prev: ActionState, formData: Fo
   }
 }
 
-export async function replaceMediaVersionAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
-  try {
-    const assetId = textOrEmpty(formData, "assetId");
-    const organisationId = textOrEmpty(formData, "organisationId");
-    const file = formData.get("file") as File;
-    if (!file || file.size === 0) {
-      return { status: "error", message: "No file was selected to replace the current version." };
-    }
-
-    const context = await requireContext();
-    const arrayBuffer = await file.arrayBuffer();
-    const fileBuffer = Buffer.from(arrayBuffer);
-
-    // 1. Upload new file version to storage
-    const storagePath = await context.storage.uploadMedia(organisationId, {
-      fileName: file.name,
-      mimeType: file.type,
-      fileBuffer,
-    });
-
-    // 2. Perform version replacement in database
-    await context.media.replaceAssetVersion(
-      assetId,
-      storagePath,
-      file.name,
-      file.type,
-      file.size,
-      context.actor.id
-    );
-
-    revalidateMedia(organisationId, assetId);
-    return successState("New file version uploaded and replaced successfully.", assetId);
-  } catch (error) {
-    return errorState(error);
-  }
-}
 
 export async function archiveMediaAction(organisationId: string, assetId: string): Promise<ActionState> {
   try {

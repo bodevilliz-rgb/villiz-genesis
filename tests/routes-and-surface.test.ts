@@ -95,11 +95,22 @@ describe("service role key containment", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("ships no client-side Supabase credential path at all", () => {
-    // Sign-in runs through a Server Action, so no browser code ever constructs
-    // a Supabase client. Removing that path means no Supabase credential —
-    // not even the public anon key — is inlined into a client bundle.
-    expect(existsSync(resolve(root, "src/infrastructure/supabase/browser-client.ts"))).toBe(false);
+  it("confines the client-side Supabase path to the media upload transport, with the public anon key only", () => {
+    // Historically NO browser code constructed a Supabase client at all.
+    // fix/direct-media-upload deliberately relaxed that by exactly one module:
+    // browser-client.ts, which exists solely so file bytes can be PUT
+    // directly into the private storage bucket with a server-issued signed
+    // upload token (Vercel's 4.5 MB serverless request-body ceiling rejects
+    // larger multipart uploads with FUNCTION_PAYLOAD_TOO_LARGE). The module
+    // may carry ONLY the public anon key — never the service role key — and
+    // component files still never inline Supabase credentials themselves;
+    // they import the one wrapper.
+    const browserClientPath = resolve(root, "src/infrastructure/supabase/browser-client.ts");
+    expect(existsSync(browserClientPath)).toBe(true);
+    const browserClient = readFileSync(browserClientPath, "utf8");
+    expect(browserClient).not.toMatch(/SERVICE_ROLE/);
+    expect(browserClient).toMatch(/NEXT_PUBLIC_SUPABASE_ANON_KEY/);
+    expect(browserClient).toMatch(/"use client"/);
 
     for (const file of walk(resolve(root, "src/components"))) {
       const contents = readFileSync(file, "utf8");
