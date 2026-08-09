@@ -4,6 +4,8 @@ import { requireContext } from "../container";
 import { errorState, successState, text, textOrEmpty, list, type ActionState } from "../action-result";
 import { routes } from "@/lib/routes";
 import { canEditOrganisation } from "@/core/domain/entities/identity";
+import { loadMediaLibraryPage, type MediaLibraryPageResult } from "@/core/application/use-cases/media/list-media-library-page";
+import type { MediaLibraryPageFilters } from "@/core/application/ports/media-port";
 
 function revalidateMedia(organisationId: string, assetId?: string) {
   revalidatePath(routes.organisations.media.index(organisationId));
@@ -449,4 +451,20 @@ export async function detachAssetFromPublishedDraftAction(
   } catch (error) {
     return errorState(error);
   }
+}
+
+/**
+ * Client-triggered pagination/search for the Media Library grid — the same
+ * bounded loadMediaLibraryPage the initial server render uses, so "Load
+ * more" and typing in the search box never fetch more than one page of
+ * results, and never generate signed URLs beyond that page. Read-only: the
+ * RLS-scoped client this runs under naturally confines results to
+ * organisationId, matching how the page's own initial fetch is scoped.
+ */
+export async function fetchMediaLibraryPageAction(
+  organisationId: string,
+  filters: MediaLibraryPageFilters,
+): Promise<MediaLibraryPageResult> {
+  const context = await requireContext();
+  return loadMediaLibraryPage(context, organisationId, filters);
 }

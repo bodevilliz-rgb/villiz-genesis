@@ -43,6 +43,42 @@ export interface MediaAsset {
   versions?: MediaAssetVersion[];
 }
 
+/**
+ * Everything the Media Library grid actually renders — deliberately excludes
+ * description, usageRights, copyrightOwner, duration, expiresAt,
+ * thumbnailPath, uploadedBy, updatedAt, brand, width, height, and version
+ * history, none of which the grid displays. Returned by
+ * MediaRepository.listAssetsPage instead of the full MediaAsset so a bounded
+ * page of results stays bounded in payload size too.
+ */
+export interface MediaAssetListItem {
+  id: string;
+  organisationId: string;
+  title: string | null;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  storagePath: string;
+  tags: string[];
+  altText: string | null;
+  isArchived: boolean;
+  isAiGenerated: boolean;
+  createdAt: string;
+}
+
+export interface PaginatedMediaAssets {
+  items: MediaAssetListItem[];
+  total: number;
+  hasMore: boolean;
+}
+
+export interface MediaLibraryStats {
+  totalAssets: number;
+  imageCount: number;
+  videoCount: number;
+  totalStorageBytes: number;
+}
+
 export interface MediaCollection {
   id: string;
   organisationId: string;

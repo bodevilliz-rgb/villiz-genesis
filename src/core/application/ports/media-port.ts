@@ -1,5 +1,14 @@
-import type { MediaAsset, MediaCollection, MediaAssetVersion } from "../../domain/entities/media";
+import type { MediaAsset, MediaCollection, MediaAssetVersion, PaginatedMediaAssets, MediaLibraryStats } from "../../domain/entities/media";
 import type { BrandKit } from "../../domain/entities/brand";
+
+export interface MediaLibraryPageFilters {
+  limit: number;
+  offset: number;
+  search?: string;
+  /** Mirrors the grid's mime-type quick filters; "document" matches pdf/document mime types, same semantics the client-side filter used before. */
+  mimeFilter?: "image" | "video" | "audio" | "document";
+  isArchived?: boolean;
+}
 
 export interface MediaAssetWriteModel {
   title: string | null;
@@ -29,7 +38,18 @@ export interface MediaRepository {
   
   /** Lists assets matching filters for an organisation */
   listAssets(organisationId: string, options?: { category?: string; isArchived?: boolean; typePrefix?: string }): Promise<MediaAsset[]>;
-  
+
+  /**
+   * Server-side paginated, lightweight listing for the Media Library grid.
+   * Pagination (range), search (file name / title), and the mime-type quick
+   * filter all happen in Postgres — never fetches the whole organisation's
+   * library to filter/paginate in application code.
+   */
+  listAssetsPage(organisationId: string, filters: MediaLibraryPageFilters): Promise<PaginatedMediaAssets>;
+
+  /** Cheap aggregate counts/sum for the Media Library stats board — never returns full asset rows. */
+  getLibraryStats(organisationId: string): Promise<MediaLibraryStats>;
+
   /** Creates a new version of an asset */
   replaceAssetVersion(assetId: string, storagePath: string, fileName: string, mimeType: string, sizeBytes: number, replacedBy: string): Promise<MediaAsset>;
 
