@@ -288,6 +288,17 @@ describe("computePublishingAnalytics — reconciliation (test 4, 5, 6, 7)", () =
     expect(analytics.jobSuccessRate).toBe(100);
   });
 
+  it("31 (fix/scheduled-publishing-integrity): a reconciled SCHEDULED job increments Scheduled Published, not Immediate Published, and is not a successful retry", () => {
+    const reconciledScheduledJob = job({ triggerType: "scheduled", status: "published" });
+    const originalFailedAttempt = attempt({ jobId: reconciledScheduledJob.id, attemptNumber: 1, status: "failed", errorCode: "blotato_status_timeout" });
+    const reconciliation = reconciliationAttempt({ jobId: reconciledScheduledJob.id, retryOfAttemptId: originalFailedAttempt.id });
+
+    const analytics = computePublishingAnalytics([reconciledScheduledJob], [originalFailedAttempt, reconciliation], REFERENCE_DATE);
+    expect(analytics.scheduledPublications).toBe(1);
+    expect(analytics.immediatePublications).toBe(0);
+    expect(analytics.successfulRetries).toBe(0);
+  });
+
   it("5: a reconciled job (status now published) does not count in Failed — Needs Attention", () => {
     const reconciledJob = job({ status: "published" }); // reconcileBlotatoStatusTimeout already flipped this
     const stillFailedJob = job({ status: "failed" });

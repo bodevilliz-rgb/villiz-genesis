@@ -11,6 +11,7 @@ import { mapBlotatoPlatform } from "@/core/domain/entities/blotato";
 import { PUBLISHING_PLATFORM_LABELS } from "@/core/domain/entities/publishing";
 import type { PrePublishReport } from "@/core/application/use-cases/generation/pre-publish-review";
 import type { PlatformPreflightResult } from "@/core/domain/entities/publishing-preflight";
+import type { PublishingIntent } from "@/core/domain/entities/publishing";
 import { toast } from "sonner";
 
 interface PrePublishDialogProps {
@@ -23,9 +24,38 @@ interface PrePublishDialogProps {
   channel?: BlotatoAccount | null;
   /** Whether the integration is in live-publishing mode. Shown as a mode badge. */
   isLivePublishing?: boolean;
+  /**
+   * The immutable snapshot of what the operator chose — captured once, at
+   * the moment they clicked Publish Now or Schedule. This dialog only ever
+   * REVIEWS intent.mode; it never infers, guesses, or defaults it, which is
+   * what previously made every review show "Publish Now" regardless of
+   * which action was actually being confirmed.
+   */
+  intent?: PublishingIntent | null;
+  /** True while the confirmed action is in flight — disables the confirm button so a second click (or a stale re-invocation) can never double-submit. */
+  submitting?: boolean;
 }
 
-export function PrePublishDialog({ organisationId, draft, open, onOpenChange, onConfirmPublish, channel, isLivePublishing = false }: PrePublishDialogProps) {
+/**
+ * The confirm button's label is derived from intent.mode alone — never
+ * guessed, never defaulted to "Publish Now". Exported as a pure function so
+ * every mode/state combination is directly unit-testable without mounting
+ * the dialog.
+ */
+export function confirmButtonLabel(
+  intent: PublishingIntent | null,
+  state: { liveBlocked: boolean; submitting: boolean; score: number | undefined },
+): string {
+  if (state.liveBlocked) return "Requirements not met";
+  if (!intent) return "Review required";
+  if (intent.mode === "scheduled") {
+    return state.submitting ? "Scheduling…" : "Schedule Post";
+  }
+  if (state.submitting) return "Publishing…";
+  return state.score !== undefined && state.score >= 80 ? "Publish Now" : "Publish Anyway";
+}
+
+export function PrePublishDialog({ organisationId, draft, open, onOpenChange, onConfirmPublish, channel, isLivePublishing = false, intent = null, submitting = false }: PrePublishDialogProps) {
   const [loading, setLoading] = useState(true);
   const [report, setReport] = useState<PrePublishReport | null>(null);
   const [preflight, setPreflight] = useState<PlatformPreflightResult | null>(null);
@@ -62,7 +92,7 @@ export function PrePublishDialog({ organisationId, draft, open, onOpenChange, on
   }, [open, draft, organisationId, channel]);
 
   const liveBlocked = isLivePublishing && preflight !== null && !preflight.ready;
-  const publishButtonDisabled = loading || !report || liveBlocked;
+  const publishButtonDisabled = loading || !report || liveBlocked || submitting || !intent;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -92,6 +122,22 @@ export function PrePublishDialog({ organisationId, draft, open, onOpenChange, on
               </div>
             );
           })()}
+
+          {/* Scheduling summary — only ever rendered from intent.mode, never inferred */}
+          {intent?.mode === "scheduled" && (
+            <div className="flex items-center justify-between rounded border border-primary/30 bg-primary/5 px-3 py-2.5 text-sm">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Scheduled for</span>
+                <span className="font-medium">{intent.scheduledForLocalDisplay}</span>
+                <span className="text-[11px] text-muted-foreground">
+                  {intent.displayTimezone} · {intent.scheduledForUtc} UTC
+                </span>
+              </div>
+              <span className="text-[11px] font-semibold rounded-full px-2.5 py-1 bg-primary/10 text-primary">
+                Scheduled
+              </span>
+            </div>
+          )}
 
           {loading ? (
             <div className="flex flex-col items-center justify-center py-8 gap-4 text-muted-foreground">
@@ -213,12 +259,7 @@ export function PrePublishDialog({ organisationId, draft, open, onOpenChange, on
             disabled={publishButtonDisabled}
             onClick={onConfirmPublish}
           >
-            {liveBlocked
-              ? "Requirements not met"
-              : report && report.score >= 80
-                ? "Publish Now"
-                : "Publish Anyway"
-            }
+            {confirmButtonLabel(intent, { liveBlocked, submitting, score: report?.score })}
           </Button>
         </DialogFooter>
       </DialogContent>
