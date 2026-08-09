@@ -1,4 +1,6 @@
 import {
+  isReconciliationAttempt,
+  isSimulatedPublishingAttempt,
   isTerminalPublishingJobStatus,
   PUBLISHING_PLATFORMS,
   type PublishingAnalytics,
@@ -35,10 +37,20 @@ function isSameUtcDay(a: Date, b: Date): boolean {
  * deterministic (no hidden `new Date()` inside this function).
  */
 export function computePublishingAnalytics(
-  jobs: PublishingJob[],
-  attempts: PublishingAttempt[],
+  allJobs: PublishingJob[],
+  allAttempts: PublishingAttempt[],
   referenceDate: Date,
 ): PublishingAnalytics {
+  // Simulated runs (BLOTATO_LIVE_PUBLISHING_ENABLED off, or any Mock*Publisher)
+  // must never inflate live operational KPIs — a job counts as simulated if
+  // ANY of its attempts settled via simulatePublish(). Excluded up front so
+  // every figure below is computed from live data only, with the excluded
+  // count surfaced rather than silently dropped.
+  const simulatedJobIds = new Set(allAttempts.filter(isSimulatedPublishingAttempt).map((a) => a.jobId));
+  const jobs = allJobs.filter((j) => !simulatedJobIds.has(j.id));
+  const attempts = allAttempts.filter((a) => !simulatedJobIds.has(a.jobId));
+  const simulatedJobsExcluded = allJobs.length - jobs.length;
+
   const completedAttempts = attempts.filter((a) => a.status === "completed");
   const failedAttempts = attempts.filter((a) => a.status === "failed");
   const resolvedAttempts = completedAttempts.length + failedAttempts.length;
@@ -46,7 +58,10 @@ export function computePublishingAnalytics(
   const terminalJobs = jobs.filter((j) => isTerminalPublishingJobStatus(j.status));
   const publishedJobs = jobs.filter((j) => j.status === "published");
 
-  const retryAttempts = attempts.filter((a) => a.attemptNumber > 1);
+  // A reconciliation attempt (reconcileBlotatoStatusTimeout) never resubmits
+  // to the provider — only a genuine attemptNumber > 1 publish call counts
+  // as a "retry" for Successful Retries / Retry Success Rate.
+  const retryAttempts = attempts.filter((a) => a.attemptNumber > 1 && !isReconciliationAttempt(a));
   const resolvedRetryAttempts = retryAttempts.filter((a) => a.status === "completed" || a.status === "failed");
   const successfulRetries = retryAttempts.filter((a) => a.status === "completed").length;
 
@@ -107,5 +122,6 @@ export function computePublishingAnalytics(
       immediate: byTrigger("immediate"),
     },
     platformBreakdown,
+    simulatedJobsExcluded,
   };
 }

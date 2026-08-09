@@ -199,6 +199,8 @@ export interface PublishingAnalytics {
     immediate: TriggerTypeAnalytics;
   };
   platformBreakdown: PlatformAnalytics[];
+  /** Jobs excluded from every figure above because at least one of their attempts was simulated (see isSimulatedPublishingAttempt) — surfaced for transparency, never silently dropped without a count. */
+  simulatedJobsExcluded: number;
 }
 
 export interface PublishingTransition {
@@ -226,4 +228,27 @@ export function isValidPublishingJobTransition(from: PublishingJobStatus, to: Pu
 
 export function isTerminalPublishingJobStatus(status: PublishingJobStatus): boolean {
   return status === "published" || status === "failed" || status === "cancelled";
+}
+
+/**
+ * True only for attempts settled by simulatePublish() (BLOTATO_LIVE_PUBLISHING_ENABLED
+ * off, or any Mock*Publisher) — the one place that stamps `simulated: true`
+ * onto PublisherResult.metadata, which flows verbatim into
+ * providerMetadata via completePublishingAttempt/failPublishingAttempt.
+ * Requires no schema change: the marker already exists on every attempt
+ * that ever ran through the mock path.
+ */
+export function isSimulatedPublishingAttempt(attempt: Pick<PublishingAttempt, "providerMetadata">): boolean {
+  return attempt.providerMetadata?.simulated === true;
+}
+
+/**
+ * True only for an attempt created by reconcileBlotatoStatusTimeout — it
+ * stamps `reconciledFromAttemptId` onto the new attempt's providerMetadata
+ * and never calls publishPost. Distinguishing this from a genuine
+ * provider-resubmission retry (also attemptNumber > 1) needs no schema
+ * change: the marker already exists on every reconciliation attempt.
+ */
+export function isReconciliationAttempt(attempt: Pick<PublishingAttempt, "providerMetadata">): boolean {
+  return attempt.providerMetadata?.reconciledFromAttemptId != null;
 }
