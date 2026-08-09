@@ -4,7 +4,13 @@
  * Extracted from draft-form.tsx so the context-awareness rules can be
  * tested independently of React rendering or Next.js infrastructure.
  */
-import type { GenerationIntentHints } from "@/server/actions/awo-grounding";
+import type {
+  GenerationIntentHints,
+  GenerationGuidedContext,
+  ServiceTreatment,
+  PromotionLevel,
+  CtaMode,
+} from "@/server/actions/awo-grounding";
 
 export type AiRewriteInstruction = "expand" | "shorten" | "professional" | "casual" | "punchy";
 
@@ -91,4 +97,39 @@ export function buildGenerateCaptionArgs(
   ];
 }
 
-export type { GenerationIntentHints };
+/**
+ * Builds the compact interpretation summary shown to the operator before
+ * they click Apply AI.  Derived entirely from the selected values — no
+ * side-effects, no I/O.
+ *
+ * Example output:
+ *   "Awo will use: Brand General · Brand Overview · Soft Promotion · Soft Enquiry · MemBrain"
+ */
+export function buildInterpretationPreview(
+  hasCampaign: boolean,
+  guidedCtx?: GenerationGuidedContext,
+): string {
+  const parts: string[] = [];
+
+  parts.push(hasCampaign ? "Campaign" : "Brand General");
+
+  if (guidedCtx?.serviceTreatment === "brand_overview") parts.push("Brand Overview");
+  else if (guidedCtx?.serviceTreatment === "specific_service") parts.push("Service Focus");
+  else if (guidedCtx?.serviceTreatment === "no_service_mention") parts.push("Service-Neutral");
+
+  if (guidedCtx?.promotionLevel === "none") parts.push("No Promotion");
+  else if (guidedCtx?.promotionLevel === "soft") parts.push("Soft Promotion");
+  else if (guidedCtx?.promotionLevel === "promotional") parts.push("Promotional");
+
+  if (guidedCtx?.ctaMode === "auto") parts.push("Auto CTA");
+  else if (guidedCtx?.ctaMode === "soft_enquiry") parts.push("Soft Enquiry");
+  else if (guidedCtx?.ctaMode === "book") parts.push("Booking CTA");
+  else if (guidedCtx?.ctaMode === "custom") parts.push("Custom CTA");
+  else if (guidedCtx?.ctaMode === "none") parts.push("No CTA");
+
+  parts.push("MemBrain");
+
+  return `Awo will use: ${parts.join(" · ")}`;
+}
+
+export type { GenerationIntentHints, GenerationGuidedContext, ServiceTreatment, PromotionLevel, CtaMode };

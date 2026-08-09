@@ -2,7 +2,7 @@
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Check, Loader2, Video, Music, FileText, X, Paperclip, Plus, AlertTriangle } from "lucide-react";
+import { Check, ChevronRight, Loader2, Video, Music, FileText, X, Paperclip, Plus, AlertTriangle } from "lucide-react";
 import { createDraftAction, updateDraftAction } from "@/server/actions/content";
 import { idleState } from "@/server/action-result";
 import { Field } from "@/components/ui/field";
@@ -24,6 +24,11 @@ import {
   isAiActionAvailable,
   rewriteInstructionForAction,
   buildGenerateCaptionArgs,
+  buildInterpretationPreview,
+  type GenerationGuidedContext,
+  type ServiceTreatment,
+  type PromotionLevel,
+  type CtaMode,
 } from "./awo-assist-logic";
 import { routes } from "@/lib/routes";
 
@@ -117,8 +122,36 @@ export function DraftForm({
     isDraftBodyEmpty(draft?.body ?? "") ? "generate" : "rewrite",
   );
   const [aiPrompt, setAiPrompt] = useState<string>("");
+  const [guidedOpen, setGuidedOpen] = useState(false);
+  const [guidedTopic, setGuidedTopic] = useState("");
+  const [guidedGoal, setGuidedGoal] = useState("");
+  const [guidedServiceTreatment, setGuidedServiceTreatment] = useState<ServiceTreatment | "">("");
+  const [guidedSpecificService, setGuidedSpecificService] = useState("");
+  const [guidedPromotionLevel, setGuidedPromotionLevel] = useState<PromotionLevel | "">("");
+  const [guidedCtaMode, setGuidedCtaMode] = useState<CtaMode | "">("");
+  const [guidedCustomCta, setGuidedCustomCta] = useState("");
+  const [guidedExtraDirection, setGuidedExtraDirection] = useState("");
 
   const effectiveAiAction = normaliseAiAction(aiAction, draftBody);
+
+  const hasGuidedContext = guidedOpen && Boolean(
+    guidedTopic || guidedGoal || guidedServiceTreatment || guidedPromotionLevel || guidedCtaMode || guidedExtraDirection,
+  );
+
+  function buildGuidedCtx(): GenerationGuidedContext | undefined {
+    if (!guidedOpen) return undefined;
+    if (!guidedTopic && !guidedGoal && !guidedServiceTreatment && !guidedPromotionLevel && !guidedCtaMode && !guidedExtraDirection) return undefined;
+    return {
+      topic: guidedTopic || undefined,
+      goal: guidedGoal || undefined,
+      serviceTreatment: guidedServiceTreatment || undefined,
+      specificService: guidedServiceTreatment === "specific_service" && guidedSpecificService ? guidedSpecificService : undefined,
+      promotionLevel: guidedPromotionLevel || undefined,
+      ctaMode: guidedCtaMode || undefined,
+      customCta: guidedCtaMode === "custom" && guidedCustomCta ? guidedCustomCta : undefined,
+      extraDirection: guidedExtraDirection || undefined,
+    };
+  }
 
   async function handleAiAssist() {
     setAiLoading(true);
@@ -137,7 +170,7 @@ export function DraftForm({
             userPromptIsExplicit: aiPrompt.trim().length > 0,
           },
         );
-        const res = await generateCaption(orgId, prompt, platform, intentHints);
+        const res = await generateCaption(orgId, prompt, platform, intentHints, buildGuidedCtx());
         suggestion = res.text;
       } else {
         const instruction = rewriteInstructionForAction(effectiveAiAction);
@@ -324,6 +357,137 @@ export function DraftForm({
               Apply AI
             </Button>
           </div>
+
+          {effectiveAiAction === "generate" && (
+            <div>
+              <button
+                type="button"
+                className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => setGuidedOpen((v) => !v)}
+              >
+                <ChevronRight
+                  className={`h-3 w-3 transition-transform ${guidedOpen ? "rotate-90" : ""}`}
+                />
+                Guided context {hasGuidedContext ? "· active" : "· optional"}
+              </button>
+
+              {guidedOpen && (
+                <div className="mt-2 rounded border border-border bg-muted/30 p-3 flex flex-col gap-3">
+                  {hasGuidedContext && (
+                    <p className="text-[11px] text-muted-foreground font-mono">
+                      {buildInterpretationPreview(Boolean(draft?.campaign), buildGuidedCtx())}
+                    </p>
+                  )}
+
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[11px] text-muted-foreground">Topic</label>
+                      <Input
+                        type="text"
+                        placeholder="e.g. Welcome to August"
+                        value={guidedTopic}
+                        onChange={(e) => setGuidedTopic(e.target.value)}
+                        className="text-[12px] h-8"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[11px] text-muted-foreground">Goal</label>
+                      <Input
+                        type="text"
+                        placeholder="e.g. Build community connection"
+                        value={guidedGoal}
+                        onChange={(e) => setGuidedGoal(e.target.value)}
+                        className="text-[12px] h-8"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[11px] text-muted-foreground">Service treatment</label>
+                      <Select
+                        value={guidedServiceTreatment}
+                        onChange={(e) => setGuidedServiceTreatment(e.target.value as ServiceTreatment | "")}
+                        className="text-[12px] h-8"
+                      >
+                        <option value="">Auto</option>
+                        <option value="brand_overview">Brand overview</option>
+                        <option value="specific_service">Specific service</option>
+                        <option value="no_service_mention">No service mention</option>
+                      </Select>
+                    </div>
+                    {guidedServiceTreatment === "specific_service" && (
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[11px] text-muted-foreground">Specific service</label>
+                        <Input
+                          type="text"
+                          placeholder="e.g. Bridal makeup"
+                          value={guidedSpecificService}
+                          onChange={(e) => setGuidedSpecificService(e.target.value)}
+                          className="text-[12px] h-8"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[11px] text-muted-foreground">Promotion level</label>
+                      <Select
+                        value={guidedPromotionLevel}
+                        onChange={(e) => setGuidedPromotionLevel(e.target.value as PromotionLevel | "")}
+                        className="text-[12px] h-8"
+                      >
+                        <option value="">Auto</option>
+                        <option value="none">None</option>
+                        <option value="soft">Soft</option>
+                        <option value="promotional">Promotional</option>
+                      </Select>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[11px] text-muted-foreground">CTA</label>
+                      <Select
+                        value={guidedCtaMode}
+                        onChange={(e) => setGuidedCtaMode(e.target.value as CtaMode | "")}
+                        className="text-[12px] h-8"
+                      >
+                        <option value="">Auto</option>
+                        <option value="auto">Auto</option>
+                        <option value="soft_enquiry">Soft enquiry</option>
+                        <option value="book">Booking</option>
+                        <option value="custom">Custom</option>
+                        <option value="none">None</option>
+                      </Select>
+                    </div>
+                  </div>
+
+                  {guidedCtaMode === "custom" && (
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[11px] text-muted-foreground">Custom CTA text</label>
+                      <Input
+                        type="text"
+                        placeholder="e.g. Sign up for our newsletter"
+                        value={guidedCustomCta}
+                        onChange={(e) => setGuidedCustomCta(e.target.value)}
+                        className="text-[12px] h-8"
+                      />
+                    </div>
+                  )}
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] text-muted-foreground">Extra direction</label>
+                    <Input
+                      type="text"
+                      placeholder="Any additional guidance for Awo"
+                      value={guidedExtraDirection}
+                      onChange={(e) => setGuidedExtraDirection(e.target.value)}
+                      className="text-[12px] h-8"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {aiSuggestion && (
             <div className="rounded border border-primary/20 bg-primary/5 p-3 flex flex-col gap-2">
