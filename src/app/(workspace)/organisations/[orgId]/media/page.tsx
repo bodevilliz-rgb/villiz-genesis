@@ -4,9 +4,12 @@ import { PageHeader } from "@/components/common/page-header";
 import { Stat } from "@/components/common/stat";
 import { formatNumber } from "@/lib/format";
 import { MediaUploadZone } from "@/components/media/media-upload-zone";
-import { MediaGrid } from "@/components/media/media-grid";
+import { MediaGrid, MEDIA_LIBRARY_PAGE_SIZE } from "@/components/media/media-grid";
 import { CollectionsPanel } from "@/components/media/collections-panel";
 import { BrandKitsPanel } from "@/components/media/brand-kits-panel";
+import { loadMediaLibraryPage } from "@/core/application/use-cases/media/list-media-library-page";
+import type { MediaAsset, MediaCollection } from "@/core/domain/entities/media";
+import type { BrandKit } from "@/core/domain/entities/brand";
 
 export default async function MediaDashboardPage({
   params,
@@ -22,31 +25,54 @@ export default async function MediaDashboardPage({
   const organisation = await context.organisations.findById(orgId);
   if (!organisation) notFound();
 
-  // 1. Fetch Assets, Collections, and Brand Kits matching filters
-  const [assets, collections, brandKits] = await Promise.all([
-    context.media.listAssets(orgId),
-    context.media.listCollections(orgId),
-    context.media.listBrandKits(orgId),
-  ]);
+  const activeTab = filters.tab || "assets";
 
-  // 2. Generate signed URLs for all images to serve thumbnails and preview elements
-  const signedUrls: Record<string, string> = {};
-  for (const asset of assets) {
-    if (asset.mimeType.startsWith("image/")) {
-      try {
-        const signedUrl = await context.storage.getSignedUrl(asset.storagePath);
-        signedUrls[asset.storagePath] = signedUrl;
-      } catch (err) {
-        console.warn(`Failed to sign URL for storagePath: ${asset.storagePath}`, err);
-      }
-    }
+  // The stats board always shows org-wide counts, but only as cheap
+  // aggregates (COUNT/SUM) — never by fetching every asset row.
+  const stats = await context.media.getLibraryStats(orgId);
+  const { totalAssets, imageCount, videoCount, totalStorageBytes } = stats;
+
+  // Only the active tab's data is fetched. The Assets tab (the default, and
+  // the one that produced FUNCTION_PAYLOAD_TOO_LARGE in production) fetches
+  // exactly one bounded page — never the whole library. Collections/Brand
+  // Kits keep their existing full-list "pick an asset" behaviour (out of
+  // scope to redesign here) but are no longer fetched on every page load
+  // regardless of which tab is active, only when their own tab is open.
+  let assetsPage: Awaited<ReturnType<typeof loadMediaLibraryPage>> = { items: [], signedUrls: {}, hasMore: false, total: 0 };
+  let collections: MediaCollection[] = [];
+  let brandKits: BrandKit[] = [];
+  let pickerAssets: MediaAsset[] = [];
+  let pickerSignedUrls: Record<string, string> = {};
+
+  if (activeTab === "assets") {
+    assetsPage = await loadMediaLibraryPage(context, orgId, { limit: MEDIA_LIBRARY_PAGE_SIZE, offset: 0 });
+  } else if (activeTab === "collections") {
+    [collections, pickerAssets] = await Promise.all([
+      context.media.listCollections(orgId),
+      context.media.listAssets(orgId),
+    ]);
+    pickerSignedUrls = await signAll(pickerAssets);
+  } else if (activeTab === "brand-kits") {
+    [brandKits, pickerAssets] = await Promise.all([
+      context.media.listBrandKits(orgId),
+      context.media.listAssets(orgId),
+    ]);
+    pickerSignedUrls = await signAll(pickerAssets);
   }
 
-  // 3. Stats calculations
-  const totalStorageBytes = assets.reduce((sum, a) => sum + a.sizeBytes, 0);
-  const imageCount = assets.filter(a => a.mimeType.startsWith("image/")).length;
-  const videoCount = assets.filter(a => a.mimeType.startsWith("video/")).length;
-  const activeTab = filters.tab || "assets";
+  async function signAll(assets: MediaAsset[]): Promise<Record<string, string>> {
+    const signed: Record<string, string> = {};
+    for (const asset of assets) {
+      if (asset.mimeType.startsWith("image/")) {
+        try {
+          signed[asset.storagePath] = await context.storage.getSignedUrl(asset.storagePath);
+        } catch (err) {
+          console.warn(`Failed to sign URL for storagePath: ${asset.storagePath}`, err);
+        }
+      }
+    }
+    return signed;
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -58,7 +84,7 @@ export default async function MediaDashboardPage({
 
       {/* Stats Board */}
       <div className="grid gap-3 sm:grid-cols-4">
-        <Stat label="Total assets" value={formatNumber(assets.length)} />
+        <Stat label="Total assets" value={formatNumber(totalAssets)} />
         <Stat label="Image files" value={formatNumber(imageCount)} />
         <Stat label="Video files" value={formatNumber(videoCount)} />
         <Stat
@@ -100,22 +126,28 @@ export default async function MediaDashboardPage({
         {/* Main interactive tabs content */}
         <div className="lg:col-span-3 flex flex-col gap-6">
           {activeTab === "assets" && (
-            <MediaGrid organisationId={orgId} assets={assets} signedUrls={signedUrls} />
+            <MediaGrid
+              organisationId={orgId}
+              initialItems={assetsPage.items}
+              initialSignedUrls={assetsPage.signedUrls}
+              initialHasMore={assetsPage.hasMore}
+              initialTotal={assetsPage.total}
+            />
           )}
           {activeTab === "collections" && (
             <CollectionsPanel
               organisationId={orgId}
               collections={collections}
-              allAssets={assets}
-              signedUrls={signedUrls}
+              allAssets={pickerAssets}
+              signedUrls={pickerSignedUrls}
             />
           )}
           {activeTab === "brand-kits" && (
             <BrandKitsPanel
               organisationId={orgId}
               brandKits={brandKits}
-              allAssets={assets}
-              signedUrls={signedUrls}
+              allAssets={pickerAssets}
+              signedUrls={pickerSignedUrls}
             />
           )}
         </div>

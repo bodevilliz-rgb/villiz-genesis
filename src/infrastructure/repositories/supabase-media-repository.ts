@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
-import type { MediaRepository, MediaAssetWriteModel } from "../../core/application/ports/media-port";
-import type { MediaAsset, MediaCollection, MediaAssetVersion } from "../../core/domain/entities/media";
+import type { MediaRepository, MediaAssetWriteModel, MediaLibraryPageFilters } from "../../core/application/ports/media-port";
+import type { MediaAsset, MediaCollection, MediaAssetVersion, MediaAssetListItem, PaginatedMediaAssets, MediaLibraryStats } from "../../core/domain/entities/media";
 import type { BrandKit } from "../../core/domain/entities/brand";
 
 export class SupabaseMediaRepository implements MediaRepository {
@@ -90,6 +90,96 @@ export class SupabaseMediaRepository implements MediaRepository {
     if (result.error) throw result.error;
 
     return result.data.map((row: any) => this.mapToDomain(row));
+  }
+
+  /**
+   * Server-side pagination for the Media Library grid — selects only the
+   * columns the grid renders (see MediaAssetListItem), filters and ranges
+   * in Postgres via .range()/.or()/.like(), and never fetches more than one
+   * page of rows regardless of how large the organisation's library is.
+   */
+  async listAssetsPage(organisationId: string, filters: MediaLibraryPageFilters): Promise<PaginatedMediaAssets> {
+    let query = this.client
+      .from("media_assets")
+      .select(
+        "id, organisation_id, title, file_name, mime_type, size_bytes, storage_path, tags, alt_text, is_archived, is_ai_generated, created_at",
+        { count: "exact" },
+      )
+      .eq("organisation_id", organisationId);
+
+    if (filters.isArchived !== undefined) {
+      query = query.eq("is_archived", filters.isArchived);
+    }
+
+    if (filters.mimeFilter) {
+      if (filters.mimeFilter === "document") {
+        query = query.or("mime_type.ilike.%pdf%,mime_type.ilike.%document%");
+      } else {
+        query = query.like("mime_type", `${filters.mimeFilter}/%`);
+      }
+    }
+
+    if (filters.search) {
+      const term = `%${filters.search}%`;
+      query = query.or(`file_name.ilike.${term},title.ilike.${term}`);
+    }
+
+    query = query
+      .order("created_at", { ascending: false })
+      .range(filters.offset, filters.offset + filters.limit - 1);
+
+    const result = await query;
+    if (result.error) throw result.error;
+
+    const items = (result.data ?? []).map((row: any) => this.mapToListItem(row));
+    const total = result.count ?? items.length;
+    return { items, total, hasMore: filters.offset + items.length < total };
+  }
+
+  /**
+   * Four bounded aggregate queries (count/count/count/skinny-column-sum) —
+   * never fetches full asset rows. The size-bytes sum is the only one that
+   * scans every row, but only that single narrow column, unlike the former
+   * page.tsx which fetched every column of every asset just to sum one field.
+   */
+  async getLibraryStats(organisationId: string): Promise<MediaLibraryStats> {
+    const [totalRes, imageRes, videoRes, sizesRes] = await Promise.all([
+      this.client.from("media_assets").select("id", { count: "exact", head: true }).eq("organisation_id", organisationId),
+      this.client.from("media_assets").select("id", { count: "exact", head: true }).eq("organisation_id", organisationId).like("mime_type", "image/%"),
+      this.client.from("media_assets").select("id", { count: "exact", head: true }).eq("organisation_id", organisationId).like("mime_type", "video/%"),
+      this.client.from("media_assets").select("size_bytes").eq("organisation_id", organisationId),
+    ]);
+
+    if (totalRes.error) throw totalRes.error;
+    if (imageRes.error) throw imageRes.error;
+    if (videoRes.error) throw videoRes.error;
+    if (sizesRes.error) throw sizesRes.error;
+
+    const totalStorageBytes = (sizesRes.data ?? []).reduce((sum: number, row: any) => sum + (row.size_bytes ?? 0), 0);
+
+    return {
+      totalAssets: totalRes.count ?? 0,
+      imageCount: imageRes.count ?? 0,
+      videoCount: videoRes.count ?? 0,
+      totalStorageBytes,
+    };
+  }
+
+  private mapToListItem(row: any): MediaAssetListItem {
+    return {
+      id: row.id,
+      organisationId: row.organisation_id,
+      title: row.title ?? null,
+      fileName: row.file_name,
+      mimeType: row.mime_type,
+      sizeBytes: row.size_bytes,
+      storagePath: row.storage_path,
+      tags: row.tags ?? [],
+      altText: row.alt_text ?? null,
+      isArchived: row.is_archived ?? false,
+      isAiGenerated: row.is_ai_generated ?? false,
+      createdAt: row.created_at,
+    };
   }
 
   async replaceAssetVersion(assetId: string, storagePath: string, fileName: string, mimeType: string, sizeBytes: number, replacedBy: string): Promise<MediaAsset> {

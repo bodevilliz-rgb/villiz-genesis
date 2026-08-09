@@ -51,6 +51,8 @@ function fakeMedia(assets: MediaAsset[]): MediaRepository {
     updateAssetMetadata: vi.fn(),
     getAsset: vi.fn(),
     listAssets: vi.fn(),
+    listAssetsPage: vi.fn(async () => ({ items: [], total: 0, hasMore: false })),
+    getLibraryStats: vi.fn(async () => ({ totalAssets: 0, imageCount: 0, videoCount: 0, totalStorageBytes: 0 })),
     replaceAssetVersion: vi.fn(),
     archiveAsset: vi.fn(),
     deleteAsset: vi.fn(),
