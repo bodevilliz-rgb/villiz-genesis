@@ -69,7 +69,7 @@ export function PrePublishDialog({ organisationId, draft, open, onOpenChange, on
       const platform = channel ? mapBlotatoPlatform(channel.platform) : null;
 
       const fetches: Promise<void>[] = [
-        runPrePublishReviewAction(organisationId, draft)
+        runPrePublishReviewAction(organisationId, draft, platform)
           .then(setReport)
           .catch(() => { toast.error("Failed to run Pre-Publish Review"); }),
       ];
@@ -210,8 +210,8 @@ export function PrePublishDialog({ organisationId, draft, open, onOpenChange, on
                       <span>Call to Action: <span className="capitalize font-medium">{report.ctaQuality}</span></span>
                     </div>
                     <div className="flex items-center gap-2">
-                      {report.hashtagQuality === 'optimal' ? <CheckCircle2 className="size-4 text-positive" /> : report.hashtagQuality === 'spammy' ? <AlertTriangle className="size-4 text-amber-500" /> : <XCircle className="size-4 text-negative" />}
-                      <span>Hashtags: <span className="capitalize font-medium">{report.hashtagQuality}</span></span>
+                      {report.hashtagQuality === 'optimal' ? <CheckCircle2 className="size-4 text-positive" /> : report.hashtagQuality === 'spammy' ? <XCircle className="size-4 text-negative" /> : <AlertTriangle className="size-4 text-amber-500" />}
+                      <span>Hashtags: <span className="font-medium">{report.hashtagQuality === 'spammy' ? 'Too many' : report.hashtagQuality === 'missing' ? 'Missing' : 'Optimal'}</span></span>
                     </div>
                     <div className="flex items-center gap-2">
                       {report.missingMedia ? <AlertTriangle className="size-4 text-amber-500" /> : <CheckCircle2 className="size-4 text-positive" />}
@@ -234,6 +234,12 @@ export function PrePublishDialog({ organisationId, draft, open, onOpenChange, on
                       <span>Readability: <span className="capitalize font-medium">{report.readability}</span></span>
                     </div>
                   </div>
+
+                  {report.hashtagPolicyMessage && (
+                    <div className="rounded border border-negative/40 bg-negative/5 px-3 py-2.5 text-sm text-negative">
+                      {report.hashtagPolicyMessage}
+                    </div>
+                  )}
 
                   {report.recommendations.length > 0 && (
                     <div className="flex flex-col gap-2 p-4 bg-muted/30 rounded-lg border border-border">

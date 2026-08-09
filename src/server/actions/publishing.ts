@@ -11,7 +11,7 @@ import {
 import { checkPublishingPreflight } from "@/core/application/use-cases/publishing/preflight";
 import { blotatoConfig } from "@/infrastructure/blotato/blotato-config";
 import { ValidationError } from "@/core/domain/errors";
-import type { PublishingPlatform } from "@/core/domain/entities/publishing";
+import { isPublishingPlatform } from "@/core/domain/entities/publishing";
 import { errorState, successState, textOrEmpty, type ActionState } from "../action-result";
 import { routes } from "@/lib/routes";
 
@@ -25,10 +25,6 @@ function publishingDeps(context: Awaited<ReturnType<typeof requireContext>>) {
     audits: context.audits,
     notifications: context.notifications,
   };
-}
-
-function isPublishingPlatform(value: string): value is PublishingPlatform {
-  return value === "linkedin" || value === "facebook" || value === "instagram" || value === "x";
 }
 
 function revalidatePublishing(organisationId: string, draftId?: string) {
@@ -141,6 +137,24 @@ export async function retryPublishingJobAction(_prev: ActionState, formData: For
     const organisationId = textOrEmpty(formData, "organisationId");
     const jobId = textOrEmpty(formData, "jobId");
     const draftId = textOrEmpty(formData, "draftId");
+
+    // Fail closed BEFORE requeueing: a job that was failed for a genuine
+    // provider reason (e.g. the Instagram hashtag-limit rejection this
+    // guards against) must not be silently requeued only to fail the exact
+    // same way again a few seconds later once the worker re-claims it. The
+    // worker's own preflight (defense in depth) would still catch it, but
+    // checking here gives the operator an immediate, actionable reason
+    // instead of a pointless queued→failed round trip.
+    const existingJob = await context.publishing.findJobById(organisationId, jobId);
+    if (existingJob && blotatoConfig().livePublishingEnabled) {
+      const preflight = await checkPublishingPreflight(
+        { content: context.content, media: context.media },
+        { organisationId, draftId: existingJob.draftId, platform: existingJob.platform },
+      );
+      if (!preflight.ready) {
+        throw new ValidationError(`Cannot retry: ${preflight.blockers.join(" ")} Correct the draft, then retry again.`);
+      }
+    }
 
     const job = await retryFailedPublishingJob(publishingDeps(context), organisationId, jobId);
 

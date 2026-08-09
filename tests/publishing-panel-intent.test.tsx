@@ -53,6 +53,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { PublishingPanel } from "@/components/content/publishing-panel";
 import { createImmediatePublishingJobAction, createScheduledPublishingJobAction } from "@/server/actions/publishing";
+import { runPrePublishReviewAction, getPlatformPreflightAction } from "@/server/actions/publish";
 import type { ContentDraft } from "@/core/domain/entities/content";
 import type { BlotatoAccount } from "@/core/domain/entities/blotato";
 
@@ -217,5 +218,78 @@ describe("P9 — destination and scheduling fields lock while the review dialog 
     expect(screen.getByLabelText("Timezone")).toBeDisabled();
     expect(screen.getByLabelText("Scheduled Date & Time")).toBeDisabled();
     expect(screen.getByLabelText("Publish to")).toBeDisabled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// P10–P12 (fix/platform-hashtag-policy, P0) — a deterministic platform
+// violation (Instagram, 6 hashtags — the exact production 422) hard-blocks
+// both Schedule Post and Publish Now confirmation. The AI review score
+// (mocked at 90, normally >= 80 → "Publish Now"/"Schedule Post" enabled)
+// must never override this: liveBlocked is driven solely by the
+// deterministic preflight, never by report.score.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function mockHashtagLimitViolation() {
+  vi.mocked(getPlatformPreflightAction).mockResolvedValueOnce({
+    ready: false,
+    simulationAllowed: true,
+    blockers: ["Instagram allows a maximum of 5 hashtags. Remove 1 hashtag before publishing."],
+  });
+  vi.mocked(runPrePublishReviewAction).mockResolvedValueOnce({
+    score: 90, // deliberately high — proves score cannot override the deterministic block
+    brandVoiceAlignment: "high",
+    readability: "easy",
+    ctaQuality: "strong",
+    platformOptimisation: "high",
+    hashtagQuality: "spammy",
+    hashtagPolicyMessage: "Instagram allows a maximum of 5 hashtags. Remove 1 hashtag before publishing.",
+    accessibility: "good",
+    compliance: "pass",
+    missingMedia: false,
+    brokenLinks: false,
+    recommendations: [],
+  });
+}
+
+describe("P10/T6/T7 (mandate) — Schedule Post is hard-blocked for a deterministic hashtag violation", () => {
+  it("the confirm button reads 'Requirements not met' and is disabled, not 'Schedule Post'", async () => {
+    mockHashtagLimitViolation();
+    await scheduleUpToDialog();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Requirements not met" })).toBeDisabled());
+    expect(screen.queryByRole("button", { name: "Schedule Post" })).toBeNull();
+    // Appears both in the deterministic preflight blockers list and the AI
+    // report's hashtagPolicyMessage block — both must agree word for word.
+    expect(screen.getAllByText(/Instagram allows a maximum of 5 hashtags/).length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("P11/T8 (mandate) — Publish Now is hard-blocked for the same deterministic hashtag violation", () => {
+  it("the confirm button reads 'Requirements not met' and is disabled, not 'Publish Now'", async () => {
+    mockHashtagLimitViolation();
+    await publishUpToDialog();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Requirements not met" })).toBeDisabled());
+    expect(screen.queryByRole("button", { name: "Publish Now" })).toBeNull();
+  });
+});
+
+describe("P12/T9 (mandate) — no 'Publish Anyway' bypass is ever offered for a deterministic violation, regardless of AI score", () => {
+  it("a high AI score (90) does not unlock a bypass label or button", async () => {
+    mockHashtagLimitViolation();
+    await publishUpToDialog();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Requirements not met" })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Publish Anyway" })).toBeNull();
+  });
+
+  it("neither confirmation action is ever called while the button is disabled", async () => {
+    mockHashtagLimitViolation();
+    await scheduleUpToDialog();
+    const button = await screen.findByRole("button", { name: "Requirements not met" });
+    fireEvent.click(button); // clicking a disabled button is a no-op in the DOM, asserted for certainty
+    expect(createScheduledPublishingJobAction).not.toHaveBeenCalled();
+    expect(createImmediatePublishingJobAction).not.toHaveBeenCalled();
   });
 });

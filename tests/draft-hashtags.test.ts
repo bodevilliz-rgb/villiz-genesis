@@ -403,3 +403,53 @@ describe("T36 — isContentDraftLocked covers all statuses without throwing", ()
     });
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T37–T40 — Platform-aware hashtag quality (fix/platform-hashtag-policy, P0)
+//
+// Root cause this closes: hashtagQuality only ever checked presence
+// (length > 0) — a scheduled Instagram job with 6 first-class hashtags
+// reported "Optimal" in Pre-Publish Review and reached the worker, which
+// was rejected by a live Blotato 422 ("Instagram allows a maximum of 5
+// hashtags per post"). analyzeDraftForPublishing now accepts the actual
+// destination platform and repurposes "spammy" to mean "exceeds that
+// platform's verified limit", with the exact operator-facing reason on
+// hashtagPolicyMessage — word-for-word identical to the deterministic
+// preflight blocker (see tests/publishing-preflight.test.ts T19).
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("T37/T5 (mandate) — Pre-Publish Review reports 'Too many' for Instagram with 6 hashtags", () => {
+  it("hashtagQuality is 'spammy' with the exact dynamic-count policy message", async () => {
+    const draft = baseDraft({ hashtags: ["a", "b", "c", "d", "e", "f"] });
+    const report = await analyzeDraftForPublishing(draft, "Professional", "general", 1, "instagram");
+    expect(report.hashtagQuality).toBe("spammy");
+    expect(report.hashtagPolicyMessage).toBe("Instagram allows a maximum of 5 hashtags. Remove 1 hashtag before publishing.");
+  });
+});
+
+describe("T38 — 5 hashtags on Instagram remains 'optimal' with no policy message", () => {
+  it("does not falsely flag a compliant hashtag count", async () => {
+    const draft = baseDraft({ hashtags: ["a", "b", "c", "d", "e"] });
+    const report = await analyzeDraftForPublishing(draft, "Professional", "general", 1, "instagram");
+    expect(report.hashtagQuality).toBe("optimal");
+    expect(report.hashtagPolicyMessage).toBeNull();
+  });
+});
+
+describe("T39 — without a known platform, existing generic behaviour is preserved", () => {
+  it("6 hashtags with no platform argument is still reported 'optimal' (can't enforce an unknown platform's limit)", async () => {
+    const draft = baseDraft({ hashtags: ["a", "b", "c", "d", "e", "f"] });
+    const report = await analyzeDraftForPublishing(draft, "Professional", "general", 1);
+    expect(report.hashtagQuality).toBe("optimal");
+    expect(report.hashtagPolicyMessage).toBeNull();
+  });
+});
+
+describe("T40/T15 (mandate) — a different platform does not inherit Instagram's limit in the review either", () => {
+  it("Facebook with 6 hashtags remains 'optimal'", async () => {
+    const draft = baseDraft({ hashtags: ["a", "b", "c", "d", "e", "f"] });
+    const report = await analyzeDraftForPublishing(draft, "Professional", "general", 1, "facebook");
+    expect(report.hashtagQuality).toBe("optimal");
+    expect(report.hashtagPolicyMessage).toBeNull();
+  });
+});

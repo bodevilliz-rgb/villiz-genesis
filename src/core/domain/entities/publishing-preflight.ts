@@ -1,4 +1,5 @@
 import type { PublishingPlatform } from "./publishing";
+import { evaluateHashtagPolicy, hashtagPolicyViolationMessage } from "./platform-policy";
 
 export interface PlatformPreflightResult {
   /** All hard platform requirements met — safe to proceed with live publishing. */
@@ -30,11 +31,22 @@ export interface PlatformPreflightResult {
  *   Facebook / LinkedIn / X
  *     Text-only posts accepted — no contrary evidence in the codebase.
  *     Media remains optional on these platforms.
+ *
+ *   Hashtag count (per-platform, see platform-policy.ts)
+ *     Source: a live Blotato 422 response — "Instagram allows a maximum of
+ *     5 hashtags per post" — for a scheduled job with 6 first-class
+ *     hashtags. Evaluated from the normalized, deduplicated hashtags array
+ *     (never regex-parsed from the composed caption), so this is exactly
+ *     the count that will actually be sent.
+ *
+ * `hashtags` defaults to `[]` — existing callers that don't yet pass it are
+ * unaffected (an empty list can never exceed any platform's limit).
  */
 export function evaluatePlatformPreflight(
   platform: PublishingPlatform,
   body: string,
   publishableMediaCount: number,
+  hashtags: string[] = [],
 ): PlatformPreflightResult {
   const blockers: string[] = [];
 
@@ -44,6 +56,11 @@ export function evaluatePlatformPreflight(
 
   if (platform === "instagram" && publishableMediaCount === 0) {
     blockers.push("Instagram requires at least one image or video.");
+  }
+
+  const hashtagPolicy = evaluateHashtagPolicy(platform, hashtags);
+  if (hashtagPolicy.exceeds) {
+    blockers.push(hashtagPolicyViolationMessage(platform, hashtagPolicy));
   }
 
   return {

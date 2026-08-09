@@ -24,6 +24,11 @@ export const PUBLISHING_PLATFORM_LABELS: Record<PublishingPlatform, string> = {
 
 export const PUBLISHING_PLATFORMS: PublishingPlatform[] = ["linkedin", "facebook", "instagram", "x"];
 
+/** Narrows an arbitrary string (e.g. a loosely-typed `string | null` draft field) to a real PublishingPlatform — the one shared guard, reused wherever a platform value needs validating rather than re-implemented per call site. */
+export function isPublishingPlatform(value: string | null | undefined): value is PublishingPlatform {
+  return value === "linkedin" || value === "facebook" || value === "instagram" || value === "x";
+}
+
 /**
  * Five statuses only — "Scheduled" is not a distinct job status. A scheduled
  * job is a `queued` job whose `scheduledFor` is still in the future; the

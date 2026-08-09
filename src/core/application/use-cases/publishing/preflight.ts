@@ -36,5 +36,5 @@ export async function checkPublishingPreflight(
   const { allowed } = filterAssetsForOrganisation(allAssets, input.organisationId);
   const publishableCount = allowed.filter(isPublishableMediaAsset).length;
 
-  return evaluatePlatformPreflight(input.platform, body, publishableCount);
+  return evaluatePlatformPreflight(input.platform, body, publishableCount, draft?.hashtags ?? []);
 }

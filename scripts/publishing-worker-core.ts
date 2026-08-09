@@ -165,7 +165,7 @@ async function processJob(job: PublishingJob, deps: ReturnType<typeof buildDeps>
   // (e.g. operator retries a job that was previously valid). Simulation
   // always proceeds regardless, so this guard is invisible in UAT.
   if (deps.blotatoLivePublishingEnabled) {
-    const preflight = evaluatePlatformPreflight(job.platform, composePublishedText(draft.body, draft.hashtags ?? []), media.mediaUrls.length);
+    const preflight = evaluatePlatformPreflight(job.platform, draft.body, media.mediaUrls.length, draft.hashtags ?? []);
     if (!preflight.ready) {
       const errorMessage = `Platform preflight failed: ${preflight.blockers.join(" ")}`;
       await failPublishingAttempt(deps, job, attempt, {

@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { getAIProvider } from "@/infrastructure/ai/provider-factory";
 import type { ContentDraft } from "@/core/domain/entities/content";
+import type { PublishingPlatform } from "@/core/domain/entities/publishing";
+import { evaluateHashtagPolicy, hashtagPolicyViolationMessage } from "@/core/domain/entities/platform-policy";
 
 export interface PrePublishReport {
   score: number; // 0 to 100
@@ -8,7 +10,10 @@ export interface PrePublishReport {
   readability: "easy" | "moderate" | "difficult";
   ctaQuality: "strong" | "weak" | "missing";
   platformOptimisation: "high" | "medium" | "low";
+  /** "spammy" is repurposed here to mean "exceeds the destination platform's hashtag limit" once a platform is known — see hashtagPolicyMessage for the exact operator-facing reason. */
   hashtagQuality: "optimal" | "spammy" | "missing";
+  /** Set only when hashtagQuality === "spammy" for a known platform — the exact deterministic reason, word-for-word identical to the preflight blocker (see platform-policy.ts). Never present when the platform isn't yet known — the review can't enforce a limit it hasn't been told. */
+  hashtagPolicyMessage: string | null;
   accessibility: "good" | "poor";
   compliance: "pass" | "flagged";
   missingMedia: boolean;
@@ -45,6 +50,8 @@ export async function analyzeDraftForPublishing(
   brandVoiceCtx: string,
   platformCtx: string = "general social media",
   publishableMediaCount?: number,
+  /** The actual destination platform, when known — drives the canonical hashtag-limit check. Kept separate from `platformCtx` (a free-text string used only in the AI prompt) so every existing call site that doesn't yet know the platform keeps working unchanged. */
+  platform?: PublishingPlatform | null,
 ): Promise<PrePublishReport> {
   // Basic programmatic checks
   const hasLinks = /https?:\/\//.test(draft.body);
@@ -65,8 +72,29 @@ export async function analyzeDraftForPublishing(
   // ensures the pre-publish report is stable once the first-class field
   // exists, and prevents the AI from being confused by body text that
   // happens to contain #-prefixed words.
-  const hashtagQuality: PrePublishReport["hashtagQuality"] =
-    (draft.hashtags ?? []).length > 0 ? "optimal" : "missing";
+  //
+  // "spammy" here specifically means "exceeds the destination platform's
+  // verified hashtag limit" — the exact case that produced a live Blotato
+  // 422 for a scheduled Instagram job with 6 hashtags while this function
+  // reported "optimal" (it only ever checked presence, never a limit).
+  // Only evaluated once a destination platform is known; the review can't
+  // enforce a limit for a platform that hasn't been selected yet.
+  const hashtags = draft.hashtags ?? [];
+  let hashtagQuality: PrePublishReport["hashtagQuality"];
+  let hashtagPolicyMessage: string | null = null;
+  if (hashtags.length === 0) {
+    hashtagQuality = "missing";
+  } else if (platform) {
+    const policy = evaluateHashtagPolicy(platform, hashtags);
+    if (policy.exceeds) {
+      hashtagQuality = "spammy";
+      hashtagPolicyMessage = hashtagPolicyViolationMessage(platform, policy);
+    } else {
+      hashtagQuality = "optimal";
+    }
+  } else {
+    hashtagQuality = "optimal";
+  }
 
   try {
     const ai = getAIProvider();
@@ -99,6 +127,7 @@ Provide your analysis matching the JSON schema. 'recommendations' should be spec
       // Deterministic override — the AI's hashtagQuality output is discarded
       // in favour of the value derived from the dedicated hashtags field above.
       hashtagQuality,
+      hashtagPolicyMessage,
       missingMedia,
       brokenLinks,
     };
@@ -111,6 +140,7 @@ Provide your analysis matching the JSON schema. 'recommendations' should be spec
       ctaQuality: "missing",
       platformOptimisation: "medium",
       hashtagQuality,
+      hashtagPolicyMessage,
       accessibility: "poor",
       compliance: "flagged",
       missingMedia,
