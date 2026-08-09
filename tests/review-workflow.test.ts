@@ -567,6 +567,58 @@ describe("reopenReview — Lead only, permission boundary", () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// reopenReview — failed-publish recovery (fix/failed-publish-recovery, P0)
+//
+// A publish/schedule attempt that failed for a correctable reason (e.g. the
+// Instagram-hashtag-limit rejection from fix/platform-hashtag-policy) left
+// the draft locked at "failed" with no transition back to an editable
+// state — Genesis instructed the operator to "correct the draft, then
+// retry" while the draft itself offered no way to be corrected. Mirrors
+// "approved -> needs_review" exactly: same target, same Lead-only
+// permission, same "reopened" audit action.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("reopenReview — failed-publish recovery (mandate 1, 2, 3, 4)", () => {
+  it("1: a Lead can reopen a failed draft for correction", async () => {
+    const { deps, getDraft } = createHarness({
+      draft: baseDraft({ status: "failed" }),
+      viewerRole: "lead",
+      members: [],
+    });
+    await reopenReview(deps, request);
+    expect(getDraft().status).toBe("needs_review");
+  });
+
+  it("2: a non-Lead (Reviewer) cannot reopen a failed draft", async () => {
+    const { deps } = createHarness({ draft: baseDraft({ status: "failed" }), viewerRole: "reviewer", members: [] });
+    await expect(reopenReview(deps, request)).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it("2b: a Contributor cannot reopen a failed draft either", async () => {
+    const { deps } = createHarness({ draft: baseDraft({ status: "failed" }), viewerRole: "contributor", members: [] });
+    await expect(reopenReview(deps, request)).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it("3: the transition is recorded as the same 'reopened' action used for approved/archived recovery — not a new governance mechanism", async () => {
+    const { deps, getHistory } = createHarness({
+      draft: baseDraft({ status: "failed" }),
+      viewerRole: "lead",
+      members: [],
+    });
+    await reopenReview(deps, request);
+    const [entry] = getHistory();
+    expect(entry?.action).toBe("reopened");
+    expect(entry?.previousStatus).toBe("failed");
+    expect(entry?.newStatus).toBe("needs_review");
+  });
+
+  it("4: needs_review is an editable (unlocked) status — the reopened draft is not still locked", async () => {
+    const { isContentDraftLocked } = await import("@/core/domain/entities/content");
+    expect(isContentDraftLocked("needs_review")).toBe(false);
+  });
+});
+
 describe("review history ordering", () => {
   it("returns the most recent action first, unmodified from the repository", async () => {
     const { deps, getHistory } = createHarness({

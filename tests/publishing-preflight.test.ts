@@ -707,3 +707,91 @@ describe("T26 — Immediate job creation (server action): 6 hashtags blocked, 5 
     expect(result.status).toBe("success");
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T27–T28 (fix/failed-publish-recovery, mandate 16/17/18/19) — a retried job
+// (requeued via retryFailedPublishingJob after reopen-for-correction and
+// reapproval) is claimed by the exact same worker path as a first attempt —
+// processJob always fetches the CURRENT draft fresh, never a snapshot from
+// the original failed attempt. Proves the 6-hashtag production failure,
+// once corrected to 5, reaches the provider payload as exactly 5.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("T27/T16/T17/T18/T19 (mandate) — a corrected draft's latest body/hashtags/media reach the retried provider call", () => {
+  it("6 hashtags originally failed; after correction to 5, the retried claim composes exactly 5 into the publish call", async () => {
+    const publishFn = vi.fn(async (_args: { body: string }) => ({
+      success: true as const,
+      externalPostId: "post-retry-1",
+      externalUrl: "https://instagram.com/p/retry",
+      publishedAt: new Date().toISOString(),
+    }));
+    const { resolvePublisher } = await import("@/infrastructure/publishers/publisher-factory");
+    vi.mocked(resolvePublisher).mockReturnValue({ publish: publishFn } as never);
+
+    const asset = makeAsset({ organisationId: "org-1", mimeType: "image/jpeg" });
+    const { deps } = makePollDeps({
+      blotatoLivePublishingEnabled: true,
+      content: {
+        // Simulates the state AFTER reopen-for-correction + reapproval: the
+        // draft the worker fetches at claim time is the CURRENT, corrected
+        // one — not whatever it looked like at the original failed attempt.
+        findDraft: vi.fn(async () => ({
+          id: "draft-1",
+          organisationId: "org-1",
+          title: "Birthday post",
+          body: "Corrected body text",
+          status: "approved",
+          hashtags: ["coventryphotographer", "coventryuniversity", "photoshoot", "birthdaycelebration", "westmidlands"],
+        })),
+        updateStatus: vi.fn(async () => ({})),
+      },
+      media: { listAssetsForDraft: vi.fn(async () => [asset]) },
+    });
+
+    await pollOnce(deps as never);
+
+    expect(publishFn).toHaveBeenCalledTimes(1);
+    const publishArgs = publishFn.mock.calls[0]![0];
+    const hashtagCount = (publishArgs.body.match(/#\w+/g) ?? []).length;
+    expect(hashtagCount).toBe(5);
+    expect(publishArgs.body).toContain("Corrected body text");
+  });
+});
+
+describe("T28 (mandate 20/21) — deterministic preflight still runs on retry; an invalid corrected draft remains blocked", () => {
+  it("a 'corrected' draft that still has 6 hashtags is blocked again, exactly as the original attempt was", async () => {
+    const publishFn = vi.fn(async () => ({
+      success: true as const,
+      externalPostId: "should-not-happen",
+      externalUrl: "https://instagram.com/p/never",
+      publishedAt: new Date().toISOString(),
+    }));
+    const { resolvePublisher } = await import("@/infrastructure/publishers/publisher-factory");
+    vi.mocked(resolvePublisher).mockReturnValue({ publish: publishFn } as never);
+
+    const asset = makeAsset({ organisationId: "org-1", mimeType: "image/jpeg" });
+    const { deps, failAttempt } = makePollDeps({
+      blotatoLivePublishingEnabled: true,
+      content: {
+        findDraft: vi.fn(async () => ({
+          id: "draft-1",
+          organisationId: "org-1",
+          title: "Birthday post",
+          body: "Still has too many tags",
+          status: "approved",
+          hashtags: ["a", "b", "c", "d", "e", "f"], // still 6 — an inadequate "correction"
+        })),
+        updateStatus: vi.fn(async () => ({})),
+      },
+      media: { listAssetsForDraft: vi.fn(async () => [asset]) },
+    });
+
+    await pollOnce(deps as never);
+
+    expect(failAttempt).toHaveBeenCalledWith(
+      "attempt-1",
+      expect.objectContaining({ errorCode: "preflight_failed" }),
+    );
+    expect(publishFn).not.toHaveBeenCalled();
+  });
+});

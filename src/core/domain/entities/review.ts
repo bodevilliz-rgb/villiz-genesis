@@ -72,6 +72,16 @@ export const REVIEW_TRANSITIONS: ReviewTransition[] = [
   { from: "changes_requested", to: "in_review", action: "submitted", requiresLead: false, commentRequired: false },
   { from: "approved", to: "in_review", action: "reopened", requiresLead: true, commentRequired: false },
   { from: "archived", to: "draft", action: "reopened", requiresLead: true, commentRequired: false },
+  // Failed-publish recovery (fix/failed-publish-recovery): a publish/schedule
+  // attempt that failed for a correctable reason (e.g. a platform-policy
+  // violation such as an Instagram hashtag-count rejection) leaves the draft
+  // locked at "failed" with no path back to an editable state — Genesis was
+  // instructing the operator to "correct the draft" while simultaneously
+  // preventing it. Mirrors "approved -> needs_review" exactly: same target
+  // status, same Lead-only permission, same audit action — reopening a
+  // failed draft is governed identically to reopening an approved one, not a
+  // new governance mechanism.
+  { from: "failed", to: "needs_review", action: "reopened", requiresLead: true, commentRequired: false },
 
   // Awaiting Client Transitions
   { from: "in_review", to: "awaiting_client", action: "submitted", requiresLead: false, commentRequired: false },
