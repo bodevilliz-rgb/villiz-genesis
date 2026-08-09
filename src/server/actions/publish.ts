@@ -24,6 +24,8 @@ import type { PlatformPreflightResult } from "@/core/domain/entities/publishing-
 export async function runPrePublishReviewAction(
   organisationId: string,
   draft: ContentDraft,
+  /** The selected destination platform, when known — enables the canonical hashtag-limit check (see platform-policy.ts). Omit when no destination is selected yet. */
+  platform?: PublishingPlatform | null,
 ): Promise<PrePublishReport> {
   const context = await requireContext();
 
@@ -42,7 +44,7 @@ export async function runPrePublishReviewAction(
   const { allowed } = filterAssetsForOrganisation(allAssets, organisationId);
   const publishableMediaCount = allowed.filter(isPublishableMediaAsset).length;
 
-  return analyzeDraftForPublishing(draft, brandVoiceCtx, undefined, publishableMediaCount);
+  return analyzeDraftForPublishing(draft, brandVoiceCtx, undefined, publishableMediaCount, platform);
 }
 
 /**

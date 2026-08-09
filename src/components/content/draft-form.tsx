@@ -31,6 +31,8 @@ import {
   type CtaMode,
 } from "./awo-assist-logic";
 import { normalizeHashtags, parseHashtagInput } from "@/core/application/use-cases/content/hashtags";
+import { isPublishingPlatform, PUBLISHING_PLATFORM_LABELS } from "@/core/domain/entities/publishing";
+import { getPlatformPublishingPolicy } from "@/core/domain/entities/platform-policy";
 import { routes } from "@/lib/routes";
 
 const AUTOSAVE_DEBOUNCE_MS = 2000;
@@ -185,8 +187,25 @@ export function DraftForm({
     setHashtagLoading(true);
     setHashtagSuggestions(null);
     try {
-      const { hashtags: suggestions } = await generateHashtags(organisationId, draftBody, 5);
-      const normalized = normalizeHashtags(suggestions);
+      // When the draft already carries a destination platform (e.g. from a
+      // prior scheduling attempt that was reopened for correction), never
+      // suggest more than that platform's verified hashtag limit allows in
+      // total — Awo must not hand the operator a set of "optimal"-looking
+      // suggestions that immediately violates the same policy Pre-Publish
+      // Review and the worker enforce. Unknown platform → existing generic
+      // behaviour (5); the destination-specific screens still enforce the
+      // real limit once a platform is actually selected there.
+      const knownPlatform = isPublishingPlatform(draft?.scheduledPlatform) ? draft.scheduledPlatform : null;
+      const policy = knownPlatform ? getPlatformPublishingPolicy(knownPlatform) : null;
+      const remaining = policy?.maxHashtags !== undefined ? Math.max(0, policy.maxHashtags - hashtags.length) : 5;
+
+      if (remaining === 0) {
+        toast.error(`${knownPlatform ? PUBLISHING_PLATFORM_LABELS[knownPlatform] : "This platform"} allows a maximum of ${policy?.maxHashtags} hashtags — remove one before requesting more suggestions.`);
+        return;
+      }
+
+      const { hashtags: suggestions } = await generateHashtags(organisationId, draftBody, remaining);
+      const normalized = normalizeHashtags(suggestions).slice(0, remaining);
       setHashtagSuggestions(normalized.filter((s) => !hashtags.map((h) => h.toLowerCase()).includes(s.toLowerCase())));
     } catch {
       toast.error("Failed to suggest hashtags");
@@ -196,6 +215,12 @@ export function DraftForm({
   }
 
   function acceptSuggestedHashtag(token: string) {
+    const knownPlatform = isPublishingPlatform(draft?.scheduledPlatform) ? draft.scheduledPlatform : null;
+    const policy = knownPlatform ? getPlatformPublishingPolicy(knownPlatform) : null;
+    if (policy?.maxHashtags !== undefined && hashtags.length >= policy.maxHashtags) {
+      toast.error(`${PUBLISHING_PLATFORM_LABELS[knownPlatform!]} allows a maximum of ${policy.maxHashtags} hashtags.`);
+      return;
+    }
     setHashtags((prev) => normalizeHashtags([...prev, token]));
     setHashtagSuggestions((prev) => prev?.filter((s) => s !== token) ?? null);
     scheduleAutosave();

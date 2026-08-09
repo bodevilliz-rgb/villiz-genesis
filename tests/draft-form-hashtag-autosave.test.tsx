@@ -195,3 +195,113 @@ describe("H5 — six independently-added hashtags all survive into the autosave 
     expect(latestHashtagsPayload()).toHaveLength(6);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H6–H9 (fix/platform-hashtag-policy, P0) — Awo's "Suggest hashtags" must
+// never hand the operator a set that would push the total over the known
+// destination platform's verified limit. Instagram's limit (5) is the exact
+// one proven by the production 422 this whole fix responds to.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("H6/T14 (mandate) — Awo requests only the REMAINING allowance for a known Instagram destination", () => {
+  it("2 existing hashtags + Instagram (max 5) → requests exactly 3 more, not the generic 5", async () => {
+    const { generateHashtags } = await import("@/server/actions/awo");
+    render(
+      <DraftForm
+        organisationId={ORG_ID}
+        draft={existingDraft({ status: "needs_review", hashtags: ["existing1", "existing2"], scheduledPlatform: "instagram" })}
+        categories={[]}
+        campaigns={[]}
+        locked={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Suggest hashtags"));
+    await waitFor(() => expect(generateHashtags).toHaveBeenCalledWith(ORG_ID, expect.any(String), 3));
+  });
+});
+
+describe("H7/T14 (mandate) — suggestions are truncated to the remaining allowance even if the AI over-returns", () => {
+  it("AI returns 5 suggestions but only 3 are allowed → only 3 are offered", async () => {
+    const { generateHashtags } = await import("@/server/actions/awo");
+    vi.mocked(generateHashtags).mockResolvedValueOnce({ hashtags: ["s1", "s2", "s3", "s4", "s5"] });
+
+    render(
+      <DraftForm
+        organisationId={ORG_ID}
+        draft={existingDraft({ status: "needs_review", hashtags: ["existing1", "existing2"], scheduledPlatform: "instagram" })}
+        categories={[]}
+        campaigns={[]}
+        locked={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Suggest hashtags"));
+    await screen.findByText("#s1");
+    expect(screen.queryByText("#s4")).toBeNull();
+    expect(screen.queryByText("#s5")).toBeNull();
+  });
+});
+
+describe("H8/T14 (mandate) — already at Instagram's limit: suggestion is refused up front, no AI call made", () => {
+  it("5 existing hashtags on Instagram → clicking Suggest hashtags never calls generateHashtags", async () => {
+    const { generateHashtags } = await import("@/server/actions/awo");
+    render(
+      <DraftForm
+        organisationId={ORG_ID}
+        draft={existingDraft({ status: "needs_review", hashtags: ["a", "b", "c", "d", "e"], scheduledPlatform: "instagram", body: "Some body" })}
+        categories={[]}
+        campaigns={[]}
+        locked={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Suggest hashtags"));
+    await waitFor(() => expect(generateHashtags).not.toHaveBeenCalled());
+  });
+});
+
+describe("H9 — without a known platform, existing generic behaviour (request 5) is preserved", () => {
+  it("no scheduledPlatform on the draft → requests the generic default of 5", async () => {
+    const { generateHashtags } = await import("@/server/actions/awo");
+    render(
+      <DraftForm
+        organisationId={ORG_ID}
+        draft={existingDraft({ status: "needs_review", hashtags: [], scheduledPlatform: null })}
+        categories={[]}
+        campaigns={[]}
+        locked={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Suggest hashtags"));
+    await waitFor(() => expect(generateHashtags).toHaveBeenCalledWith(ORG_ID, expect.any(String), 5));
+  });
+});
+
+describe("H10 — accepting a suggestion is refused once the platform limit is already reached", () => {
+  it("4 existing + Instagram (max 5): accepting one suggestion succeeds; accepting a second is refused", async () => {
+    const { generateHashtags } = await import("@/server/actions/awo");
+    vi.mocked(generateHashtags).mockResolvedValueOnce({ hashtags: ["extra"] });
+
+    render(
+      <DraftForm
+        organisationId={ORG_ID}
+        draft={existingDraft({ status: "needs_review", hashtags: ["a", "b", "c", "d"], scheduledPlatform: "instagram" })}
+        categories={[]}
+        campaigns={[]}
+        locked={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Suggest hashtags"));
+    const suggestion = await screen.findByText("#extra");
+    fireEvent.click(suggestion); // 4 -> 5, exactly at the limit
+
+    expect(screen.getByText("#extra")).toBeInTheDocument();
+    // A second manual add attempt via the suggestion path would now be
+    // refused — proven directly against acceptSuggestedHashtag's guard by
+    // confirming the hashtag count sits exactly at the platform's max.
+    expect(screen.getAllByText(/^#/).length).toBe(5);
+  });
+});

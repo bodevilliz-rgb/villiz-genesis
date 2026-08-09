@@ -20,6 +20,13 @@ vi.mock("@/server/container", () => ({
   requireContext: vi.fn(),
 }));
 
+// Only needed by the new T26 success-path test — no prior test in this file
+// reached a successful createImmediatePublishingJobAction, which is the
+// first path that calls revalidatePublishing() -> revalidatePath().
+vi.mock("next/cache", () => ({
+  revalidatePath: vi.fn(),
+}));
+
 vi.mock("@/core/application/use-cases/publishing", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/core/application/use-cases/publishing")>();
   return {
@@ -460,5 +467,243 @@ describe("T17 — Multiple blockers: empty body + Instagram + no media → all b
     expect(result.blockers).toContain("Post body cannot be empty.");
     expect(result.blockers).toContain("Instagram requires at least one image or video.");
     expect(result.blockers).toHaveLength(2);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T18–T26 — Platform hashtag policy (fix/platform-hashtag-policy, P0)
+// A scheduled Instagram job with 6 first-class hashtags passed Pre-Publish
+// Review ("Optimal", "requirements met") and reached the worker, which
+// submitted the composed caption and got a live Blotato 422 — "Instagram
+// allows a maximum of 5 hashtags per post." evaluatePlatformPreflight had no
+// hashtag parameter at all. These tests prove the fix at every enforcement
+// layer: the pure function, job-creation preflight, and worker execution.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("T18/T1 (mandate) — Instagram: 5 hashtags passes preflight", () => {
+  it("ready:true with media present and exactly 5 hashtags", () => {
+    const result = evaluatePlatformPreflight("instagram", "Caption", 1, ["a", "b", "c", "d", "e"]);
+    expect(result.ready).toBe(true);
+    expect(result.blockers).toHaveLength(0);
+  });
+});
+
+describe("T19/T2 (mandate) — Instagram: 6 hashtags fails deterministic preflight", () => {
+  it("ready:false with the exact dynamic-count message", () => {
+    const result = evaluatePlatformPreflight("instagram", "Caption", 1, ["a", "b", "c", "d", "e", "f"]);
+    expect(result.ready).toBe(false);
+    expect(result.blockers).toContain("Instagram allows a maximum of 5 hashtags. Remove 1 hashtag before publishing.");
+  });
+});
+
+describe("T20/T3 (mandate) — Instagram: more than 6 hashtags also fails", () => {
+  it("ready:false for 8 hashtags, with excess count of 3 in the message", () => {
+    const result = evaluatePlatformPreflight("instagram", "Caption", 1, ["a", "b", "c", "d", "e", "f", "g", "h"]);
+    expect(result.ready).toBe(false);
+    expect(result.blockers).toContain("Instagram allows a maximum of 5 hashtags. Remove 3 hashtags before publishing.");
+  });
+});
+
+describe("T21/T15 (mandate) — a non-Instagram platform does not inherit the 5-hashtag limit", () => {
+  it("Facebook with 6 hashtags remains ready (no verified limit)", () => {
+    const result = evaluatePlatformPreflight("facebook", "Caption", 0, ["a", "b", "c", "d", "e", "f"]);
+    expect(result.ready).toBe(true);
+  });
+});
+
+describe("T22 — checkPublishingPreflight: Instagram + image + 6 hashtags → blocked", () => {
+  it("job-creation preflight reads draft.hashtags and blocks", async () => {
+    const asset = makeAsset({ organisationId: "org-1", mimeType: "image/jpeg" });
+    const mockContent = {
+      findDraft: vi.fn(async () => ({ body: "Caption", id: "d-1", hashtags: ["a", "b", "c", "d", "e", "f"] })),
+    };
+    const mockMedia = { listAssetsForDraft: vi.fn(async () => [asset]) };
+
+    const result = await checkPublishingPreflight(
+      { content: mockContent as never, media: mockMedia as never },
+      { organisationId: "org-1", draftId: "d-1", platform: "instagram" },
+    );
+
+    expect(result.ready).toBe(false);
+    expect(result.blockers).toContain("Instagram allows a maximum of 5 hashtags. Remove 1 hashtag before publishing.");
+  });
+
+  it("T12 (mandate) — the same draft with 5 hashtags is ready", async () => {
+    const asset = makeAsset({ organisationId: "org-1", mimeType: "image/jpeg" });
+    const mockContent = {
+      findDraft: vi.fn(async () => ({ body: "Caption", id: "d-1", hashtags: ["a", "b", "c", "d", "e"] })),
+    };
+    const mockMedia = { listAssetsForDraft: vi.fn(async () => [asset]) };
+
+    const result = await checkPublishingPreflight(
+      { content: mockContent as never, media: mockMedia as never },
+      { organisationId: "org-1", draftId: "d-1", platform: "instagram" },
+    );
+
+    expect(result.ready).toBe(true);
+  });
+});
+
+describe("T23/T10/T11 (mandate) — Worker live mode: Instagram job with 6 hashtags fails BEFORE publishPost", () => {
+  it("preflight_failed is recorded and the publisher is never invoked (publishPost call count 0)", async () => {
+    const publishFn = vi.fn(async () => ({
+      success: true as const,
+      externalPostId: "should-never-be-called",
+      externalUrl: "https://instagram.com/p/never",
+      publishedAt: new Date().toISOString(),
+    }));
+    const { resolvePublisher } = await import("@/infrastructure/publishers/publisher-factory");
+    vi.mocked(resolvePublisher).mockReturnValue({ publish: publishFn } as never);
+
+    const asset = makeAsset({ organisationId: "org-1", mimeType: "image/jpeg" });
+    const { deps, failAttempt, markJobFailed } = makePollDeps({
+      blotatoLivePublishingEnabled: true,
+      content: {
+        findDraft: vi.fn(async () => ({
+          id: "draft-1",
+          organisationId: "org-1",
+          title: "Birthday post",
+          body: "Body text here",
+          status: "approved",
+          hashtags: ["coventryphotographer", "coventryuniversity", "photoshoot", "birthdaycelebration", "westmidlands", "milestonecelebration"],
+        })),
+        updateStatus: vi.fn(async () => ({})),
+      },
+      media: { listAssetsForDraft: vi.fn(async () => [asset]) },
+    });
+
+    await pollOnce(deps as never);
+
+    expect(failAttempt).toHaveBeenCalledWith(
+      "attempt-1",
+      expect.objectContaining({
+        errorCode: "preflight_failed",
+        errorMessage: expect.stringContaining("Instagram allows a maximum of 5 hashtags"),
+      }),
+    );
+    expect(markJobFailed).toHaveBeenCalled();
+    // The exact production failure mode this prevents: publishPost (here,
+    // publisher.publish) must never be reached once preflight has failed.
+    expect(publishFn).not.toHaveBeenCalled();
+  });
+});
+
+describe("T24/T12/T13 (mandate) — Worker live mode: Instagram job with 5 hashtags proceeds to the publisher", () => {
+  it("no preflight_failed is recorded and the publisher is invoked", async () => {
+    const publishFn = vi.fn(async () => ({
+      success: true as const,
+      externalPostId: "post-1",
+      externalUrl: "https://instagram.com/p/real",
+      publishedAt: new Date().toISOString(),
+    }));
+    const { resolvePublisher } = await import("@/infrastructure/publishers/publisher-factory");
+    vi.mocked(resolvePublisher).mockReturnValue({ publish: publishFn } as never);
+
+    const asset = makeAsset({ organisationId: "org-1", mimeType: "image/jpeg" });
+    const { deps, failAttempt } = makePollDeps({
+      blotatoLivePublishingEnabled: true,
+      content: {
+        findDraft: vi.fn(async () => ({
+          id: "draft-1",
+          organisationId: "org-1",
+          title: "Birthday post",
+          body: "Body text here",
+          status: "approved",
+          hashtags: ["a", "b", "c", "d", "e"],
+        })),
+        updateStatus: vi.fn(async () => ({})),
+      },
+      media: { listAssetsForDraft: vi.fn(async () => [asset]) },
+    });
+
+    await pollOnce(deps as never);
+
+    expect(failAttempt).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ errorCode: "preflight_failed" }),
+    );
+    expect(publishFn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("T25/T17 (mandate) — Worker simulation mode: 6 hashtags does NOT block; simulation never calls the provider anyway", () => {
+  it("preflight is not enforced in simulation, and the publisher used is the simulation path (no real provider call, matching existing simulation semantics)", async () => {
+    const publishFn = vi.fn(async () => ({
+      success: true as const,
+      externalPostId: "sim-1",
+      externalUrl: "https://mock.local/instagram/sim-1",
+      publishedAt: new Date().toISOString(),
+    }));
+    const { resolvePublisher } = await import("@/infrastructure/publishers/publisher-factory");
+    vi.mocked(resolvePublisher).mockReturnValue({ publish: publishFn } as never);
+
+    const { deps, failAttempt } = makePollDeps({
+      blotatoLivePublishingEnabled: false,
+      content: {
+        findDraft: vi.fn(async () => ({
+          id: "draft-1",
+          organisationId: "org-1",
+          title: "Birthday post",
+          body: "Body text here",
+          status: "approved",
+          hashtags: ["a", "b", "c", "d", "e", "f"],
+        })),
+        updateStatus: vi.fn(async () => ({})),
+      },
+      media: { listAssetsForDraft: vi.fn(async () => []) },
+    });
+
+    await pollOnce(deps as never);
+
+    expect(failAttempt).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ errorCode: "preflight_failed" }),
+    );
+    expect(publishFn).toHaveBeenCalled();
+  });
+});
+
+describe("T26 — Immediate job creation (server action): 6 hashtags blocked, 5 proceeds", () => {
+  beforeEach(() => {
+    blotatoConfigMock.mockReturnValue({ apiKey: "key", enabled: true, livePublishingEnabled: true });
+  });
+
+  it("live mode rejects job creation with the hashtag-limit message when the draft has 6 hashtags", async () => {
+    const asset = makeAsset({ organisationId: "org-1", mimeType: "image/jpeg" });
+    // Build a context whose findDraft includes 6 hashtags.
+    const ctx = makeActionContext([asset]);
+    ctx.content.findDraft = vi.fn(async () => ({
+      id: "draft-1",
+      organisationId: "org-1",
+      body: "Some content",
+      title: "Test",
+      status: "approved",
+      assets: [asset],
+      hashtags: ["a", "b", "c", "d", "e", "f"],
+    })) as never;
+    requireContextMock.mockResolvedValue(ctx as never);
+
+    const result = await createImmediatePublishingJobAction({ status: "idle", message: "" }, makePublishFormData("instagram"));
+
+    expect(result.status).toBe("error");
+  });
+
+  it("live mode allows job creation when the draft has exactly 5 hashtags", async () => {
+    const asset = makeAsset({ organisationId: "org-1", mimeType: "image/jpeg" });
+    const ctx = makeActionContext([asset]);
+    ctx.content.findDraft = vi.fn(async () => ({
+      id: "draft-1",
+      organisationId: "org-1",
+      body: "Some content",
+      title: "Test",
+      status: "approved",
+      assets: [asset],
+      hashtags: ["a", "b", "c", "d", "e"],
+    })) as never;
+    requireContextMock.mockResolvedValue(ctx as never);
+
+    const result = await createImmediatePublishingJobAction({ status: "idle", message: "" }, makePublishFormData("instagram"));
+
+    expect(result.status).toBe("success");
   });
 });

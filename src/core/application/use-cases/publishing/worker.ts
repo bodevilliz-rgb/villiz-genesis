@@ -125,7 +125,7 @@ async function executeJob(deps: WorkerDeps, job: PublishingJob): Promise<WorkerI
     // time when live publishing is enabled — same guard, same ordering, and
     // same error code as the background worker core.
     if (config.livePublishingEnabled) {
-      const preflight = evaluatePlatformPreflight(job.platform, composedBody, media.mediaUrls.length);
+      const preflight = evaluatePlatformPreflight(job.platform, draft.body, media.mediaUrls.length, draft.hashtags ?? []);
       if (!preflight.ready) {
         const errorMessage = `Platform preflight failed: ${preflight.blockers.join(" ")}`;
         let preflightFailureCode = "preflight_failed";
