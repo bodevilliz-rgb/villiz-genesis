@@ -289,13 +289,28 @@ export function PublishingPanel({
               <input type="hidden" name="idempotencyKey" value={scheduleIdempotencyKey} />
               <input type="hidden" name="platform" value={derivedPlatform ?? ""} />
               <input type="hidden" name="resolvedAccountId" value={selectedAccountId ?? ""} />
+              {/*
+                A native `disabled` form control is EXCLUDED from FormData on
+                submission — that's standard HTML, not a bug. The visible
+                scheduledAt/timezone controls below become disabled the moment
+                the review dialog opens (so nothing can drift from what's
+                under review), but confirmAction() submits this form WHILE
+                the dialog is still open (it closes only after the action
+                settles) — so submitting straight from those controls would
+                silently omit them. These two ALWAYS-enabled hidden inputs
+                carry the immutable intent snapshot instead; the server reads
+                these, never the visible controls' live (and, at submit time,
+                disabled) values. Root cause of a confirmed "Schedule Post"
+                reaching the server with an empty scheduledAt.
+              */}
+              <input type="hidden" name="scheduledForUtc" value={intent?.mode === "scheduled" ? intent.scheduledForUtc : ""} />
+              <input type="hidden" name="timezone" value={intent?.mode === "scheduled" ? intent.displayTimezone : timezone} />
 
               <span className="text-[11px] uppercase tracking-wider text-subtle-foreground font-semibold">Schedule Post</span>
 
               <Field id="scheduledAt" label="Scheduled Date & Time">
                 <Input
                   id="scheduledAt"
-                  name="scheduledAt"
                   type="datetime-local"
                   required
                   value={scheduledAt}
@@ -304,10 +319,9 @@ export function PublishingPanel({
                 />
               </Field>
 
-              <Field id="timezone" label="Timezone">
+              <Field id="timezone-display" label="Timezone">
                 <Select
-                  id="timezone"
-                  name="timezone"
+                  id="timezone-display"
                   value={timezone}
                   onChange={(e) => setTimezone(e.target.value)}
                   disabled={dialogOpen}
