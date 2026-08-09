@@ -12,6 +12,7 @@ import { checkPublishingPreflight } from "@/core/application/use-cases/publishin
 import { blotatoConfig } from "@/infrastructure/blotato/blotato-config";
 import { ValidationError } from "@/core/domain/errors";
 import { isPublishingPlatform } from "@/core/domain/entities/publishing";
+import { isContentDraftLocked } from "@/core/domain/entities/content";
 import { errorState, successState, textOrEmpty, type ActionState } from "../action-result";
 import { routes } from "@/lib/routes";
 
@@ -146,13 +147,34 @@ export async function retryPublishingJobAction(_prev: ActionState, formData: For
     // checking here gives the operator an immediate, actionable reason
     // instead of a pointless queued→failed round trip.
     const existingJob = await context.publishing.findJobById(organisationId, jobId);
-    if (existingJob && blotatoConfig().livePublishingEnabled) {
-      const preflight = await checkPublishingPreflight(
-        { content: context.content, media: context.media },
-        { organisationId, draftId: existingJob.draftId, platform: existingJob.platform },
-      );
-      if (!preflight.ready) {
-        throw new ValidationError(`Cannot retry: ${preflight.blockers.join(" ")} Correct the draft, then retry again.`);
+    if (existingJob) {
+      // Governed correction workflow (fix/failed-publish-recovery): a Lead
+      // may reopen a failed draft for correction (failed -> needs_review),
+      // which unlocks editing but does NOT touch this job row. Once that
+      // happens the draft is actively being edited, and retry must wait for
+      // it to be freshly re-approved — resending mid-edit content would
+      // resubmit whatever half-finished state happens to be saved.
+      //
+      // Deliberately narrower than "must be approved": a job that failed for
+      // a reason that needed no content correction at all (a transient
+      // network blip, a temporarily disconnected account) leaves the draft
+      // at status "failed" untouched — that must remain retryable exactly as
+      // before, with no forced reopen/reapprove detour. Only an EXPLICIT
+      // reopen (moving the draft into an editable review state) creates the
+      // "must reapprove first" requirement.
+      const draft = await context.content.findDraft(organisationId, existingJob.draftId);
+      if (draft && !isContentDraftLocked(draft.status) && draft.status !== "approved") {
+        throw new ValidationError("Approve the corrected draft before retrying.");
+      }
+
+      if (blotatoConfig().livePublishingEnabled) {
+        const preflight = await checkPublishingPreflight(
+          { content: context.content, media: context.media },
+          { organisationId, draftId: existingJob.draftId, platform: existingJob.platform },
+        );
+        if (!preflight.ready) {
+          throw new ValidationError(`Cannot retry: ${preflight.blockers.join(" ")} Correct the draft, then retry again.`);
+        }
       }
     }
 

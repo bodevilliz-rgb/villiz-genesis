@@ -73,7 +73,7 @@ function fakeContext(overrides: { hashtags?: string[]; hasMedia?: boolean; hasAc
       findJobById: vi.fn(async () => ({ id: JOB_ID, organisationId: ORG_ID, draftId: DRAFT_ID, platform: overrides.jobPlatform ?? "instagram", status: "failed" })),
     },
     content: {
-      findDraft: vi.fn(async () => ({ id: DRAFT_ID, organisationId: ORG_ID, body: "Caption", hashtags: overrides.hashtags ?? [] })),
+      findDraft: vi.fn(async () => ({ id: DRAFT_ID, organisationId: ORG_ID, body: "Caption", status: "approved", hashtags: overrides.hashtags ?? [] })),
     },
     media: {
       listAssetsForDraft: vi.fn(async () => asset),

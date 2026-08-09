@@ -97,7 +97,7 @@ function SubmitForReviewButton({ organisationId, draftId }: { organisationId: st
   );
 }
 
-function ReopenButton({ organisationId, draftId }: { organisationId: string; draftId: string }) {
+function ReopenButton({ organisationId, draftId, label = "Reopen review" }: { organisationId: string; draftId: string; label?: string }) {
   const [state, formAction] = useActionState(reopenReviewAction, idleState);
   useActionToast(state);
 
@@ -106,7 +106,7 @@ function ReopenButton({ organisationId, draftId }: { organisationId: string; dra
       <input type="hidden" name="organisationId" value={organisationId} />
       <input type="hidden" name="draftId" value={draftId} />
       <SubmitButton variant="secondary" pendingLabel="Reopening…">
-        Reopen review
+        {label}
       </SubmitButton>
     </form>
   );
@@ -272,8 +272,8 @@ export function ReviewPanel({
           )
         ) : null}
 
-        {(draft.status === "approved" || draft.status === "archived") && canLead ? (
-          <ReopenButton organisationId={organisationId} draftId={draft.id} />
+        {(draft.status === "approved" || draft.status === "archived" || draft.status === "failed") && canLead ? (
+          <ReopenButton organisationId={organisationId} draftId={draft.id} label={draft.status === "failed" ? "Reopen for correction" : "Reopen review"} />
         ) : null}
       </div>
     </div>

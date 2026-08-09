@@ -178,7 +178,9 @@ export async function reopenReview(deps: ReviewDeps, raw: unknown): Promise<Cont
   const parsed = reopenReviewSchema.safeParse(raw);
   if (!parsed.success) throw new ValidationError("That request could not be understood.");
   return applyTransition(deps, parsed.data, (status) =>
-    status === "approved" ? "needs_review" : (status === "archived" || status === "rejected") ? "draft" : null,
+    status === "approved" || status === "failed"
+      ? "needs_review"
+      : (status === "archived" || status === "rejected") ? "draft" : null,
   );
 }
 
