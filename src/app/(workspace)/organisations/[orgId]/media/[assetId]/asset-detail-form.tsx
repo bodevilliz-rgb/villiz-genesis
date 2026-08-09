@@ -8,7 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Field } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
-import { updateMediaMetadataAction, replaceMediaVersionAction, archiveMediaAction, deleteMediaAction } from "@/server/actions/media";
+import { updateMediaMetadataAction, requestMediaUploadAction, registerMediaReplacementAction, archiveMediaAction, deleteMediaAction } from "@/server/actions/media";
+import { createBrowserSupabaseClient } from "@/infrastructure/supabase/browser-client";
+import { ORGANISATION_MEDIA_BUCKET, validateMediaUpload } from "@/core/domain/entities/media-upload";
 import { routes } from "@/lib/routes";
 import { toast } from "sonner";
 
@@ -79,13 +81,43 @@ export function AssetDetailForm({
     e.preventDefault();
     if (!replaceFile) return;
 
+    // Same direct-to-storage transport as the Media Library upload zone — the
+    // replacement's bytes never pass through a Vercel serverless function.
     startTransition(async () => {
+      const validation = validateMediaUpload({ mimeType: replaceFile.type, sizeBytes: replaceFile.size });
+      if (!validation.valid) {
+        toast.error(validation.reason);
+        return;
+      }
+
+      const ticket = await requestMediaUploadAction(organisationId, {
+        fileName: replaceFile.name,
+        mimeType: replaceFile.type,
+        sizeBytes: replaceFile.size,
+      });
+      if (ticket.status !== "ready") {
+        toast.error(ticket.message || "Could not prepare the upload.");
+        return;
+      }
+
+      const supabase = createBrowserSupabaseClient();
+      const { error: uploadError } = await supabase.storage
+        .from(ORGANISATION_MEDIA_BUCKET)
+        .uploadToSignedUrl(ticket.storagePath, ticket.token, replaceFile, { contentType: replaceFile.type });
+      if (uploadError) {
+        toast.error(`The file could not be uploaded to storage: ${uploadError.message}`);
+        return;
+      }
+
       const formData = new FormData();
       formData.append("assetId", asset.id);
       formData.append("organisationId", organisationId);
-      formData.append("file", replaceFile);
+      formData.append("storagePath", ticket.storagePath);
+      formData.append("fileName", replaceFile.name);
+      formData.append("mimeType", replaceFile.type);
+      formData.append("sizeBytes", String(replaceFile.size));
 
-      const result = await replaceMediaVersionAction({ status: "idle", message: "" }, formData);
+      const result = await registerMediaReplacementAction({ status: "idle", message: "" }, formData);
       if (result.status === "success") {
         toast.success(result.message);
         setReplaceFile(null);

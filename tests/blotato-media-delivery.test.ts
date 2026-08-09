@@ -123,6 +123,7 @@ function fakeStorage(urlFor: (storagePath: string) => string): StoragePort {
     uploadMedia: vi.fn(),
     getSignedUrl: vi.fn(async (storagePath: string) => urlFor(storagePath)),
     deleteMedia: vi.fn(),
+    createSignedUploadUrl: vi.fn(async () => ({ path: "p", token: "t" })),
     deleteMediaFiles: vi.fn(),
   };
 }
@@ -291,6 +292,7 @@ describe("T5 — Forged asset (wrong org) is silently excluded", () => {
       uploadMedia: vi.fn(),
       getSignedUrl,
       deleteMedia: vi.fn(),
+    createSignedUploadUrl: vi.fn(async () => ({ path: "p", token: "t" })),
       deleteMediaFiles: vi.fn(),
     };
     await resolvePublishMediaUrls(
@@ -560,6 +562,7 @@ describe("T18 — Signed URLs are generated at worker execution time, never at s
       uploadMedia: vi.fn(),
       getSignedUrl,
       deleteMedia: vi.fn(),
+    createSignedUploadUrl: vi.fn(async () => ({ path: "p", token: "t" })),
       deleteMediaFiles: vi.fn(),
     };
     const result = await resolvePublishMediaUrls(

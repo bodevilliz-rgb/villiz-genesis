@@ -86,6 +86,7 @@ function fakeStorage(urlFor: (storagePath: string) => string): StoragePort {
     uploadMedia: vi.fn(),
     getSignedUrl: vi.fn(async (storagePath: string) => urlFor(storagePath)),
     deleteMedia: vi.fn(),
+    createSignedUploadUrl: vi.fn(async () => ({ path: "p", token: "t" })),
     deleteMediaFiles: vi.fn(),
   };
 }

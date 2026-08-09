@@ -24,6 +24,18 @@ export class SupabaseStoragePort implements StoragePort {
     return storagePath;
   }
 
+  async createSignedUploadUrl(storagePath: string): Promise<{ path: string; token: string }> {
+    const { data, error } = await this.client.storage
+      .from(this.BUCKET)
+      .createSignedUploadUrl(storagePath);
+
+    if (error || !data) {
+      throw new Error(`Failed to create signed upload URL: ${error?.message ?? "no data returned"}`);
+    }
+
+    return { path: data.path, token: data.token };
+  }
+
   async getSignedUrl(storagePath: string, expiresInSeconds = 3600): Promise<string> {
     const { data, error } = await this.client.storage
       .from(this.BUCKET)

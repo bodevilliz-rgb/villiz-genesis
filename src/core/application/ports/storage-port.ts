@@ -17,6 +17,15 @@ export interface StoragePort {
   getSignedUrl(storagePath: string, expiresInSeconds?: number): Promise<string>;
 
   /**
+   * Issues a short-lived, single-path signed upload authorisation so the
+   * browser can PUT the file bytes straight into the private bucket without
+   * routing them through a serverless function (Vercel rejects request
+   * bodies over 4.5 MB with FUNCTION_PAYLOAD_TOO_LARGE). The token is only
+   * valid for the exact server-generated `storagePath` it was issued for.
+   */
+  createSignedUploadUrl(storagePath: string): Promise<{ path: string; token: string }>;
+
+  /**
    * Removes a file from storage permanently.
    */
   deleteMedia(storagePath: string): Promise<void>;
