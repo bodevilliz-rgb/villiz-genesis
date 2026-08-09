@@ -13,7 +13,8 @@ import { idleState } from "@/server/action-result";
 import type { ContentDraft } from "@/core/domain/entities/content";
 import type { BlotatoAccount } from "@/core/domain/entities/blotato";
 import { mapBlotatoPlatform } from "@/core/domain/entities/blotato";
-import { PUBLISHING_PLATFORM_LABELS } from "@/core/domain/entities/publishing";
+import { PUBLISHING_PLATFORM_LABELS, type PublishingIntent } from "@/core/domain/entities/publishing";
+import { convertLocalTimeToUtc, formatInTimeZone, listSupportedTimeZones } from "@/core/domain/entities/scheduling";
 import { formatRelative } from "@/lib/format";
 
 function useActionToast(state: { status: "idle" | "success" | "error"; message: string }) {
@@ -51,8 +52,8 @@ export function PublishingPanel({
   /** Whether the Blotato integration is in live-publishing mode. False = simulation only. */
   isLivePublishing?: boolean;
 }) {
-  const [scheduleState, scheduleAction] = useActionState(createScheduledPublishingJobAction, idleState);
-  const [publishState, publishAction] = useActionState(createImmediatePublishingJobAction, idleState);
+  const [scheduleState, scheduleAction, schedulePending] = useActionState(createScheduledPublishingJobAction, idleState);
+  const [publishState, publishAction, publishPending] = useActionState(createImmediatePublishingJobAction, idleState);
   const [archiveState, archiveAction] = useActionState(archiveDraftAction, idleState);
   const [duplicateState, duplicateAction] = useActionState(duplicateDraftAction, idleState);
 
@@ -61,11 +62,24 @@ export function PublishingPanel({
   useActionToast(archiveState);
   useActionToast(duplicateState);
 
-  const [timezone, setTimezone] = useState("UTC");
+  // Detected once, from the operator's own browser — a safe, generic default
+  // for every organisation/region with zero client-specific hardcoding.
+  // Genesis does not yet have an organisation-level default timezone setting
+  // (audited: no such field exists on the organisation entity) — this is the
+  // documented follow-up if one is wanted later.
+  const [timezone, setTimezone] = useState(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+  );
   const [scheduledAt, setScheduledAt] = useState("");
+  const supportedTimeZones = useState(() => listSupportedTimeZones())[0];
 
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [pendingAction, setPendingAction] = useState<"publish" | "schedule" | null>(null);
+  // Captured ONCE, at the exact moment the operator clicks Publish Now or
+  // Schedule — immutable for the lifetime of this review. Nothing inside
+  // Pre-Publish Review can change intent.mode, drop scheduledForUtc, or
+  // swap the destination; the review only ever evaluates this snapshot.
+  const [intent, setIntent] = useState<PublishingIntent | null>(null);
+  const [scheduleTimeError, setScheduleTimeError] = useState<string | null>(null);
 
   const scheduleFormRef = useRef<HTMLFormElement>(null);
   const publishFormRef = useRef<HTMLFormElement>(null);
@@ -103,19 +117,79 @@ export function PublishingPanel({
 
   const handlePublishIntercept = (e: React.MouseEvent, type: "publish" | "schedule") => {
     e.preventDefault();
-    setPendingAction(type);
+    setScheduleTimeError(null);
+
+    if (!derivedPlatform || !selectedAccountId) return;
+
+    if (type === "publish") {
+      setIntent({
+        mode: "immediate",
+        organisationId,
+        draftId: draft.id,
+        platform: derivedPlatform,
+        resolvedAccountId: selectedAccountId,
+      });
+      setDialogOpen(true);
+      return;
+    }
+
+    // Fail fast in the browser — the same rule the server enforces
+    // authoritatively (createScheduledPublishingJobAction, via the same
+    // convertLocalTimeToUtc) — so an invalid/nonexistent local time never
+    // even reaches Pre-Publish Review.
+    let scheduledForUtc: Date;
+    try {
+      scheduledForUtc = convertLocalTimeToUtc(scheduledAt, timezone);
+    } catch (err) {
+      setScheduleTimeError(err instanceof Error ? err.message : "That date and time could not be understood.");
+      return;
+    }
+
+    setIntent({
+      mode: "scheduled",
+      organisationId,
+      draftId: draft.id,
+      platform: derivedPlatform,
+      resolvedAccountId: selectedAccountId,
+      scheduledForUtc: scheduledForUtc.toISOString(),
+      displayTimezone: timezone,
+      scheduledForLocalDisplay: formatInTimeZone(scheduledForUtc, timezone),
+    });
     setDialogOpen(true);
   };
 
+  const isConfirmPending = schedulePending || publishPending;
+
   const confirmAction = () => {
-    setDialogOpen(false);
-    if (pendingAction === "publish" && publishFormRef.current) {
+    // Defense in depth against a double-fire of the confirm handler — the
+    // dialog's own button is already disabled while pending, but this
+    // guarantees a stale re-invocation (e.g. a queued event) can never
+    // submit twice or submit both actions.
+    if (isConfirmPending || !intent) return;
+    if (intent.mode === "immediate" && publishFormRef.current) {
       publishFormRef.current.requestSubmit();
-    } else if (pendingAction === "schedule" && scheduleFormRef.current) {
+    } else if (intent.mode === "scheduled" && scheduleFormRef.current) {
       scheduleFormRef.current.requestSubmit();
     }
-    setPendingAction(null);
   };
+
+  // Close the dialog only once the underlying action reaches a terminal
+  // state — mirrors the approval-flow fix (DecisionForm) that removed a
+  // premature unmount as the source of double-submission on retry. The
+  // confirm button stays disabled for the entire in-flight duration.
+  useEffect(() => {
+    if (scheduleState.status === "success" || scheduleState.status === "error") {
+      setDialogOpen(false);
+      setIntent(null);
+    }
+  }, [scheduleState]);
+
+  useEffect(() => {
+    if (publishState.status === "success" || publishState.status === "error") {
+      setDialogOpen(false);
+      setIntent(null);
+    }
+  }, [publishState]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -123,10 +197,15 @@ export function PublishingPanel({
         organisationId={organisationId}
         draft={draft}
         open={dialogOpen}
-        onOpenChange={setDialogOpen}
+        onOpenChange={(next) => {
+          setDialogOpen(next);
+          if (!next) setIntent(null);
+        }}
         onConfirmPublish={confirmAction}
         channel={selectedAccount}
         isLivePublishing={isLivePublishing}
+        intent={intent}
+        submitting={isConfirmPending}
       />
 
       {/* Draft Status Info */}
@@ -188,6 +267,7 @@ export function PublishingPanel({
                     id="channel-select"
                     value={selectedAccountId ?? ""}
                     onChange={(e) => setSelectedAccountId(e.target.value || null)}
+                    disabled={dialogOpen}
                   >
                     {supportedChannels.length > 1 && <option value="">Select a destination…</option>}
                     {supportedChannels.map((ch) => (
@@ -220,23 +300,32 @@ export function PublishingPanel({
                   required
                   value={scheduledAt}
                   onChange={(e) => setScheduledAt(e.target.value)}
+                  disabled={dialogOpen}
                 />
               </Field>
 
               <Field id="timezone" label="Timezone">
-                <Select id="timezone" name="timezone" value={timezone} onChange={(e) => setTimezone(e.target.value)}>
-                  <option value="UTC">UTC</option>
-                  <option value="EST">EST</option>
-                  <option value="PST">PST</option>
-                  <option value="GMT">GMT</option>
-                  <option value="CET">CET</option>
+                <Select
+                  id="timezone"
+                  name="timezone"
+                  value={timezone}
+                  onChange={(e) => setTimezone(e.target.value)}
+                  disabled={dialogOpen}
+                >
+                  {supportedTimeZones.map((tz) => (
+                    <option key={tz} value={tz}>{tz}</option>
+                  ))}
                 </Select>
               </Field>
+
+              {scheduleTimeError && (
+                <p className="text-[12px] text-danger">{scheduleTimeError}</p>
+              )}
 
               <Button
                 type="button"
                 size="lg"
-                disabled={!canPublish}
+                disabled={!canPublish || dialogOpen}
                 onClick={(e) => handlePublishIntercept(e, "schedule")}
               >
                 Schedule
@@ -273,7 +362,7 @@ export function PublishingPanel({
                 variant="secondary"
                 size="lg"
                 className="w-full"
-                disabled={!canPublish}
+                disabled={!canPublish || dialogOpen}
                 onClick={(e) => handlePublishIntercept(e, "publish")}
               >
                 Publish Now

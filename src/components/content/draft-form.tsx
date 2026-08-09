@@ -163,10 +163,22 @@ export function DraftForm({
     const incoming = normalizeHashtags(parseHashtagInput(raw));
     setHashtags((prev) => normalizeHashtags([...prev, ...incoming]));
     setHashtagInput("");
+    // Every other field's autosave fires via the form's onInput bubbling —
+    // native to a text input's own "input" event. Hashtag chips are added
+    // and removed via button onClick, which never fires "input" and so never
+    // bubbled to the form's autosave handler at all: an operator could add
+    // hashtags, see them render as chips, and have them silently never
+    // reach the server unless they also happened to edit another field.
+    // Root cause of "Hashtags: Missing" in Pre-Publish Review despite chips
+    // being visibly present on the draft page — proven against production
+    // data where content_drafts.hashtags was still [] for an approved draft
+    // whose page showed six hashtag chips.
+    scheduleAutosave();
   }
 
   function removeHashtag(token: string) {
     setHashtags((prev) => prev.filter((t) => t.toLowerCase() !== token.toLowerCase()));
+    scheduleAutosave();
   }
 
   async function handleSuggestHashtags() {
@@ -186,6 +198,7 @@ export function DraftForm({
   function acceptSuggestedHashtag(token: string) {
     setHashtags((prev) => normalizeHashtags([...prev, token]));
     setHashtagSuggestions((prev) => prev?.filter((s) => s !== token) ?? null);
+    scheduleAutosave();
   }
 
   async function handleAiAssist() {

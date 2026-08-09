@@ -54,6 +54,39 @@ export const PUBLISHING_ATTEMPT_STATUS_LABELS: Record<PublishingAttemptStatus, s
 
 export type PublishingTriggerType = "immediate" | "scheduled" | "retry";
 
+/**
+ * The operator's publishing intent, captured ONCE — at the instant they
+ * click "Publish Now" or "Schedule" — and passed immutably through
+ * Pre-Publish Review to confirmation. Nothing inside the review may mutate
+ * `mode`, drop `scheduledForUtc`, or change the destination; the review
+ * step only ever REVIEWS this exact snapshot, and the confirm button's
+ * label and the action it invokes are both derived from `mode`, never
+ * chosen independently. Root-caused a defect where the review dialog had
+ * no knowledge of which action the operator had chosen at all, so its
+ * confirm button always read "Publish Now" even inside a scheduling flow.
+ */
+export type PublishingIntent =
+  | {
+      mode: "immediate";
+      organisationId: string;
+      draftId: string;
+      platform: PublishingPlatform;
+      resolvedAccountId: string;
+    }
+  | {
+      mode: "scheduled";
+      organisationId: string;
+      draftId: string;
+      platform: PublishingPlatform;
+      resolvedAccountId: string;
+      /** Canonical instant — always UTC, always DST-correct for displayTimezone at that instant. */
+      scheduledForUtc: string;
+      /** The IANA zone the operator selected — preserved for display, never used to re-derive scheduledForUtc after this snapshot is taken. */
+      displayTimezone: string;
+      /** Pre-formatted local wall-clock string for the review UI, computed once from the same snapshot. */
+      scheduledForLocalDisplay: string;
+    };
+
 export const PUBLISHING_TRIGGER_TYPE_LABELS: Record<PublishingTriggerType, string> = {
   immediate: "Immediate",
   scheduled: "Scheduled",

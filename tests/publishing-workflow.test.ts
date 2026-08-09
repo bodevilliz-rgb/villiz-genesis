@@ -413,6 +413,25 @@ describe("createScheduledPublishingJob", () => {
     expect(getDraft().scheduledPlatform).toBe("facebook");
   });
 
+  it("34/36 (fix/scheduled-publishing-integrity): a scheduled job cannot be created against a destination account that belongs to a different organisation — cross-org forgery rejected", async () => {
+    const OTHER_ORG = "00000000-0000-4000-8000-000000000099";
+    // The harness's account resolver is scoped to ORG_ID only — a caller
+    // that forges a different organisationId while the account pool is
+    // fixed to ORG_ID must resolve zero active accounts for that org,
+    // exactly the same protection createImmediatePublishingJob relies on.
+    const { deps } = createHarness({ draft: baseDraft({ status: "approved", organisationId: ORG_ID }), viewerRole: null, organisationId: ORG_ID });
+    await expect(
+      createScheduledPublishingJob(deps, {
+        organisationId: OTHER_ORG,
+        draftId: DRAFT_ID,
+        platform: "facebook",
+        scheduledFor: future,
+        timezone: "UTC",
+        idempotencyKey: "sched-forged",
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
   it("refuses a scheduled time in the past", async () => {
     const { deps } = createHarness({ draft: baseDraft({ status: "approved" }), viewerRole: "contributor" });
     await expect(
@@ -814,13 +833,13 @@ function fakeGetPostStatus(status: BlotatoPostStatus) {
 /** Seeds a job whose only attempt ended in blotato_status_timeout — the exact shape reconciliation targets. */
 async function seedTimedOutJob(
   deps: ReturnType<typeof createHarness>["deps"],
-  overrides: { postSubmissionId?: string | null; errorCode?: string } = {},
+  overrides: { postSubmissionId?: string | null; errorCode?: string; triggerType?: "immediate" | "scheduled" } = {},
 ) {
   const job = await deps.publishing.createJob({
     organisationId: ORG_ID,
     draftId: DRAFT_ID,
     platform: "instagram",
-    triggerType: "immediate",
+    triggerType: overrides.triggerType ?? "immediate",
     scheduledFor: "2026-08-09T14:03:45.863Z",
     idempotencyKey: `timeout-job-${Math.random()}`,
     requestedBy: ACTOR_ID,
@@ -866,6 +885,21 @@ describe("reconcileBlotatoStatusTimeout", () => {
     expect(result.outcome).toBe("published");
     expect(result.job.status).toBe("published");
     expect(getJobs().find((j) => j.id === job.id)?.status).toBe("published");
+  });
+
+  it("1b (fix/scheduled-publishing-integrity): reconciling a SCHEDULED job preserves triggerType='scheduled' — reconciliation never touches trigger_type", async () => {
+    const { deps, getJobs } = createHarness({ draft: baseDraft({ status: "failed" }), viewerRole: "contributor" });
+    const scheduledJob = await seedTimedOutJob(deps, { triggerType: "scheduled" });
+
+    const result = await reconcileBlotatoStatusTimeout(
+      { ...deps, blotatoClient: fakeGetPostStatus({ postSubmissionId: "sub-timeout-1", status: "published", scheduledTime: null, publicUrl: "https://instagram.com/p/real123", errorMessage: null }) },
+      ORG_ID,
+      scheduledJob.id,
+    );
+
+    expect(result.outcome).toBe("published");
+    expect(result.job.triggerType).toBe("scheduled");
+    expect(getJobs().find((j) => j.id === scheduledJob.id)?.triggerType).toBe("scheduled");
   });
 
   it("2: provider confirms published → a new attempt is appended as completed; the original timed-out attempt is untouched", async () => {

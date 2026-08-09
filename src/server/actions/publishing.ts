@@ -11,6 +11,7 @@ import {
 import { checkPublishingPreflight } from "@/core/application/use-cases/publishing/preflight";
 import { blotatoConfig } from "@/infrastructure/blotato/blotato-config";
 import { ValidationError } from "@/core/domain/errors";
+import { convertLocalTimeToUtc } from "@/core/domain/entities/scheduling";
 import type { PublishingPlatform } from "@/core/domain/entities/publishing";
 import { errorState, successState, textOrEmpty, type ActionState } from "../action-result";
 import { routes } from "@/lib/routes";
@@ -108,11 +109,17 @@ export async function createScheduledPublishingJobAction(_prev: ActionState, for
       }
     }
 
+    // Authoritative conversion: the operator's selected IANA timezone is
+    // applied here, DST-aware — this is not the same value the browser may
+    // have already computed for the review dialog's preview, and this
+    // value is what the job actually persists as scheduled_for (UTC).
+    const scheduledForUtc = convertLocalTimeToUtc(scheduledAt, timezone);
+
     const job = await createScheduledPublishingJob(publishingDeps(context), {
       organisationId,
       draftId,
       platform,
-      scheduledFor: new Date(scheduledAt).toISOString(),
+      scheduledFor: scheduledForUtc.toISOString(),
       timezone,
       idempotencyKey,
       resolvedAccountId,
