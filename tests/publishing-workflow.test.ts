@@ -5,9 +5,11 @@ import {
   createImmediatePublishingJob,
   createScheduledPublishingJob,
   failPublishingAttempt,
+  reconcileBlotatoStatusTimeout,
   retryFailedPublishingJob,
   startPublishingAttempt,
 } from "@/core/application/use-cases/publishing";
+import type { BlotatoPostStatus } from "@/core/application/ports/blotato-client-port";
 import { ForbiddenError, NotFoundError, ValidationError } from "@/core/domain/errors";
 import type { Actor, OrganisationRole } from "@/core/domain/entities/identity";
 import type { ContentDraft } from "@/core/domain/entities/content";
@@ -267,6 +269,7 @@ function createHarness(input: {
         durationMs: 1000,
         errorCode: failInput.errorCode,
         errorMessage: failInput.errorMessage,
+        providerMetadata: failInput.providerMetadata,
       };
       attempts.set(attemptId, updated);
       return updated;
@@ -793,4 +796,245 @@ describe("destination lock — account pre-check at scheduling time", () => {
     expect(getJobs()).toHaveLength(0);
   });
 
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// reconcileBlotatoStatusTimeout — P0 regression: a real Instagram post
+// published successfully at Blotato while BlotatoPublisherBase's polling
+// exhausted its window without observing a terminal status, so Genesis
+// recorded the attempt as blotato_status_timeout and marked the job/draft
+// "failed" even though nothing was actually wrong with the post.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function fakeGetPostStatus(status: BlotatoPostStatus) {
+  const getPostStatus = async (_id: string) => status;
+  return { getPostStatus };
+}
+
+/** Seeds a job whose only attempt ended in blotato_status_timeout — the exact shape reconciliation targets. */
+async function seedTimedOutJob(
+  deps: ReturnType<typeof createHarness>["deps"],
+  overrides: { postSubmissionId?: string | null; errorCode?: string } = {},
+) {
+  const job = await deps.publishing.createJob({
+    organisationId: ORG_ID,
+    draftId: DRAFT_ID,
+    platform: "instagram",
+    triggerType: "immediate",
+    scheduledFor: "2026-08-09T14:03:45.863Z",
+    idempotencyKey: `timeout-job-${Math.random()}`,
+    requestedBy: ACTOR_ID,
+    maxRetries: 3,
+    devSimulationMode: null,
+    resolvedAccountId: null,
+  });
+  const attempt = await deps.publishing.createAttempt({
+    jobId: job.id,
+    organisationId: ORG_ID,
+    draftId: DRAFT_ID,
+    platform: "instagram",
+    attemptNumber: 1,
+    retryOfAttemptId: null,
+  });
+  await deps.publishing.startAttempt(attempt.id);
+  const providerMetadata =
+    overrides.postSubmissionId === undefined
+      ? { postSubmissionId: "sub-timeout-1", blotatoAccountId: "acc-1" }
+      : overrides.postSubmissionId === null
+        ? { blotatoAccountId: "acc-1" }
+        : { postSubmissionId: overrides.postSubmissionId, blotatoAccountId: "acc-1" };
+  await deps.publishing.failAttempt(attempt.id, {
+    errorCode: overrides.errorCode ?? "blotato_status_timeout",
+    errorMessage: "Blotato had not confirmed a final status for this post after polling.",
+    providerMetadata,
+  });
+  await deps.publishing.markJobFailed(job.id);
+  return job;
+}
+
+describe("reconcileBlotatoStatusTimeout", () => {
+  it("1: provider confirms published → job status becomes published", async () => {
+    const { deps, getJobs } = createHarness({ draft: baseDraft({ status: "failed" }), viewerRole: "contributor" });
+    const job = await seedTimedOutJob(deps);
+
+    const result = await reconcileBlotatoStatusTimeout(
+      { ...deps, blotatoClient: fakeGetPostStatus({ postSubmissionId: "sub-timeout-1", status: "published", scheduledTime: null, publicUrl: "https://instagram.com/p/real123", errorMessage: null }) },
+      ORG_ID,
+      job.id,
+    );
+
+    expect(result.outcome).toBe("published");
+    expect(result.job.status).toBe("published");
+    expect(getJobs().find((j) => j.id === job.id)?.status).toBe("published");
+  });
+
+  it("2: provider confirms published → a new attempt is appended as completed; the original timed-out attempt is untouched", async () => {
+    const { deps, getAttempts } = createHarness({ draft: baseDraft({ status: "failed" }), viewerRole: "contributor" });
+    const job = await seedTimedOutJob(deps);
+
+    await reconcileBlotatoStatusTimeout(
+      { ...deps, blotatoClient: fakeGetPostStatus({ postSubmissionId: "sub-timeout-1", status: "published", scheduledTime: null, publicUrl: "https://instagram.com/p/real123", errorMessage: null }) },
+      ORG_ID,
+      job.id,
+    );
+
+    const attempts = getAttempts().filter((a) => a.jobId === job.id).sort((a, b) => a.attemptNumber - b.attemptNumber);
+    expect(attempts).toHaveLength(2);
+    expect(attempts[0]!.status).toBe("failed");
+    expect(attempts[0]!.errorCode).toBe("blotato_status_timeout");
+    expect(attempts[1]!.status).toBe("completed");
+    expect(attempts[1]!.retryOfAttemptId).toBe(attempts[0]!.id);
+    expect(attempts[1]!.externalUrl).toBe("https://instagram.com/p/real123");
+  });
+
+  it("3: provider confirms published → draft status becomes published", async () => {
+    const { deps, getDraft } = createHarness({ draft: baseDraft({ status: "failed" }), viewerRole: "contributor" });
+    const job = await seedTimedOutJob(deps);
+
+    await reconcileBlotatoStatusTimeout(
+      { ...deps, blotatoClient: fakeGetPostStatus({ postSubmissionId: "sub-timeout-1", status: "published", scheduledTime: null, publicUrl: "https://instagram.com/p/real123", errorMessage: null }) },
+      ORG_ID,
+      job.id,
+    );
+
+    expect(getDraft().status).toBe("published");
+  });
+
+  it("4: provider still shows in-progress → not treated as a hard failure; job stays failed/blotato_status_timeout for a later re-check", async () => {
+    const { deps, getJobs, getAttempts } = createHarness({ draft: baseDraft({ status: "failed" }), viewerRole: "contributor" });
+    const job = await seedTimedOutJob(deps);
+
+    const result = await reconcileBlotatoStatusTimeout(
+      { ...deps, blotatoClient: fakeGetPostStatus({ postSubmissionId: "sub-timeout-1", status: "in-progress", scheduledTime: null, publicUrl: null, errorMessage: null }) },
+      ORG_ID,
+      job.id,
+    );
+
+    expect(result.outcome).toBe("still_processing");
+    expect(getJobs().find((j) => j.id === job.id)?.status).toBe("failed");
+    // No new attempt was fabricated for an unresolved check.
+    expect(getAttempts().filter((a) => a.jobId === job.id)).toHaveLength(1);
+  });
+
+  it("5: provider confirms genuinely failed → job/attempt remain failed (nothing to flip), audit records the confirmation", async () => {
+    const { deps, getJobs, getAuditEvents } = createHarness({ draft: baseDraft({ status: "failed" }), viewerRole: "contributor" });
+    const job = await seedTimedOutJob(deps);
+
+    const result = await reconcileBlotatoStatusTimeout(
+      { ...deps, blotatoClient: fakeGetPostStatus({ postSubmissionId: "sub-timeout-1", status: "failed", scheduledTime: null, publicUrl: null, errorMessage: "Publishing on instagram requires an image or a video" }) },
+      ORG_ID,
+      job.id,
+    );
+
+    expect(result.outcome).toBe("confirmed_failed");
+    expect(getJobs().find((j) => j.id === job.id)?.status).toBe("failed");
+    expect(getAuditEvents().some((e) => e.eventType === "publishing_attempt_reconciled")).toBe(true);
+  });
+
+  it("6: existing postSubmissionId is reused — the fake client exposes only getPostStatus, so reconciliation is structurally incapable of calling publishPost", async () => {
+    const { deps } = createHarness({ draft: baseDraft({ status: "failed" }), viewerRole: "contributor" });
+    const job = await seedTimedOutJob(deps);
+
+    let getPostStatusCalls = 0;
+    const status: BlotatoPostStatus = { postSubmissionId: "sub-timeout-1", status: "published", scheduledTime: null, publicUrl: "https://instagram.com/p/real123", errorMessage: null };
+    const blotatoClient = {
+      getPostStatus: async (id: string) => {
+        getPostStatusCalls += 1;
+        expect(id).toBe("sub-timeout-1"); // reuses the ORIGINAL submission id — never mints a new one
+        return status;
+      },
+    };
+
+    await reconcileBlotatoStatusTimeout({ ...deps, blotatoClient }, ORG_ID, job.id);
+    expect(getPostStatusCalls).toBe(1);
+  });
+
+  it("7: a job whose last attempt failed for a different reason (genuine blotato_publish_failed) is rejected — reconciliation only ever applies to blotato_status_timeout", async () => {
+    const { deps } = createHarness({ draft: baseDraft({ status: "failed" }), viewerRole: "contributor" });
+    const job = await seedTimedOutJob(deps, { errorCode: "blotato_publish_failed" });
+
+    await expect(
+      reconcileBlotatoStatusTimeout(
+        { ...deps, blotatoClient: fakeGetPostStatus({ postSubmissionId: "sub-timeout-1", status: "published", scheduledTime: null, publicUrl: null, errorMessage: null }) },
+        ORG_ID,
+        job.id,
+      ),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("8: a job with no recorded postSubmissionId is rejected rather than risk resubmission", async () => {
+    const { deps } = createHarness({ draft: baseDraft({ status: "failed" }), viewerRole: "contributor" });
+    const job = await seedTimedOutJob(deps, { postSubmissionId: null });
+
+    await expect(
+      reconcileBlotatoStatusTimeout(
+        { ...deps, blotatoClient: fakeGetPostStatus({ postSubmissionId: "irrelevant", status: "published", scheduledTime: null, publicUrl: null, errorMessage: null }) },
+        ORG_ID,
+        job.id,
+      ),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("9: a job that is not currently failed (e.g. already queued/published) is rejected", async () => {
+    const { deps } = createHarness({ draft: baseDraft({ status: "approved" }), viewerRole: "contributor" });
+    const job = await deps.publishing.createJob({
+      organisationId: ORG_ID,
+      draftId: DRAFT_ID,
+      platform: "instagram",
+      triggerType: "immediate",
+      scheduledFor: "2026-08-09T14:03:45.863Z",
+      idempotencyKey: "still-queued-reconcile",
+      requestedBy: ACTOR_ID,
+      maxRetries: 3,
+      devSimulationMode: null,
+      resolvedAccountId: null,
+    });
+
+    await expect(
+      reconcileBlotatoStatusTimeout(
+        { ...deps, blotatoClient: fakeGetPostStatus({ postSubmissionId: "irrelevant", status: "published", scheduledTime: null, publicUrl: null, errorMessage: null }) },
+        ORG_ID,
+        job.id,
+      ),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("10: idempotency — reconciling twice never double-completes or republishes; the second call is rejected because the job is no longer failed", async () => {
+    const { deps, getAttempts } = createHarness({ draft: baseDraft({ status: "failed" }), viewerRole: "contributor" });
+    const job = await seedTimedOutJob(deps);
+    const blotatoClient = fakeGetPostStatus({ postSubmissionId: "sub-timeout-1", status: "published", scheduledTime: null, publicUrl: "https://instagram.com/p/real123", errorMessage: null });
+
+    const first = await reconcileBlotatoStatusTimeout({ ...deps, blotatoClient }, ORG_ID, job.id);
+    expect(first.outcome).toBe("published");
+
+    await expect(reconcileBlotatoStatusTimeout({ ...deps, blotatoClient }, ORG_ID, job.id)).rejects.toBeInstanceOf(ValidationError);
+    // Still exactly 2 attempts (original timeout + one reconciliation) — the rejected second call created nothing.
+    expect(getAttempts().filter((a) => a.jobId === job.id)).toHaveLength(2);
+  });
+
+  it("11: permission enforcement — a viewer with no write role cannot reconcile", async () => {
+    const { deps } = createHarness({ draft: baseDraft({ status: "failed" }), viewerRole: null });
+    const job = await seedTimedOutJob(deps);
+
+    await expect(
+      reconcileBlotatoStatusTimeout(
+        { ...deps, blotatoClient: fakeGetPostStatus({ postSubmissionId: "sub-timeout-1", status: "published", scheduledTime: null, publicUrl: null, errorMessage: null }) },
+        ORG_ID,
+        job.id,
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it("12: organisation isolation — a job cannot be reconciled through a different organisationId", async () => {
+    const { deps } = createHarness({ draft: baseDraft({ status: "failed" }), viewerRole: "contributor" });
+    const job = await seedTimedOutJob(deps);
+
+    await expect(
+      reconcileBlotatoStatusTimeout(
+        { ...deps, blotatoClient: fakeGetPostStatus({ postSubmissionId: "sub-timeout-1", status: "published", scheduledTime: null, publicUrl: null, errorMessage: null }) },
+        OTHER_ORG_ID,
+        job.id,
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenError);
+  });
 });
