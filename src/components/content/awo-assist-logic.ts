@@ -4,6 +4,7 @@
  * Extracted from draft-form.tsx so the context-awareness rules can be
  * tested independently of React rendering or Next.js infrastructure.
  */
+import type { GenerationIntentHints } from "@/server/actions/awo-grounding";
 
 export type AiRewriteInstruction = "expand" | "shorten" | "professional" | "casual" | "punchy";
 
@@ -68,19 +69,26 @@ export function rewriteInstructionForAction(action: string): AiRewriteInstructio
  *
  * Prompt precedence: explicit user prompt → draft title → generic fallback.
  * Platform should be the draft's scheduled social platform (e.g. "Instagram").
- * Defaults to "social media" when no specific platform has been chosen yet —
- * that matches the system-prompt sentence "You write high-quality social media
- * content for social media." and is semantically correct for an unscheduled draft.
+ * Defaults to "social media" when no specific platform has been chosen yet.
+ *
+ * The optional `intentHints` parameter carries structured signals from the
+ * call-site (campaign linked, content pillar, whether the operator typed an
+ * explicit prompt) so the server action can classify intent without re-fetching
+ * draft data — those signals are already available in the component.
  */
 export function buildGenerateCaptionArgs(
   organisationId: string,
   prompt: string,
   draftTitle: string | null | undefined,
   platform: string | null | undefined,
-): [string, string, string] {
+  intentHints?: GenerationIntentHints,
+): [string, string, string, GenerationIntentHints | undefined] {
   return [
     organisationId,
     prompt || draftTitle || "Generate a creative draft",
     platform || "social media",
+    intentHints,
   ];
 }
+
+export type { GenerationIntentHints };

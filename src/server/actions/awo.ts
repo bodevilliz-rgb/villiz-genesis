@@ -7,6 +7,8 @@ import {
   extractAwoMembrainContext,
   buildCaptionSystemPrompt,
   buildRewriteSystemPrompt,
+  classifyContentIntent,
+  type GenerationIntentHints,
 } from "./awo-grounding";
 import {
   detectComplianceViolations,
@@ -47,6 +49,7 @@ export async function generateCaption(
   organisationId: string,
   prompt: string,
   platform: string,
+  intentHints?: GenerationIntentHints,
 ): Promise<{ text: string; complianceWarning?: string }> {
   const context = await requireContext();
   const org = await context.organisations.findById(organisationId);
@@ -57,7 +60,8 @@ export async function generateCaption(
   const membrain = await getMembrainOverview(membrainDeps, organisationId);
 
   const ctx = extractAwoMembrainContext(membrain);
-  const systemPrompt = buildCaptionSystemPrompt(orgName, platform, ctx);
+  const intent = classifyContentIntent(prompt, ctx, intentHints ?? {});
+  const systemPrompt = buildCaptionSystemPrompt(orgName, platform, ctx, intent);
 
   const ai = getAIProvider();
   const text = await ai.generateText(prompt, { systemPrompt });
