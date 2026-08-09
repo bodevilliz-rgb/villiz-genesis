@@ -141,7 +141,11 @@ export abstract class BlotatoPublisherBase implements PublisherPort {
     for (const assetUrl of input.assetUrls) {
       try {
         const uploaded = await this.deps.blotatoClient.uploadMedia(assetUrl);
-        blotatoMediaUrls.push(uploaded.url);
+        if (uploaded.url && uploaded.url.trim() !== "") {
+          blotatoMediaUrls.push(uploaded.url);
+        } else {
+          mediaUploadFailedCount += 1;
+        }
       } catch {
         mediaUploadFailedCount += 1;
       }

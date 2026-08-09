@@ -805,6 +805,162 @@ describe("T31 — No production client identifiers in the media delivery impleme
   });
 });
 
+// ── T33–T38: Provider URL validation regression ───────────────────────────────
+//
+// Guards the new null/empty/whitespace validation on uploaded.url introduced
+// in fix/provider-media-url-validation. Each test injects a response that the
+// Blotato API could return with a 2xx status but an unusable url value and
+// verifies the fail-closed path activates instead of forwarding bad data to
+// publishPost.
+
+describe("T33 — uploadMedia returns empty string URL → treated as upload failure", () => {
+  it("returns media_resolution_failed without calling publishPost when uploaded.url is ''", async () => {
+    const publishPost = vi.fn(async () => ({ postSubmissionId: "never" }));
+    const publisher = new BlotatoInstagramPublisher(
+      deps({
+        blotatoClient: fakeClient({
+          uploadMedia: async () => ({ url: "", id: "media-empty-1" }),
+          publishPost,
+        }),
+      }),
+    );
+
+    const result = await publisher.publish(input({ assetUrls: [SUPABASE_SIGNED_URL] }));
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.errorCode).toBe("media_resolution_failed");
+    }
+    expect(publishPost).not.toHaveBeenCalled();
+  });
+});
+
+describe("T34 — uploadMedia returns whitespace-only URL → treated as upload failure", () => {
+  it("returns media_resolution_failed without calling publishPost when uploaded.url is '   '", async () => {
+    const publishPost = vi.fn(async () => ({ postSubmissionId: "never" }));
+    const publisher = new BlotatoInstagramPublisher(
+      deps({
+        blotatoClient: fakeClient({
+          uploadMedia: async () => ({ url: "   ", id: "media-whitespace-1" }),
+          publishPost,
+        }),
+      }),
+    );
+
+    const result = await publisher.publish(input({ assetUrls: [SUPABASE_SIGNED_URL] }));
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.errorCode).toBe("media_resolution_failed");
+    }
+    expect(publishPost).not.toHaveBeenCalled();
+  });
+});
+
+describe("T35 — uploadMedia returns undefined URL → treated as upload failure", () => {
+  it("returns media_resolution_failed without calling publishPost when uploaded.url is undefined", async () => {
+    const publishPost = vi.fn(async () => ({ postSubmissionId: "never" }));
+    const publisher = new BlotatoInstagramPublisher(
+      deps({
+        blotatoClient: fakeClient({
+          uploadMedia: async () => ({ url: undefined as unknown as string, id: "media-undef-1" }),
+          publishPost,
+        }),
+      }),
+    );
+
+    const result = await publisher.publish(input({ assetUrls: [SUPABASE_SIGNED_URL] }));
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.errorCode).toBe("media_resolution_failed");
+    }
+    expect(publishPost).not.toHaveBeenCalled();
+  });
+});
+
+describe("T36 — uploadMedia returns null URL → treated as upload failure", () => {
+  it("returns media_resolution_failed without calling publishPost when uploaded.url is null", async () => {
+    const publishPost = vi.fn(async () => ({ postSubmissionId: "never" }));
+    const publisher = new BlotatoInstagramPublisher(
+      deps({
+        blotatoClient: fakeClient({
+          uploadMedia: async () => ({ url: null as unknown as string, id: "media-null-1" }),
+          publishPost,
+        }),
+      }),
+    );
+
+    const result = await publisher.publish(input({ assetUrls: [SUPABASE_SIGNED_URL] }));
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.errorCode).toBe("media_resolution_failed");
+    }
+    expect(publishPost).not.toHaveBeenCalled();
+  });
+});
+
+describe("T37 — Partial success: one invalid + one valid URL → publishPost called with only the valid URL", () => {
+  it("the invalid URL is discarded and publishPost receives only the one valid Blotato URL", async () => {
+    const SECOND_ASSET_URL = "https://abcxyz.supabase.co/storage/v1/object/sign/organisation-media/organisations/alpha-org/img2.jpg?token=jwt456";
+    const VALID_BLOTATO_URL = "https://media.blotato.com/second-asset-uploaded.jpg";
+
+    let callIndex = 0;
+    const uploadMedia = vi.fn(async () => {
+      callIndex += 1;
+      // First asset: returns invalid empty URL
+      if (callIndex === 1) return { url: "", id: "media-invalid-1" };
+      // Second asset: returns a valid Blotato URL
+      return { url: VALID_BLOTATO_URL, id: "media-valid-2" };
+    });
+    const publishPost = vi.fn(async () => ({ postSubmissionId: "sub-partial" }));
+
+    const publisher = new BlotatoInstagramPublisher(
+      deps({
+        blotatoClient: fakeClient({ uploadMedia, publishPost }),
+      }),
+    );
+
+    const result = await publisher.publish(
+      input({ assetUrls: [SUPABASE_SIGNED_URL, SECOND_ASSET_URL] }),
+    );
+
+    // Partial success: the valid asset was uploaded, so the post should proceed
+    expect(result.success).toBe(true);
+    expect(publishPost).toHaveBeenCalledTimes(1);
+    expect(publishPost).toHaveBeenCalledWith(
+      expect.objectContaining({ mediaUrls: [VALID_BLOTATO_URL] }),
+    );
+    // The invalid empty URL must NOT appear in publishPost's call
+    expect(publishPost).not.toHaveBeenCalledWith(
+      expect.objectContaining({ mediaUrls: expect.arrayContaining([""]) }),
+    );
+  });
+});
+
+describe("T38 — publishPost is never called when all provider URLs fail validation", () => {
+  it("publishPost call count is zero when every uploadMedia call returns an invalid URL", async () => {
+    const publishPost = vi.fn(async () => ({ postSubmissionId: "never" }));
+    const publisher = new BlotatoInstagramPublisher(
+      deps({
+        blotatoClient: fakeClient({
+          uploadMedia: async () => ({ url: null as unknown as string, id: "media-all-invalid" }),
+          publishPost,
+        }),
+      }),
+    );
+
+    const result = await publisher.publish(input({ assetUrls: [SUPABASE_SIGNED_URL] }));
+
+    expect(publishPost).toHaveBeenCalledTimes(0);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.errorCode).toBe("media_resolution_failed");
+    }
+  });
+});
+
 // ── T32: Alpha / Beta multi-tenant proof ─────────────────────────────────────
 
 describe("T32 — Alpha/Beta multi-tenant proof: each org's payload contains ONLY its own media", () => {
