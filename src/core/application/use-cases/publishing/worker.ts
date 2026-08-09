@@ -5,10 +5,15 @@ import type { BlotatoAccountRepository } from "@/core/application/ports/blotato-
 import type { BlotatoClient } from "@/core/application/ports/blotato-client-port";
 import type { AuditRepository } from "@/core/application/ports/audit-port";
 import type { NotificationRepository } from "@/core/application/ports/notification-port";
+import type { MediaRepository } from "@/core/application/ports/media-port";
+import type { StoragePort } from "@/core/application/ports/storage-port";
 import type { PublishingJob } from "@/core/domain/entities/publishing";
 import { blotatoConfig } from "@/infrastructure/blotato/blotato-config";
 import { resolvePublisher } from "@/infrastructure/publishers/publisher-factory";
 import { resolveEffectiveSimulationMode } from "@/infrastructure/publishers/simulation-mode";
+import { evaluatePlatformPreflight } from "@/core/domain/entities/publishing-preflight";
+import { composePublishedText } from "@/core/application/use-cases/content/hashtags";
+import { resolvePublishMediaUrls } from "./media";
 import {
   claimNextPublishingJob,
   completePublishingAttempt,
@@ -24,6 +29,8 @@ export interface WorkerDeps {
   blotatoClient: BlotatoClient;
   audits: AuditRepository;
   notifications: NotificationRepository;
+  media: MediaRepository;
+  storage: StoragePort;
 }
 
 export type WorkerIterationResult =
@@ -96,16 +103,52 @@ async function executeJob(deps: WorkerDeps, job: PublishingJob): Promise<WorkerI
 
   try {
     const config = blotatoConfig();
-    const publisher = resolvePublisher(job.platform, {
-      blotatoAccounts: deps.blotatoAccounts,
-      blotatoClient: deps.blotatoClient,
-      livePublishingEnabled: config.livePublishingEnabled,
-    });
 
     const draft = await deps.content.findDraft(job.organisationId, job.draftId);
     if (!draft) {
       throw Object.assign(new Error("Draft not found for publishing job."), { code: "draft_not_found" });
     }
+
+    // Resolve the draft's attached media into provider-ready signed URLs at
+    // execution time — identical to the background worker's processJob
+    // (scripts/publishing-worker-core.ts). This path previously hardcoded
+    // assetUrls: [] which caused live Instagram posts triggered through
+    // POST /api/internal/publishing/run to reach Blotato with zero media.
+    const media = await resolvePublishMediaUrls(
+      { media: deps.media, storage: deps.storage },
+      { organisationId: job.organisationId, draftId: job.draftId },
+    );
+
+    const composedBody = composePublishedText(draft.body, draft.hashtags ?? []);
+
+    // Fail-closed: mandatory platform requirements are enforced at execution
+    // time when live publishing is enabled — same guard, same ordering, and
+    // same error code as the background worker core.
+    if (config.livePublishingEnabled) {
+      const preflight = evaluatePlatformPreflight(job.platform, composedBody, media.mediaUrls.length);
+      if (!preflight.ready) {
+        const errorMessage = `Platform preflight failed: ${preflight.blockers.join(" ")}`;
+        let preflightFailureCode = "preflight_failed";
+        try {
+          await failPublishingAttempt(innerDeps, job, attempt, {
+            errorCode: "preflight_failed",
+            errorMessage,
+            providerMetadata: { blockers: preflight.blockers },
+          });
+        } catch (_finalisationError) {
+          await deps.publishing.markJobFailed(job.id).catch(() => undefined);
+          preflightFailureCode = "publishing_attempt_finalisation_failed";
+        }
+        return { status: "processed", jobId: job.id, result: "failed", failureCode: preflightFailureCode };
+      }
+    }
+
+    const publisher = resolvePublisher(job.platform, {
+      blotatoAccounts: deps.blotatoAccounts,
+      blotatoClient: deps.blotatoClient,
+      livePublishingEnabled: config.livePublishingEnabled,
+      assetMimeTypes: media.mimeTypes,
+    });
 
     const devSimulationMode = resolveEffectiveSimulationMode(
       job.devSimulationMode as "always_succeed" | "fail_next_attempt" | "always_fail" | null,
@@ -119,8 +162,8 @@ async function executeJob(deps: WorkerDeps, job: PublishingJob): Promise<WorkerI
       attemptNumber: attempt.attemptNumber,
       platform: job.platform,
       title: draft.title,
-      body: draft.body,
-      assetUrls: [],
+      body: composedBody,
+      assetUrls: media.mediaUrls,
       devSimulationMode,
       resolvedAccountId: job.resolvedAccountId,
     });

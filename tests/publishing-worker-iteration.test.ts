@@ -72,6 +72,18 @@ vi.mock("@/infrastructure/repositories/supabase-notification-repository", () => 
   })),
 }));
 
+vi.mock("@/infrastructure/repositories/supabase-media-repository", () => ({
+  SupabaseMediaRepository: vi.fn().mockImplementation(() => ({
+    listAssetsForDraft: vi.fn(async () => []),
+  })),
+}));
+
+vi.mock("@/infrastructure/ports/supabase-storage-port", () => ({
+  SupabaseStoragePort: vi.fn().mockImplementation(() => ({
+    getSignedUrl: vi.fn(async () => "https://example.supabase.co/storage/v1/object/sign/x.jpg?token=t"),
+  })),
+}));
+
 vi.mock("@/infrastructure/blotato/http-blotato-client", () => ({
   HttpBlotatoClient: vi.fn().mockImplementation(() => ({
     listAccounts: vi.fn(async () => []),
@@ -118,6 +130,9 @@ import type {
 import type { ContentDraft } from "@/core/domain/entities/content";
 import type { PublishingJob, PublishingAttempt } from "@/core/domain/entities/publishing";
 import type { BlotatoAccount } from "@/core/domain/entities/blotato";
+import type { MediaRepository } from "@/core/application/ports/media-port";
+import type { StoragePort } from "@/core/application/ports/storage-port";
+import type { MediaAsset } from "@/core/domain/entities/media";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -405,6 +420,55 @@ function fakeNotifications(): NotificationRepository {
   return stub as NotificationRepository;
 }
 
+// ── Media / storage fakes ─────────────────────────────────────────────────────
+
+const WORKER_SIGNED_URL =
+  "https://example.supabase.co/storage/v1/object/sign/organisation-media/worker-img.jpg?token=worker-jwt";
+
+function workerAsset(overrides: Partial<MediaAsset> = {}): MediaAsset {
+  return {
+    id: "worker-asset-1",
+    organisationId: ORG_A,
+    storagePath: `organisations/${ORG_A}/worker-img.jpg`,
+    fileName: "worker-img.jpg",
+    mimeType: "image/jpeg",
+    sizeBytes: 100000,
+    width: 1080,
+    height: 1080,
+    uploadedBy: null,
+    createdAt: "2026-08-01T00:00:00Z",
+    updatedAt: "2026-08-01T00:00:00Z",
+    title: null,
+    thumbnailPath: null,
+    category: null,
+    description: null,
+    altText: null,
+    tags: [],
+    brand: null,
+    duration: null,
+    copyrightOwner: null,
+    usageRights: null,
+    expiresAt: null,
+    isAiGenerated: false,
+    isArchived: false,
+    ...overrides,
+  };
+}
+
+function fakeMediaRepo(assets: MediaAsset[] = [workerAsset()]): MediaRepository {
+  const stub: Partial<MediaRepository> = {
+    listAssetsForDraft: vi.fn(async () => assets),
+  };
+  return stub as MediaRepository;
+}
+
+function fakeStoragePort(urlFor: (storagePath: string) => string = () => WORKER_SIGNED_URL): StoragePort {
+  const stub: Partial<StoragePort> = {
+    getSignedUrl: vi.fn(async (storagePath: string) => urlFor(storagePath)),
+  };
+  return stub as StoragePort;
+}
+
 // ── Live-publishing helper ────────────────────────────────────────────────────
 // The blotatoConfig module is mocked (livePublishingEnabled: false by default).
 // Call this before tests that need the Blotato live path to be exercised.
@@ -424,6 +488,8 @@ function workerDeps(
   content: ContentRepository,
   accounts: BlotatoAccountRepository = fakeAccountRepo(),
   client: BlotatoClient = fakeClient(),
+  media: MediaRepository = fakeMediaRepo(),
+  storage: StoragePort = fakeStoragePort(),
 ): WorkerDeps {
   return {
     publishing,
@@ -432,6 +498,8 @@ function workerDeps(
     blotatoClient: client,
     audits: fakeAudits(),
     notifications: fakeNotifications(),
+    media,
+    storage,
   };
 }
 
@@ -887,5 +955,164 @@ describe("K — destination lock: job.resolvedAccountId is forwarded to publishe
     expect(result.status).toBe("processed");
     if (result.status === "processed") expect(result.result).toBe("published");
     expect(capturedAccountIds).toEqual(["acc-b"]); // locked to ACC_B, not ACC_A
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// L — Media resolution parity (P0 regression: runPublishingWorkerIteration
+//     previously hardcoded assetUrls: [] with no preflight, so live Instagram
+//     jobs claimed via POST /api/internal/publishing/run reached Blotato with
+//     zero media and failed asynchronously with "requires an image or a video")
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("L — media resolution: runPublishingWorkerIteration resolves draft media at execution time", () => {
+  it("L1: live instagram job with an attached image → uploadMedia receives the resolved signed URL and publishPost receives the Blotato-domain URL", async () => {
+    const { repo } = createPublishingHarness(baseJob());
+    const uploadMedia = vi.fn(async () => ({ url: "https://media.blotato.com/l1.jpg", id: "mid-l1" }));
+    const publishPost = vi.fn(async () => ({ postSubmissionId: "sub-l1" }));
+    const storage = fakeStoragePort();
+
+    enableLivePublishing();
+    const result = await runPublishingWorkerIteration(
+      workerDeps(repo, fakeContentRepo(), fakeAccountRepo(), fakeClient({ uploadMedia, publishPost }), fakeMediaRepo(), storage),
+    );
+
+    expect(result).toMatchObject({ status: "processed", result: "published" });
+    expect(storage.getSignedUrl).toHaveBeenCalledWith(workerAsset().storagePath, expect.any(Number));
+    expect(uploadMedia).toHaveBeenCalledWith(WORKER_SIGNED_URL);
+    expect(publishPost).toHaveBeenCalledWith(
+      expect.objectContaining({ mediaUrls: ["https://media.blotato.com/l1.jpg"] }),
+    );
+  });
+
+  it("L2: live instagram job with NO attached media → preflight_failed; uploadMedia and publishPost are never called", async () => {
+    const { repo, jobs, attempts } = createPublishingHarness(baseJob());
+    const uploadMedia = vi.fn(async () => ({ url: "https://media.blotato.com/never.jpg", id: "never" }));
+    const publishPost = vi.fn(async () => ({ postSubmissionId: "never" }));
+
+    enableLivePublishing();
+    const result = await runPublishingWorkerIteration(
+      workerDeps(repo, fakeContentRepo(), fakeAccountRepo(), fakeClient({ uploadMedia, publishPost }), fakeMediaRepo([]), fakeStoragePort()),
+    );
+
+    expect(result).toMatchObject({ status: "processed", result: "failed", failureCode: "preflight_failed" });
+    expect(jobs.get(JOB_ID)?.status).toBe("failed");
+    expect([...attempts.values()][0]?.errorCode).toBe("preflight_failed");
+    expect(uploadMedia).not.toHaveBeenCalled();
+    expect(publishPost).not.toHaveBeenCalled();
+  });
+
+  it("L3: cross-organisation asset attached to the draft is excluded — live instagram job fails preflight instead of leaking org B media", async () => {
+    const { repo } = createPublishingHarness(baseJob());
+    const crossOrgAsset = workerAsset({ organisationId: ORG_B });
+    const storage = fakeStoragePort();
+    const publishPost = vi.fn(async () => ({ postSubmissionId: "never" }));
+
+    enableLivePublishing();
+    const result = await runPublishingWorkerIteration(
+      workerDeps(repo, fakeContentRepo(), fakeAccountRepo(), fakeClient({ publishPost }), fakeMediaRepo([crossOrgAsset]), storage),
+    );
+
+    expect(result).toMatchObject({ status: "processed", result: "failed", failureCode: "preflight_failed" });
+    expect(storage.getSignedUrl).not.toHaveBeenCalled();
+    expect(publishPost).not.toHaveBeenCalled();
+  });
+
+  it("L4: two organisations' jobs run through identical code — each publishPost receives only its own organisation's media", async () => {
+    const ORG_A_BLOTATO = "https://media.blotato.com/org-a.jpg";
+    const ORG_B_BLOTATO = "https://media.blotato.com/org-b.jpg";
+    const capturedMediaUrls: string[][] = [];
+
+    for (const [orgId, blotatoUrl] of [[ORG_A, ORG_A_BLOTATO], [ORG_B, ORG_B_BLOTATO]] as const) {
+      const job = baseJob({ organisationId: orgId });
+      const draft = baseDraft({ organisationId: orgId });
+      const { repo } = createPublishingHarness(job);
+      const orgAsset = workerAsset({ organisationId: orgId, storagePath: `organisations/${orgId}/img.jpg` });
+      const publishPost = vi.fn(async (input: { mediaUrls: string[] }) => {
+        capturedMediaUrls.push(input.mediaUrls);
+        return { postSubmissionId: `sub-${orgId}` };
+      });
+
+      enableLivePublishing();
+      await runPublishingWorkerIteration(
+        workerDeps(
+          repo,
+          fakeContentRepo(draft),
+          fakeAccountRepo(storedBlotatoAccount(orgId)),
+          fakeClient({ uploadMedia: async () => ({ url: blotatoUrl, id: `mid-${orgId}` }), publishPost }),
+          fakeMediaRepo([orgAsset]),
+          fakeStoragePort((p) => `https://example.supabase.co/storage/v1/object/sign/organisation-media/${p}?token=t`),
+        ),
+      );
+    }
+
+    expect(capturedMediaUrls).toEqual([[ORG_A_BLOTATO], [ORG_B_BLOTATO]]);
+  });
+
+  it("L5: media is resolved freshly per job execution — a scheduled job triggers its own getSignedUrl call at execution time", async () => {
+    const scheduledJob = baseJob({ triggerType: "scheduled", scheduledFor: new Date(Date.now() - 1000).toISOString() });
+    const { repo } = createPublishingHarness(scheduledJob);
+    const storage = fakeStoragePort();
+
+    enableLivePublishing();
+    const result = await runPublishingWorkerIteration(
+      workerDeps(repo, fakeContentRepo(), fakeAccountRepo(), fakeClient(), fakeMediaRepo(), storage),
+    );
+
+    expect(result).toMatchObject({ status: "processed", result: "published" });
+    expect(storage.getSignedUrl).toHaveBeenCalledTimes(1);
+  });
+
+  it("L6: draft hashtags are composed into the published body exactly once — no duplication", async () => {
+    const { repo } = createPublishingHarness(baseJob());
+    const draft = baseDraft({ body: "Caption text", hashtags: ["growth", "brand"] });
+    const publishPost = vi.fn(async (_input: { text: string }) => ({ postSubmissionId: "sub-l6" }));
+
+    enableLivePublishing();
+    await runPublishingWorkerIteration(
+      workerDeps(repo, fakeContentRepo(draft), fakeAccountRepo(), fakeClient({ publishPost })),
+    );
+
+    expect(publishPost).toHaveBeenCalledTimes(1);
+    const sentText = publishPost.mock.calls[0]![0].text;
+    expect(sentText).toBe("Caption text\n\n#growth #brand");
+    expect(sentText.match(/#growth/g)).toHaveLength(1);
+  });
+
+  it("L7: provider payload contract — publishPost receives accountId, platform, text, and Blotato-domain mediaUrls", async () => {
+    const { repo } = createPublishingHarness(baseJob());
+    const publishPost = vi.fn(async () => ({ postSubmissionId: "sub-l7" }));
+
+    enableLivePublishing();
+    await runPublishingWorkerIteration(
+      workerDeps(
+        repo,
+        fakeContentRepo(),
+        fakeAccountRepo(),
+        fakeClient({ uploadMedia: async () => ({ url: "https://media.blotato.com/l7.jpg", id: "mid-l7" }), publishPost }),
+      ),
+    );
+
+    expect(publishPost).toHaveBeenCalledWith({
+      accountId: storedBlotatoAccount().id,
+      platform: "instagram",
+      text: "Post body text",
+      mediaUrls: ["https://media.blotato.com/l7.jpg"],
+    });
+  });
+
+  it("L8: simulation mode still bypasses media upload and publish — resolution alone causes no provider traffic", async () => {
+    const { repo } = createPublishingHarness(baseJob());
+    const uploadMedia = vi.fn(async () => ({ url: "https://media.blotato.com/never.jpg", id: "never" }));
+    const publishPost = vi.fn(async () => ({ postSubmissionId: "never" }));
+
+    // Default mocked blotatoConfig: livePublishingEnabled false → simulation.
+    const result = await runPublishingWorkerIteration(
+      workerDeps(repo, fakeContentRepo(), fakeAccountRepo(), fakeClient({ uploadMedia, publishPost })),
+    );
+
+    expect(result).toMatchObject({ status: "processed", result: "published" });
+    expect(uploadMedia).not.toHaveBeenCalled();
+    expect(publishPost).not.toHaveBeenCalled();
   });
 });
