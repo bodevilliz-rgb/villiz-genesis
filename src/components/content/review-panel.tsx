@@ -123,6 +123,18 @@ function DecisionForm({ organisationId, draftId }: { organisationId: string; dra
   useActionToast(state);
   const [decision, setDecision] = useState<ReviewDecision | null>(null);
 
+  // Reset to the initial button state only AFTER the server action reports
+  // success. The previous implementation called setTimeout(setDecision(null), 0)
+  // inside an onSubmit handler, which unmounted the form immediately — before
+  // the action completed. That dropped useFormStatus's pending signal, making
+  // the SubmitButton appear idle while the action was still in flight. Operators
+  // saw the UI snap back, assumed the click failed, and clicked a second time,
+  // sending a duplicate mutation. Watching state.status here means the form
+  // stays mounted and the button stays disabled for the full action duration.
+  useEffect(() => {
+    if (state.status === "success") setDecision(null);
+  }, [state.status]);
+
   if (!decision) {
     return (
       <div className="flex flex-wrap gap-2">
@@ -143,10 +155,6 @@ function DecisionForm({ organisationId, draftId }: { organisationId: string; dra
     <form
       action={formAction}
       className="flex flex-col gap-2.5"
-      onSubmit={() => {
-        // Keep the decision buttons collapsed once the request lands.
-        setTimeout(() => setDecision(null), 0);
-      }}
     >
       <input type="hidden" name="organisationId" value={organisationId} />
       <input type="hidden" name="draftId" value={draftId} />

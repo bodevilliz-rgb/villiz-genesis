@@ -157,6 +157,7 @@ function baseDraft(overrides: Partial<ContentDraft> = {}): ContentDraft {
     updatedBy: { id: "user-1", fullName: "User One", email: "user@villiz.com" },
     priority: "medium",
     reviewDeadline: null,
+    hashtags: [],
     ...overrides,
   };
 }

@@ -318,6 +318,7 @@ export async function restoreVersionAction(_prev: ActionState, formData: FormDat
       priority: targetVersion.priority,
       reviewDeadline: targetVersion.reviewDeadline,
       updatedBy: context.actor.id,
+      hashtags: currentDraft.hashtags ?? [],
     });
 
     // Annotate restored version comment
@@ -445,6 +446,7 @@ export async function updatePriorityAndDeadlineAction(_prev: ActionState, formDa
       priority,
       reviewDeadline: reviewDeadline || null,
       updatedBy: context.actor.id,
+      hashtags: draft.hashtags ?? [],
     });
 
     revalidateReview(organisationId, draftId);

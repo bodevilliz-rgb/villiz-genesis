@@ -92,6 +92,9 @@ export interface ContentDraft {
   // Sprint 4 features
   priority: "low" | "medium" | "high";
   reviewDeadline: string | null;
+
+  // Sprint 5 features
+  hashtags: string[];
 }
 
 export interface CommentThread {

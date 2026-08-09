@@ -22,6 +22,17 @@ function contentDeps(context: Awaited<ReturnType<typeof requireContext>>) {
   };
 }
 
+function parseHashtagsField(formData: FormData): string[] {
+  const raw = formData.get("hashtags");
+  if (typeof raw !== "string" || !raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as unknown[]).filter((t): t is string => typeof t === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 function draftFormPayload(formData: FormData) {
   return {
     organisationId: textOrEmpty(formData, "organisationId"),
@@ -31,6 +42,7 @@ function draftFormPayload(formData: FormData) {
     campaignId: textOrEmpty(formData, "campaignId"),
     summary: textOrEmpty(formData, "summary"),
     body: textOrEmpty(formData, "body"),
+    hashtags: parseHashtagsField(formData),
   };
 }
 

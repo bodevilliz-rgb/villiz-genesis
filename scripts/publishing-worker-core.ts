@@ -41,6 +41,7 @@ import { resolveEffectiveSimulationMode } from "../src/infrastructure/publishers
 import { resolvePublishMediaUrls } from "../src/core/application/use-cases/publishing/media";
 import { evaluatePlatformPreflight } from "../src/core/domain/entities/publishing-preflight";
 import { redactMediaUrl } from "../src/core/domain/entities/publishing-media";
+import { composePublishedText } from "../src/core/application/use-cases/content/hashtags";
 import {
   claimNextPublishingJob,
   completePublishingAttempt,
@@ -164,7 +165,7 @@ async function processJob(job: PublishingJob, deps: ReturnType<typeof buildDeps>
   // (e.g. operator retries a job that was previously valid). Simulation
   // always proceeds regardless, so this guard is invisible in UAT.
   if (deps.blotatoLivePublishingEnabled) {
-    const preflight = evaluatePlatformPreflight(job.platform, draft.body, media.mediaUrls.length);
+    const preflight = evaluatePlatformPreflight(job.platform, composePublishedText(draft.body, draft.hashtags ?? []), media.mediaUrls.length);
     if (!preflight.ready) {
       const errorMessage = `Platform preflight failed: ${preflight.blockers.join(" ")}`;
       await failPublishingAttempt(deps, job, attempt, {
@@ -199,7 +200,7 @@ async function processJob(job: PublishingJob, deps: ReturnType<typeof buildDeps>
     attemptNumber: attempt.attemptNumber,
     platform: job.platform,
     title: draft.title,
-    body: draft.body,
+    body: composePublishedText(draft.body, draft.hashtags ?? []),
     assetUrls: media.mediaUrls,
     devSimulationMode: effectiveMode,
     resolvedAccountId: job.resolvedAccountId,

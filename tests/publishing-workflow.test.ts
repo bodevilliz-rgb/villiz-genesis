@@ -90,6 +90,7 @@ function baseDraft(overrides: Partial<ContentDraft> = {}): ContentDraft {
     updatedBy: profileRef(AUTHOR_ID),
     priority: "medium",
     reviewDeadline: null,
+    hashtags: [],
     ...overrides,
   };
 }

@@ -97,6 +97,9 @@ export async function createDraft(deps: ContentDeps, raw: unknown): Promise<Cont
     // Sprint 4 features
     priority: input.priority,
     reviewDeadline: blank(input.reviewDeadline),
+
+    // Sprint 5 features
+    hashtags: input.hashtags ?? [],
   });
 }
 
@@ -133,6 +136,9 @@ export async function updateDraft(deps: ContentDeps, raw: unknown): Promise<Cont
     // Sprint 4 features
     priority: input.priority,
     reviewDeadline: blank(input.reviewDeadline),
+
+    // Sprint 5 features
+    hashtags: input.hashtags ?? [],
   });
 
   // The database writes the version row; the reason for the change is a human
