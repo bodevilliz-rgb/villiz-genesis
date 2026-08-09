@@ -136,6 +136,7 @@ function publishedStatus(id: string): BlotatoPostStatus {
 function fakeClient(overrides: Partial<BlotatoClient> = {}): BlotatoClient {
   return {
     listAccounts: async () => [],
+    uploadMedia: async () => ({ url: "https://media.blotato.com/org-asset.jpg", id: "mid-org-1" }),
     publishPost: async () => ({ postSubmissionId: "sub-1" }),
     getPostStatus: async (id) => publishedStatus(id),
     ...overrides,

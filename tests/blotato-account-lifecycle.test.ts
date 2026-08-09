@@ -105,6 +105,7 @@ function fakeUsage(maxSocialAccounts: number, _currentCount: number = 0): UsageR
 function fakeBlotatoClient(accounts: BlotatoAccountSummary[] = []): BlotatoClient {
   return {
     listAccounts: vi.fn(async () => accounts),
+    uploadMedia: vi.fn(async () => ({ url: "https://media.blotato.com/asset.jpg", id: "mid-1" })),
     publishPost: vi.fn(async () => ({ postSubmissionId: "sub-1" })),
     getPostStatus: vi.fn(async (id) => ({
       postSubmissionId: id,

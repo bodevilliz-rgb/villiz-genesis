@@ -196,6 +196,7 @@ export function blotatoPublishedStatus(overrides: Partial<BlotatoPostStatus> = {
 export function fakeBlotatoClient(overrides: Partial<BlotatoClient> = {}): BlotatoClient {
   return {
     listAccounts: async () => [],
+    uploadMedia: async () => ({ url: "https://media.blotato.com/reliability-asset.jpg", id: "media-reliability-1" }),
     publishPost: async () => ({ postSubmissionId: "reliability-submission-1" }),
     getPostStatus: async (postSubmissionId) => blotatoPublishedStatus({ postSubmissionId }),
     ...overrides,

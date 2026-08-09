@@ -7,13 +7,23 @@ import { toBlotatoPlatform, type BlotatoAccount } from "@/core/domain/entities/b
 import { redactAccountId } from "@/core/domain/entities/publishing-media";
 import { simulatePublish } from "../simulated-publish";
 
-/** A redacted preview of the outbound Blotato payload — logged before the real POST /posts call, never containing the media URLs themselves (only a count) or the full account id. */
+/**
+ * A redacted preview of the outbound Blotato payload — logged before the real
+ * POST /posts call. Never contains media URLs (only counts), signed-URL query
+ * strings, or the full account id.
+ *
+ * mediaUrlsCount  = number of Supabase-resolved URLs handed in (pre-upload)
+ * providerMediaCount = number successfully uploaded to Blotato and sent to publishPost
+ * mediaUploadFailedCount = mediaUrlsCount − providerMediaCount
+ */
 export interface BlotatoDryRunPreview {
   platform: string;
   accountIdRedacted: string;
   caption: string;
   mediaUrlsCount: number;
   mediaMimeTypes: string[];
+  providerMediaCount: number;
+  mediaUploadFailedCount: number;
 }
 
 export interface BlotatoPublisherDeps {
@@ -120,19 +130,56 @@ export abstract class BlotatoPublisherBase implements PublisherPort {
       };
     }
 
+    // Upload each Supabase-resolved URL to Blotato's CDN (POST /v2/media) so
+    // that publishPost receives Blotato-domain URLs only. Blotato accepts any
+    // URL structure in POST /posts but fails the post asynchronously when the
+    // mediaUrls do not originate from the Blotato domain — this is what
+    // produced "Publishing on instagram requires an image or a video" in the
+    // first live UAT even though Genesis showed media as attached.
+    const blotatoMediaUrls: string[] = [];
+    let mediaUploadFailedCount = 0;
+    for (const assetUrl of input.assetUrls) {
+      try {
+        const uploaded = await this.deps.blotatoClient.uploadMedia(assetUrl);
+        blotatoMediaUrls.push(uploaded.url);
+      } catch {
+        mediaUploadFailedCount += 1;
+      }
+    }
+
+    // Provider-boundary fail-closed: if every media upload failed and original
+    // assets were present, do not call publishPost — the provider would receive
+    // zero usable media and fail asynchronously (the original bug pattern).
+    if (input.assetUrls.length > 0 && blotatoMediaUrls.length === 0) {
+      return {
+        success: false,
+        errorCode: "media_resolution_failed",
+        errorMessage: `${input.assetUrls.length} media asset(s) were attached but none could be uploaded to the provider. The post cannot be published without provider-hosted media.`,
+        metadata: {
+          organisationId: input.organisationId,
+          draftId: input.draftId,
+          mediaAssetCount: input.assetUrls.length,
+          providerMediaCount: 0,
+          mediaUploadFailedCount: input.assetUrls.length,
+        },
+      };
+    }
+
     this.deps.onBeforePublish?.({
       platform: blotatoPlatform,
       accountIdRedacted: redactAccountId(account.id),
       caption: input.body,
       mediaUrlsCount: input.assetUrls.length,
       mediaMimeTypes: this.deps.assetMimeTypes ?? [],
+      providerMediaCount: blotatoMediaUrls.length,
+      mediaUploadFailedCount,
     });
 
     const submission = await this.deps.blotatoClient.publishPost({
       accountId: account.id,
       platform: blotatoPlatform,
       text: input.body,
-      mediaUrls: input.assetUrls,
+      mediaUrls: blotatoMediaUrls,
     });
 
     const baseMetadata = {

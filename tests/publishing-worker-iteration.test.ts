@@ -75,6 +75,7 @@ vi.mock("@/infrastructure/repositories/supabase-notification-repository", () => 
 vi.mock("@/infrastructure/blotato/http-blotato-client", () => ({
   HttpBlotatoClient: vi.fn().mockImplementation(() => ({
     listAccounts: vi.fn(async () => []),
+    uploadMedia: vi.fn(async () => ({ url: "https://media.blotato.com/worker-asset.jpg", id: "mid-worker-1" })),
     publishPost: vi.fn(async () => ({ postSubmissionId: "fake" })),
     getPostStatus: vi.fn(async () => ({
       postSubmissionId: "fake",
@@ -372,6 +373,7 @@ function fakeAccountRepo(account: BlotatoAccount | null = storedBlotatoAccount()
 function fakeClient(overrides: Partial<BlotatoClient> = {}): BlotatoClient {
   return {
     listAccounts: async () => [],
+    uploadMedia: vi.fn(async () => ({ url: "https://media.blotato.com/iter-asset.jpg", id: "mid-iter-1" })),
     publishPost: vi.fn(async () => ({ postSubmissionId: "sub-1" })),
     getPostStatus: async (id) => ({
       postSubmissionId: id,

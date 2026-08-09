@@ -1,5 +1,5 @@
 import "server-only";
-import type { BlotatoClient, BlotatoPostStatus, BlotatoPublishInput, BlotatoPublishResult } from "@/core/application/ports/blotato-client-port";
+import type { BlotatoClient, BlotatoMediaUploadResult, BlotatoPostStatus, BlotatoPublishInput, BlotatoPublishResult } from "@/core/application/ports/blotato-client-port";
 import type { BlotatoAccountSummary } from "@/core/domain/entities/blotato";
 import { InfrastructureError } from "@/core/domain/errors";
 
@@ -7,6 +7,11 @@ const BASE_URL = "https://backend.blotato.com/v2";
 
 interface ListAccountsResponseBody {
   items: Array<{ id: string; platform: string; fullname: string | null; username: string | null }>;
+}
+
+interface UploadMediaResponseBody {
+  url: string;
+  id: string;
 }
 
 interface PublishPostResponseBody {
@@ -59,6 +64,23 @@ export class HttpBlotatoClient implements BlotatoClient {
       fullname: item.fullname,
       username: item.username,
     }));
+  }
+
+  async uploadMedia(url: string): Promise<BlotatoMediaUploadResult> {
+    const response = await fetch(`${BASE_URL}/media`, {
+      method: "POST",
+      headers: this.headers({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ url }),
+    });
+
+    if (!response.ok) {
+      throw new InfrastructureError(
+        `Blotato returned ${response.status} uploading media: ${await readErrorDetail(response)}`,
+      );
+    }
+
+    const body = (await response.json()) as UploadMediaResponseBody;
+    return { url: body.url, id: body.id };
   }
 
   async publishPost(input: BlotatoPublishInput): Promise<BlotatoPublishResult> {

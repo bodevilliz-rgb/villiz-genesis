@@ -24,6 +24,7 @@ const fakeBlotatoDeps: BlotatoPublisherDeps = {
   },
   blotatoClient: {
     listAccounts: async () => [],
+    uploadMedia: async () => ({ url: "https://media.blotato.com/mock-asset.jpg", id: "mid-mock-1" }),
     publishPost: async () => ({ postSubmissionId: "fake-submission" }),
     getPostStatus: async (postSubmissionId) => ({
       postSubmissionId,
