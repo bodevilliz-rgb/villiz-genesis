@@ -473,6 +473,9 @@ export const blotatoPayloadConstructionCheck: ReliabilityCheck = {
       let capturedPlatform: string | null = null;
       let capturedText: string | null = null;
       let capturedMediaUrls: string[] | null = null;
+      let uploadMediaCalledWith: string | null = null;
+      const ORIGINAL_ASSET_URL = "https://cdn.example.com/media.png";
+      const BLOTATO_MEDIA_URL = "https://media.blotato.com/reliability-payload-asset.jpg";
 
       const publisher = new Publisher(
         blotatoDeps({
@@ -481,6 +484,10 @@ export const blotatoPayloadConstructionCheck: ReliabilityCheck = {
               blotatoPlatform === expectedBlotatoPlatform ? [blotatoStoredAccount({ id: "acc-1", platform: expectedBlotatoPlatform })] : [],
           }),
           blotatoClient: fakeBlotatoClient({
+            uploadMedia: async (url) => {
+              uploadMediaCalledWith = url;
+              return { url: BLOTATO_MEDIA_URL, id: "media-reliability-payload-1" };
+            },
             publishPost: async (input) => {
               capturedAccountId = input.accountId;
               capturedPlatform = input.platform;
@@ -492,12 +499,15 @@ export const blotatoPayloadConstructionCheck: ReliabilityCheck = {
         }),
       );
 
-      const result = await publisher.publish(publishInput({ platform, body: "Caption text", assetUrls: ["https://cdn.example.com/media.png"] }));
+      const result = await publisher.publish(publishInput({ platform, body: "Caption text", assetUrls: [ORIGINAL_ASSET_URL] }));
 
       assertEqual(capturedAccountId, "acc-1", `${platform}: accountId must be the resolved Blotato account`);
       assertEqual(capturedPlatform, expectedBlotatoPlatform, `${platform}: platform must map to Blotato's own name (x -> twitter, others unchanged)`);
       assertEqual(capturedText, "Caption text", `${platform}: caption text must be passed through`);
-      assertEqual(capturedMediaUrls, ["https://cdn.example.com/media.png"], `${platform}: mediaUrls must be passed through`);
+      // The original Supabase/CDN URL must be uploaded to Blotato first
+      assertEqual(uploadMediaCalledWith, ORIGINAL_ASSET_URL, `${platform}: uploadMedia must receive the original asset URL`);
+      // publishPost must receive the Blotato-domain URL, not the original URL
+      assertEqual(capturedMediaUrls, [BLOTATO_MEDIA_URL], `${platform}: publishPost.mediaUrls must contain the Blotato-domain URL from uploadMedia`);
       assertTrue(result.success, `${platform}: publish must report success once Blotato confirms published`);
     }
   },

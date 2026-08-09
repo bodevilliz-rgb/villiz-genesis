@@ -55,6 +55,7 @@ function fakeRepository(overrides: Partial<BlotatoAccountRepository> = {}): Blot
 function fakeClient(overrides: Partial<BlotatoClient> = {}): BlotatoClient {
   return {
     listAccounts: async () => [summary()],
+    uploadMedia: async () => ({ url: "https://media.blotato.com/asset.jpg", id: "mid-1" }),
     publishPost: async () => ({ postSubmissionId: "submission-1" }),
     getPostStatus: async (postSubmissionId) => ({
       postSubmissionId,

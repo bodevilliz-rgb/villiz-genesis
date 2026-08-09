@@ -70,6 +70,7 @@ function publishedStatus(overrides: Partial<BlotatoPostStatus> = {}): BlotatoPos
 function fakeClient(overrides: Partial<BlotatoClient> = {}): BlotatoClient {
   return {
     listAccounts: async () => [],
+    uploadMedia: async () => ({ url: "https://media.blotato.com/uploaded-asset.jpg", id: "media-id-1" }),
     publishPost: async () => ({ postSubmissionId: "submission-1" }),
     getPostStatus: async (postSubmissionId) => publishedStatus({ postSubmissionId }),
     ...overrides,
@@ -138,7 +139,8 @@ describe("BlotatoPublisherBase — live publishing enabled", () => {
       accountId: "acc-x",
       platform: "twitter",
       text: "Hello world",
-      mediaUrls: ["https://cdn.example.com/x.png"],
+      // Blotato-domain URL after upload, not the original CDN URL
+      mediaUrls: ["https://media.blotato.com/uploaded-asset.jpg"],
     });
     expect(result.success).toBe(true);
     if (result.success) {
@@ -197,6 +199,8 @@ describe("BlotatoPublisherBase — live publishing enabled", () => {
       caption: "Hello world",
       mediaUrlsCount: 1,
       mediaMimeTypes: ["image/png"],
+      providerMediaCount: 1,
+      mediaUploadFailedCount: 0,
     });
     expect(JSON.stringify(previews[0])).not.toContain("cdn.example.com");
     expect(JSON.stringify(previews[0])).not.toContain("blotato-account-1234567890");
@@ -448,7 +452,10 @@ describe("BlotatoPublisherBase — per-platform payload construction", () => {
         accountId,
         platform: blotato,
         text: `Caption for ${genesis}`,
-        mediaUrls: ["https://cdn.example.com/img.png"],
+        // mediaUrls must be the Blotato-domain URL returned by uploadMedia, NOT
+        // the original Supabase/CDN URL — this is the fix for the live UAT failure
+        // where Blotato rejected non-Blotato-domain URLs with "requires an image or a video"
+        mediaUrls: ["https://media.blotato.com/uploaded-asset.jpg"],
       });
       // accountId must never be null — the locked account id must reach the API payload
       expect(publishPost).not.toHaveBeenCalledWith(expect.objectContaining({ accountId: null }));

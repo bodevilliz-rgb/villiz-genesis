@@ -210,6 +210,7 @@ function fakeContentRepo(draft: ContentDraft = baseDraft()): ContentRepository {
 function fakeClient(overrides: Partial<BlotatoClient> = {}): BlotatoClient {
   return {
     listAccounts: async () => [summary()],
+    uploadMedia: vi.fn(async () => ({ url: "https://media.blotato.com/rls-asset.jpg", id: "mid-rls-1" })),
     publishPost: vi.fn(async () => ({ postSubmissionId: "sub-rls-1" })),
     getPostStatus: async (id) => ({
       postSubmissionId: id,
