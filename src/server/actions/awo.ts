@@ -61,7 +61,7 @@ export async function generateCaption(
 
   const ctx = extractAwoMembrainContext(membrain);
   const intent = classifyContentIntent(prompt, ctx, intentHints ?? {});
-  const systemPrompt = buildCaptionSystemPrompt(orgName, platform, ctx, intent);
+  const systemPrompt = buildCaptionSystemPrompt(orgName, platform, ctx, intent, prompt);
 
   const ai = getAIProvider();
   const text = await ai.generateText(prompt, { systemPrompt });

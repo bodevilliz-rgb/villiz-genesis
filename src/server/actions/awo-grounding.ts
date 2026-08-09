@@ -188,14 +188,17 @@ const GROUNDING_RULES = [
   "If a detail is absent from the MemBrain context, omit it entirely.",
   "Never substitute general industry knowledge, plausible assumptions or best practices for missing facts.",
   "Never invent: service processes, techniques, prices, durations, booking channels, contact methods,",
-  "guarantees, qualifications, availability, locations, outcomes or offers.",
+  "guarantees, qualifications, availability, locations, outcomes, offers,",
+  "or contextual occasions, events, deadlines or assumed client needs.",
   "",
   "=== BOOKING & CTA ===",
   'Do not mention any specific booking or contact method — including "DM us", "link in bio",',
   '"WhatsApp us", "call us", "email us" or "visit our website" — unless that exact channel is',
   "explicitly stated in the MemBrain context above.",
-  "If no booking method appears in the context, use a non-channel-specific CTA such as:",
-  '"Book your appointment" or "Get in touch to learn more."',
+  "A call to action is only appropriate when this content type warrants it.",
+  "For greetings, appreciation, community and similar brand-level posts, a commercial CTA is not required.",
+  "If a CTA is appropriate and no booking method appears in the context, use a non-channel-specific CTA",
+  'such as "Book your appointment" or "Get in touch to learn more."',
   "",
   "=== CREATIVE LATITUDE ===",
   "Hooks, transitions, emotional language, sentence structure, clarity and flow may be freely improved,",
@@ -214,6 +217,9 @@ const INTENT_INSTRUCTIONS: Record<ContentIntent, string> = {
     "=== CONTENT INTENT: Brand / General ===",
     "This post should represent the brand at its appropriate level.",
     "Rules for this intent:",
+    "- The operator's explicit request is the primary subject of this post. Fulfil that specific",
+    "  request using the brand's voice. Do not replace the stated theme with a commercial objective,",
+    "  invented occasion, or unrelated brand content.",
     "- Do not select one product or service as the central subject of this post",
     "  unless the operator has explicitly requested it or a campaign or content pillar requires it.",
     "- You may reference multiple offerings only when it flows naturally.",
@@ -247,6 +253,18 @@ const INTENT_INSTRUCTIONS: Record<ContentIntent, string> = {
   ].join("\n"),
 };
 
+function buildOperatorRequestBlock(prompt: string): string {
+  return [
+    "=== OPERATOR REQUEST ===",
+    `The operator's request: "${prompt}"`,
+    "",
+    "This is the primary semantic anchor of this post. Fulfil this specific request using the",
+    "brand's voice, context, and factual boundaries above. Do not substitute a different subject,",
+    "theme, occasion, or commercial objective. MemBrain defines HOW this organisation communicates —",
+    "it does not replace WHAT the operator asked for.",
+  ].join("\n");
+}
+
 /**
  * Builds the grounded system prompt for generateCaption.
  * Includes all six MemBrain categories so the model sees the full factual
@@ -256,12 +274,16 @@ const INTENT_INSTRUCTIONS: Record<ContentIntent, string> = {
  * model weights the brand context for this specific request.  Defaults to
  * `brand_general` — the strictest, safest option — so all callers that do not
  * supply an intent get the no-single-service-dominance rule automatically.
+ *
+ * The optional `operatorPrompt` injects an explicit subject-anchor block so the
+ * model cannot replace the operator's stated theme with invented context.
  */
 export function buildCaptionSystemPrompt(
   orgName: string,
   platform: string,
   ctx: AwoMembrainContext,
   intent: ContentIntent = "brand_general",
+  operatorPrompt?: string,
 ): string {
   const membrainBlock = [
     "=== MEMBRAIN CONTEXT ===",
@@ -278,18 +300,27 @@ export function buildCaptionSystemPrompt(
     renderSection("Rules & Compliance", ctx.restrictions),
   ].join("\n");
 
-  return [
+  const parts: string[] = [
     `You are AWO, the AI Work Optimiser for ${orgName}.`,
     `You write high-quality social media content for ${platform}.`,
     "",
     membrainBlock,
     "",
+  ];
+
+  if (operatorPrompt) {
+    parts.push(buildOperatorRequestBlock(operatorPrompt), "");
+  }
+
+  parts.push(
     INTENT_INSTRUCTIONS[intent],
     "",
     GROUNDING_RULES,
     "",
     "Respond ONLY with the generated caption.",
-  ].join("\n");
+  );
+
+  return parts.join("\n");
 }
 
 /**
