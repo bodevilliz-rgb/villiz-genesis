@@ -55,6 +55,7 @@ function makeDraft(overrides: Partial<ContentDraft> = {}): ContentDraft {
     summary: null,
     dueAt: null,
     reviewDeadline: null,
+    hashtags: [],
     priority: "medium",
     reviewerIds: [],
     createdAt: new Date().toISOString(),

@@ -41,6 +41,7 @@ describe("Sprint 2 — Campaign Orchestration & Content Calendar Tests", () => {
         reviewerIds: [],
         priority: "medium",
         reviewDeadline: null,
+        hashtags: [],
       },
       {
         id: "draft-2",
@@ -68,6 +69,7 @@ describe("Sprint 2 — Campaign Orchestration & Content Calendar Tests", () => {
         reviewerIds: [],
         priority: "medium",
         reviewDeadline: null,
+        hashtags: [],
       },
     ];
 
@@ -134,6 +136,7 @@ describe("Sprint 2 — Campaign Orchestration & Content Calendar Tests", () => {
         reviewerIds: [],
         priority: "medium",
         reviewDeadline: null,
+        hashtags: [],
       },
     ];
 

@@ -37,6 +37,9 @@ export const createDraftSchema = z.object({
   // Sprint 4 fields
   priority: z.enum(["low", "medium", "high"]).default("medium"),
   reviewDeadline: z.string().trim().optional().or(z.literal("")),
+
+  // Sprint 5 fields
+  hashtags: z.array(z.string()).optional().default([]),
 });
 
 export const updateDraftSchema = createDraftSchema.extend({

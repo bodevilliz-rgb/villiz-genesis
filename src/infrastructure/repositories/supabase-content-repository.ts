@@ -144,6 +144,7 @@ export class SupabaseContentRepository implements ContentRepository {
         reviewer_ids: input.reviewerIds,
         priority: input.priority,
         review_deadline: input.reviewDeadline,
+        hashtags: input.hashtags ?? [],
       })
       .select(DRAFT_SELECT)
       .single();
@@ -166,6 +167,7 @@ export class SupabaseContentRepository implements ContentRepository {
         reviewer_ids: input.reviewerIds,
         priority: input.priority,
         review_deadline: input.reviewDeadline,
+        hashtags: input.hashtags ?? [],
       })
       .eq("id", draftId)
       .eq("organisation_id", input.organisationId)

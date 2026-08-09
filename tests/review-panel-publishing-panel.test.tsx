@@ -41,6 +41,7 @@ function approvedDraft(): ContentDraft {
     updatedBy: { id: "author-1", fullName: "Author One", email: "author@villiz.com" },
     priority: "medium",
     reviewDeadline: null,
+    hashtags: [],
   };
 }
 

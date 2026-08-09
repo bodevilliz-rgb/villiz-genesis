@@ -186,6 +186,7 @@ export type ContentDraftVersionRow = {
   campaign_id: string | null;
   priority: string;
   review_deadline: string | null;
+  hashtags: string[];
 };
 
 export type ContentDraftRow = {
@@ -214,6 +215,7 @@ export type ContentDraftRow = {
   reviewer_ids: string[] | null;
   priority: string;
   review_deadline: string | null;
+  hashtags: string[];
 };
 
 export type ContentGenerationRequestRow = {

@@ -60,6 +60,14 @@ export async function analyzeDraftForPublishing(
         ? draft.assets.length === 0
         : true;
 
+  // Hashtag quality is determined deterministically from the dedicated
+  // hashtags field — not by inspecting the body for # characters. This
+  // ensures the pre-publish report is stable once the first-class field
+  // exists, and prevents the AI from being confused by body text that
+  // happens to contain #-prefixed words.
+  const hashtagQuality: PrePublishReport["hashtagQuality"] =
+    (draft.hashtags ?? []).length > 0 ? "optimal" : "missing";
+
   try {
     const ai = getAIProvider();
 
@@ -72,14 +80,15 @@ Draft Title: ${draft.title}
 Body:
 ${draft.body}
 
-Analyse:
+Hashtags (stored separately, will be appended at publish): ${(draft.hashtags ?? []).length > 0 ? (draft.hashtags ?? []).map((h) => `#${h}`).join(" ") : "None"}
+
+Analyse (do NOT evaluate hashtag quality — that is handled separately):
 1. Brand Voice Alignment
 2. Readability
 3. CTA Quality
 4. Platform Optimisation (does it fit ${platformCtx}?)
-5. Hashtag Quality
-6. Accessibility (e.g. emoji use, formatting)
-7. Compliance (any risky, offensive, or disallowed content?)
+5. Accessibility (e.g. emoji use, formatting)
+6. Compliance (any risky, offensive, or disallowed content?)
 
 Provide your analysis matching the JSON schema. 'recommendations' should be specific actionable advice.`;
 
@@ -87,6 +96,9 @@ Provide your analysis matching the JSON schema. 'recommendations' should be spec
 
     return {
       ...analysis,
+      // Deterministic override — the AI's hashtagQuality output is discarded
+      // in favour of the value derived from the dedicated hashtags field above.
+      hashtagQuality,
       missingMedia,
       brokenLinks,
     };
@@ -98,7 +110,7 @@ Provide your analysis matching the JSON schema. 'recommendations' should be spec
       readability: "moderate",
       ctaQuality: "missing",
       platformOptimisation: "medium",
-      hashtagQuality: "missing",
+      hashtagQuality,
       accessibility: "poor",
       compliance: "flagged",
       missingMedia,

@@ -92,6 +92,9 @@ export interface ContentDraft {
   // Sprint 4 features
   priority: "low" | "medium" | "high";
   reviewDeadline: string | null;
+
+  // Sprint 5 features
+  hashtags: string[];
 }
 
 export interface CommentThread {
@@ -151,6 +154,7 @@ export interface ContentDraftVersion {
   reviewDeadline: string | null;
   categoryId: string | null;
   campaignId: string | null;
+  hashtags: string[];
 }
 
 export interface ContentGenerationRequest {

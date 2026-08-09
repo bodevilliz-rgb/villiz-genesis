@@ -17,7 +17,7 @@ import type { MembrainCategory } from "@/core/domain/entities/membrain";
 import type { Campaign } from "@/core/domain/entities/campaign";
 import type { MediaAsset } from "@/core/domain/entities/media";
 import { attachAssetToDraftAction, detachAssetFromDraftAction, detachAssetFromPublishedDraftAction } from "@/server/actions/media";
-import { generateCaption, rewriteContent } from "@/server/actions/awo";
+import { generateCaption, generateHashtags, rewriteContent } from "@/server/actions/awo";
 import {
   isDraftBodyEmpty,
   normaliseAiAction,
@@ -30,6 +30,7 @@ import {
   type PromotionLevel,
   type CtaMode,
 } from "./awo-assist-logic";
+import { normalizeHashtags, parseHashtagInput } from "@/core/application/use-cases/content/hashtags";
 import { routes } from "@/lib/routes";
 
 const AUTOSAVE_DEBOUNCE_MS = 2000;
@@ -131,6 +132,10 @@ export function DraftForm({
   const [guidedCtaMode, setGuidedCtaMode] = useState<CtaMode | "">("");
   const [guidedCustomCta, setGuidedCustomCta] = useState("");
   const [guidedExtraDirection, setGuidedExtraDirection] = useState("");
+  const [hashtags, setHashtags] = useState<string[]>(() => normalizeHashtags(draft?.hashtags ?? []));
+  const [hashtagInput, setHashtagInput] = useState("");
+  const [hashtagLoading, setHashtagLoading] = useState(false);
+  const [hashtagSuggestions, setHashtagSuggestions] = useState<string[] | null>(null);
 
   const effectiveAiAction = normaliseAiAction(aiAction, draftBody);
 
@@ -151,6 +156,36 @@ export function DraftForm({
       customCta: guidedCtaMode === "custom" && guidedCustomCta ? guidedCustomCta : undefined,
       extraDirection: guidedExtraDirection || undefined,
     };
+  }
+
+  function commitHashtagInput(raw: string) {
+    if (!raw.trim()) return;
+    const incoming = normalizeHashtags(parseHashtagInput(raw));
+    setHashtags((prev) => normalizeHashtags([...prev, ...incoming]));
+    setHashtagInput("");
+  }
+
+  function removeHashtag(token: string) {
+    setHashtags((prev) => prev.filter((t) => t.toLowerCase() !== token.toLowerCase()));
+  }
+
+  async function handleSuggestHashtags() {
+    setHashtagLoading(true);
+    setHashtagSuggestions(null);
+    try {
+      const { hashtags: suggestions } = await generateHashtags(organisationId, draftBody, 5);
+      const normalized = normalizeHashtags(suggestions);
+      setHashtagSuggestions(normalized.filter((s) => !hashtags.map((h) => h.toLowerCase()).includes(s.toLowerCase())));
+    } catch {
+      toast.error("Failed to suggest hashtags");
+    } finally {
+      setHashtagLoading(false);
+    }
+  }
+
+  function acceptSuggestedHashtag(token: string) {
+    setHashtags((prev) => normalizeHashtags([...prev, token]));
+    setHashtagSuggestions((prev) => prev?.filter((s) => s !== token) ?? null);
   }
 
   async function handleAiAssist() {
@@ -262,6 +297,7 @@ export function DraftForm({
     >
       <input type="hidden" name="organisationId" value={organisationId} />
       {draft ? <input type="hidden" name="id" value={draft.id} /> : null}
+      <input type="hidden" name="hashtags" value={JSON.stringify(hashtags)} />
 
       {locked ? (
         <p className="rounded-md border border-border-strong bg-muted px-3 py-2 text-[12px] text-muted-foreground">
@@ -505,6 +541,96 @@ export function DraftForm({
           )}
         </div>
       )}
+
+      {/* Hashtags */}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <span className="text-[12px] font-medium text-foreground">Hashtags</span>
+          {!locked && (
+            <button
+              type="button"
+              onClick={handleSuggestHashtags}
+              disabled={hashtagLoading || !draftBody.trim()}
+              className="text-[11px] text-primary hover:text-primary/80 disabled:text-muted-foreground disabled:cursor-not-allowed flex items-center gap-1"
+            >
+              {hashtagLoading ? <Loader2 className="size-3 animate-spin" /> : null}
+              Suggest hashtags
+            </button>
+          )}
+        </div>
+        <p className="text-[11px] text-muted-foreground -mt-1">
+          Add hashtags separately. Genesis will format them when publishing.
+        </p>
+
+        {hashtags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {hashtags.map((tag) => (
+              <span
+                key={tag}
+                className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-[12px] font-medium text-foreground border border-border"
+              >
+                #{tag}
+                {!locked && (
+                  <button
+                    type="button"
+                    onClick={() => removeHashtag(tag)}
+                    className="text-muted-foreground hover:text-foreground ml-0.5"
+                    aria-label={`Remove #${tag}`}
+                  >
+                    <X className="size-3" />
+                  </button>
+                )}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {hashtagSuggestions && hashtagSuggestions.length > 0 && (
+          <div className="rounded border border-primary/20 bg-primary/5 p-2.5 flex flex-col gap-1.5">
+            <span className="text-[11px] text-muted-foreground">Awo suggests — click to add:</span>
+            <div className="flex flex-wrap gap-1.5">
+              {hashtagSuggestions.map((tag) => (
+                <button
+                  key={tag}
+                  type="button"
+                  onClick={() => acceptSuggestedHashtag(tag)}
+                  className="inline-flex items-center rounded-full border border-primary/40 bg-primary/10 px-2.5 py-0.5 text-[12px] font-medium text-primary hover:bg-primary/20 transition-colors"
+                >
+                  #{tag}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!locked && (
+          <div className="flex gap-2">
+            <Input
+              type="text"
+              placeholder="#Hashtag1 #Hashtag2 or Hashtag1, Hashtag2"
+              value={hashtagInput}
+              onChange={(e) => setHashtagInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  commitHashtagInput(hashtagInput);
+                }
+              }}
+              className="flex-1 text-[12px] h-8"
+              aria-label="Add hashtags"
+            />
+            <Button
+              type="button"
+              variant="secondary"
+              className="h-8 px-3 text-[12px]"
+              onClick={() => commitHashtagInput(hashtagInput)}
+              disabled={!hashtagInput.trim()}
+            >
+              Add
+            </Button>
+          </div>
+        )}
+      </div>
 
       <div className="grid gap-5 sm:grid-cols-2">
         <Field id="contentType" label="Content type" errors={state.fieldErrors?.contentType}>

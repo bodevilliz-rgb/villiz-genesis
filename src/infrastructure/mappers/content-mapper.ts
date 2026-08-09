@@ -69,6 +69,7 @@ export function toDraft(row: DraftRowWithRelations): ContentDraft {
     reviewerIds: (row as unknown as Record<string, unknown>).reviewer_ids as string[] ?? [],
     priority: row.priority as "low" | "medium" | "high",
     reviewDeadline: row.review_deadline,
+    hashtags: (row as unknown as Record<string, unknown>).hashtags as string[] ?? [],
   };
 }
 
@@ -90,6 +91,7 @@ export function toDraftVersion(
     reviewDeadline: row.review_deadline,
     categoryId: row.category_id,
     campaignId: row.campaign_id,
+    hashtags: (row as unknown as Record<string, unknown>).hashtags as string[] ?? [],
   };
 }
 

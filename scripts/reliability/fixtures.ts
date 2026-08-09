@@ -64,6 +64,7 @@ export function baseDraft(overrides: Partial<ContentDraft> = {}): ContentDraft {
     updatedBy: profileRef(AUTHOR_ID, "Author One"),
     priority: "medium",
     reviewDeadline: null,
+    hashtags: [],
     ...overrides,
   };
 }

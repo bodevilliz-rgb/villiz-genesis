@@ -125,6 +125,7 @@ function makeDraft(overrides: Partial<ContentDraft> = {}): ContentDraft {
     reviewerIds: [],
     priority: "medium",
     reviewDeadline: null,
+    hashtags: [],
     assets: [],
     ...overrides,
   };
