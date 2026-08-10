@@ -43,6 +43,7 @@ const recommendation: EngagementRecommendation = {
     shareTrigger: "Invite someone planning a portrait.",
     saveTrigger: "Save the preparation tips.",
     accessibilityNote: "Add descriptive alt text.",
+    linkedinPersonalProfile: null,
   },
   confidence: 70,
   performanceConfidence: null,
@@ -144,6 +145,39 @@ describe("EngagementIntelligencePanel", () => {
 
     expect(screen.getByRole("button", { name: "Generate recommendation" })).toBeDisabled();
     expect(screen.getByText(/Contributor or Lead access is required/)).toBeInTheDocument();
+  });
+
+  it("shows the personal-profile LinkedIn readiness rubric without promising reach", () => {
+    const linkedinRecommendation: EngagementRecommendation = {
+      ...recommendation,
+      platform: "linkedin",
+      creativeGuidance: {
+        ...recommendation.creativeGuidance,
+        linkedinPersonalProfile: {
+          accountType: "personal_profile",
+          postArchetype: "lesson_learned",
+          readinessScore: 87,
+          audiencePromise: "A practical lesson for portrait clients.",
+          credibilityAnchor: "Studio experience recorded in MemBrain.",
+          conversationPrompt: "What helps you feel prepared?",
+          dimensions: { hook: 4, singleIdea: 5, personalVoice: 5, credibility: 3, scanability: 4, conversationCta: 5 },
+          improvementActions: ["Add one supported concrete example."],
+        },
+      },
+    };
+    render(
+      <EngagementIntelligencePanel
+        organisationId="org-1" draftId="draft-1" currentDraftVersion={3}
+        initialPlatform="linkedin" initialRecommendation={linkedinRecommendation}
+        initialLearningOverview={{ ...learningOverview, platform: "linkedin" }}
+        initialDraftBody="Existing caption" initialDraftHashtags={[]}
+        draftLocked={false} canWrite={true}
+      />,
+    );
+    expect(screen.getByText("LinkedIn personal-profile check · 87/100")).toBeInTheDocument();
+    expect(screen.getByText("Personal profile")).toBeInTheDocument();
+    expect(screen.getByText(/Editorial readiness only—not predicted reach or engagement/)).toBeInTheDocument();
+    expect(screen.getByText("Add one supported concrete example.")).toBeInTheDocument();
   });
 
   it("shows a before-and-after confirmation before replacing the saved draft", () => {

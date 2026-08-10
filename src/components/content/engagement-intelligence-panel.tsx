@@ -24,6 +24,24 @@ import type { EngagementCollectionResult } from "@/core/application/use-cases/en
 
 const PLATFORMS = Object.keys(CAMPAIGN_PLATFORM_LABELS) as CampaignPlatform[];
 
+const LINKEDIN_ARCHETYPE_LABELS = {
+  professional_story: "Professional story",
+  lesson_learned: "Lesson learned",
+  how_to: "How-to",
+  case_study: "Case study",
+  point_of_view: "Point of view",
+  behind_the_scenes: "Behind the scenes",
+} as const;
+
+const LINKEDIN_DIMENSION_LABELS = {
+  hook: "Opening hook",
+  singleIdea: "Single clear idea",
+  personalVoice: "Personal voice",
+  credibility: "Credibility",
+  scanability: "Scanability",
+  conversationCta: "Conversation CTA",
+} as const;
+
 function allHashtags(recommendation: EngagementRecommendation): string[] {
   return [...recommendation.hashtags.brand, ...recommendation.hashtags.local,
     ...recommendation.hashtags.service, ...recommendation.hashtags.audience];
@@ -146,6 +164,9 @@ export function EngagementIntelligencePanel({
   }
 
   const hashtags = recommendation ? allHashtags(recommendation) : [];
+  const linkedInGuidance = recommendation?.platform === "linkedin"
+    ? recommendation.creativeGuidance.linkedinPersonalProfile ?? null
+    : null;
   const appliedToCurrentVersion = Boolean(
     recommendation && learningOverview.latestFeedback?.recommendationId === recommendation.id
       && learningOverview.latestFeedback.appliedDraftVersion === effectiveDraftVersion,
@@ -207,6 +228,21 @@ export function EngagementIntelligencePanel({
           {isStale ? <div className="rounded-md border border-danger/30 bg-danger-soft p-3 text-[12px] text-danger">This recommendation used draft v{recommendation.draftVersion}; the current draft is v{effectiveDraftVersion}. Generate a new recommendation before applying it.</div> : null}
           {draftLocked ? <div className="rounded-md border border-warning/30 bg-warning-soft p-3 text-[12px] text-warning">This draft is locked. Reopen it before applying a recommendation.</div> : null}
           <div className="flex items-center justify-between gap-3"><span className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">{CAMPAIGN_PLATFORM_LABELS[recommendation.platform]} · Draft v{recommendation.draftVersion}</span><div className="text-right text-[12px]"><div className="font-medium">Brand fit {recommendation.confidence}%</div><div className="text-muted-foreground">Performance confidence {learningOverview.performanceSummary.performanceConfidence === null ? "— not enough data" : `${learningOverview.performanceSummary.performanceConfidence}%`}</div></div></div>
+
+          {linkedInGuidance ? <details className="rounded-md border border-border px-3 py-2 text-[12px]" open>
+            <summary className="cursor-pointer font-semibold">LinkedIn personal-profile check · {linkedInGuidance.readinessScore}/100</summary>
+            <div className="mt-3 grid gap-3 text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-2"><Badge tone="muted">Personal profile</Badge><Badge tone="muted">{LINKEDIN_ARCHETYPE_LABELS[linkedInGuidance.postArchetype]}</Badge></div>
+              <p className="text-[11px]">Editorial readiness only—not predicted reach or engagement.</p>
+              <div className="grid grid-cols-2 gap-2">
+                {Object.entries(linkedInGuidance.dimensions).map(([key, score]) => <div key={key} className="rounded border border-border p-2"><span className="block text-[10px] text-subtle-foreground">{LINKEDIN_DIMENSION_LABELS[key as keyof typeof LINKEDIN_DIMENSION_LABELS]}</span><span className="font-medium text-foreground">{score}/5</span></div>)}
+              </div>
+              <div><p className="font-medium text-foreground">Reader value</p><p>{linkedInGuidance.audiencePromise}</p></div>
+              <div><p className="font-medium text-foreground">Credibility anchor</p><p>{linkedInGuidance.credibilityAnchor}</p></div>
+              <div><p className="font-medium text-foreground">Conversation prompt</p><p>{linkedInGuidance.conversationPrompt}</p></div>
+              <div><p className="font-medium text-foreground">Improve before publishing</p><ul className="mt-1 grid gap-1 pl-4">{linkedInGuidance.improvementActions.map((action) => <li className="list-disc" key={action}>{action}</li>)}</ul></div>
+            </div>
+          </details> : null}
 
           <details className="rounded-md border border-border px-3 py-2 text-[12px]">
             <summary className="cursor-pointer font-semibold">Recommended caption</summary>

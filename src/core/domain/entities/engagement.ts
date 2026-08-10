@@ -21,6 +21,39 @@ export interface EngagementHashtagGroups {
   audience: string[];
 }
 
+export type LinkedInPostArchetype =
+  | "professional_story"
+  | "lesson_learned"
+  | "how_to"
+  | "case_study"
+  | "point_of_view"
+  | "behind_the_scenes";
+
+export interface LinkedInReadinessDimensions {
+  hook: number;
+  singleIdea: number;
+  personalVoice: number;
+  credibility: number;
+  scanability: number;
+  conversationCta: number;
+}
+
+/**
+ * An editorial check for a LinkedIn personal-profile post. The score is a
+ * deterministic normalisation of six model-assessed rubric dimensions; it is
+ * not a reach prediction and must never be presented as one.
+ */
+export interface LinkedInPersonalProfileGuidance {
+  accountType: "personal_profile";
+  postArchetype: LinkedInPostArchetype;
+  readinessScore: number;
+  audiencePromise: string;
+  credibilityAnchor: string;
+  conversationPrompt: string;
+  dimensions: LinkedInReadinessDimensions;
+  improvementActions: string[];
+}
+
 export interface EngagementCreativeGuidance {
   mediaBasis: "metadata_only" | "none";
   visualHook: string;
@@ -28,6 +61,8 @@ export interface EngagementCreativeGuidance {
   shareTrigger: string;
   saveTrigger: string;
   accessibilityNote: string;
+  /** Optional because recommendations created before Sprint 15 do not contain it. */
+  linkedinPersonalProfile?: LinkedInPersonalProfileGuidance | null;
 }
 
 export interface EngagementPerformanceSummary {

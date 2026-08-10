@@ -31,6 +31,10 @@ import { isSimulatedPublishingAttempt, type PublishingPlatform } from "@/core/do
 import { toBlotatoPlatform } from "@/core/domain/entities/blotato";
 import { retrieveContext } from "@/core/application/use-cases/membrain";
 import { performanceSummary } from "./performance";
+import {
+  LINKEDIN_PERSONAL_PROFILE_RULES,
+  normaliseLinkedInPersonalProfileGuidance,
+} from "./linkedin-personal-profile";
 
 interface EngagementDeps {
   actor: Actor;
@@ -92,7 +96,14 @@ function uniqueHashtags(groups: EngagementHashtagGroups): EngagementHashtagGroup
   };
 }
 
-function normaliseModelOutput(output: EngagementRecommendationModelOutput, isPerformanceInformed = false): EngagementRecommendationModelOutput {
+function normaliseModelOutput(
+  output: EngagementRecommendationModelOutput,
+  isPerformanceInformed = false,
+  platform?: CampaignPlatform,
+): EngagementRecommendationModelOutput {
+  const linkedinGuidance = platform === "linkedin" && output.creativeGuidance.linkedinPersonalProfile
+    ? normaliseLinkedInPersonalProfileGuidance(output.creativeGuidance.linkedinPersonalProfile)
+    : null;
   return {
     ...output,
     alternativeCaptions: [...new Set(output.alternativeCaptions)].slice(0, 2),
@@ -101,6 +112,10 @@ function normaliseModelOutput(output: EngagementRecommendationModelOutput, isPer
       ? output.limitations.slice(0, 5)
       : [BRAND_ONLY_LIMITATION, ...output.limitations.filter((item) => item !== BRAND_ONLY_LIMITATION)].slice(0, 5),
     confidence: Math.min(output.confidence, BRAND_ONLY_CONFIDENCE_CAP),
+    creativeGuidance: {
+      ...output.creativeGuidance,
+      linkedinPersonalProfile: linkedinGuidance,
+    },
   };
 }
 
@@ -111,6 +126,7 @@ function buildSystemPrompt(input: {
   contextPrompt: string;
   performancePrompt: string;
   mediaPrompt: string;
+  platformRules: string;
 }) {
   return `You are AWO Engagement Intelligence for ${input.organisationName}.
 
@@ -125,6 +141,9 @@ ${input.performancePrompt}
 
 Attached-media metadata (not pixel-level visual analysis):
 ${input.mediaPrompt}
+
+Platform-specific mode:
+${input.platformRules}
 
 Rules:
 - Treat MemBrain as the only source of brand facts, claims, location, services, audience, CTA rules and hashtag strategy.
@@ -178,7 +197,7 @@ export async function generateEngagementRecommendation(
   const contextQuery = [
     draft.title,
     objective,
-    "brand voice audience CTA hashtag strategy location services business goals customer journey content performance",
+    "brand voice audience CTA hashtag strategy location services business goals customer journey content performance spokesperson identity role expertise experience proof",
   ]
     .join(" ")
     .slice(0, 500);
@@ -232,10 +251,16 @@ export async function generateEngagementRecommendation(
       contextPrompt: contextPack.prompt,
       performancePrompt,
       mediaPrompt,
+      platformRules: input.platform === "linkedin"
+        ? LINKEDIN_PERSONAL_PROFILE_RULES
+        : "This is not LinkedIn. Set creativeGuidance.linkedinPersonalProfile to null.",
     }),
     temperature: 0.25,
   });
-  const recommendation = normaliseModelOutput(modelOutput, isPerformanceInformed);
+  if (input.platform === "linkedin" && !modelOutput.creativeGuidance.linkedinPersonalProfile) {
+    throw new ValidationError("LinkedIn personal-profile guidance was incomplete. Generate the recommendation again.");
+  }
+  const recommendation = normaliseModelOutput(modelOutput, isPerformanceInformed, input.platform);
 
   const evidence: EngagementEvidence[] = contextPack.items.map((item) => ({
     sourceType: "membrain_entry",
