@@ -54,6 +54,21 @@ const recommendation: EngagementRecommendation = {
   createdAt: "2026-08-10T12:00:00Z",
 };
 
+const learningOverview = {
+  platform: "instagram" as const,
+  objectiveType: "bookings" as const,
+  accountScope: "account_scoped" as const,
+  providerAccountId: "account-1",
+  latestFeedback: {
+    id: "feedback-1", organisationId: "org-1", draftId: "draft-1", recommendationId: "rec-1",
+    action: "selected" as const, variant: "recommended" as const,
+    captionSnapshot: recommendation.recommendedCaption, hashtagSnapshot: ["#VillizPixels"],
+    reason: null, createdBy: "actor-1", createdAt: "2026-08-10T12:05:00Z",
+  },
+  latestDraftMetric: null,
+  performanceSummary: { ...recommendation.performanceSummary, performanceConfidence: null },
+};
+
 describe("EngagementIntelligencePanel", () => {
   it("shows the recommendation, confidence, hashtags and evidence basis", () => {
     render(
@@ -63,15 +78,17 @@ describe("EngagementIntelligencePanel", () => {
         currentDraftVersion={3}
         initialPlatform="instagram"
         initialRecommendation={recommendation}
+        initialLearningOverview={learningOverview}
         canWrite={true}
       />,
     );
 
     expect(screen.getByText("Brand-informed")).toBeInTheDocument();
     expect(screen.getByText("Brand fit 70%")).toBeInTheDocument();
-    expect(screen.getByText(recommendation.recommendedCaption)).toBeInTheDocument();
+    expect(screen.getAllByText(recommendation.recommendedCaption)).toHaveLength(2);
     expect(screen.getByText("#VillizPixels")).toBeInTheDocument();
     expect(screen.getByText(/Evidence: 1 source record/)).toBeInTheDocument();
+    expect(screen.getByText(/Selected recommended/)).toBeInTheDocument();
   });
 
   it("marks a recommendation outdated when the draft version has moved on", () => {
@@ -82,6 +99,7 @@ describe("EngagementIntelligencePanel", () => {
         currentDraftVersion={4}
         initialPlatform="instagram"
         initialRecommendation={recommendation}
+        initialLearningOverview={learningOverview}
         canWrite={true}
       />,
     );
@@ -98,6 +116,7 @@ describe("EngagementIntelligencePanel", () => {
         currentDraftVersion={3}
         initialPlatform="instagram"
         initialRecommendation={null}
+        initialLearningOverview={{ ...learningOverview, latestFeedback: null }}
         canWrite={false}
       />,
     );

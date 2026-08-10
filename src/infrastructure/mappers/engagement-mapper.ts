@@ -44,6 +44,7 @@ export function toEngagementMetricSnapshot(row: EngagementMetricSnapshotRow): En
     publishingAttemptId: row.publishing_attempt_id, recommendationId: row.recommendation_id,
     feedbackEventId: row.feedback_event_id, selectedVariant: row.selected_variant,
     platform: row.platform, objectiveType: row.objective_type,
+    providerAccountId: row.provider_account_id,
     externalPostId: row.external_post_id, providerSnapshotKey: row.provider_snapshot_key,
     observedAt: row.observed_at, providerCapturedAt: row.provider_captured_at,
     metrics: { views: row.views, reach: row.reach, impressions: row.impressions, likes: row.likes,

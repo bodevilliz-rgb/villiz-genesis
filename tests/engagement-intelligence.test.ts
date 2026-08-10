@@ -1,8 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { generateEngagementRecommendation } from "@/core/application/use-cases/engagement";
+import { generateEngagementRecommendation, getEngagementLearningOverview } from "@/core/application/use-cases/engagement";
 import type { AIProviderPort } from "@/core/application/ports/ai-provider-port";
+import type { BlotatoAccountRepository } from "@/core/application/ports/blotato-account-port";
 import type { CampaignRepository } from "@/core/application/ports/campaign-port";
 import type { ContentRepository } from "@/core/application/ports/content-port";
 import type { EngagementRepository } from "@/core/application/ports/engagement-port";
@@ -143,8 +144,12 @@ function dependencies(options: { role?: "lead" | "contributor" | "reviewer"; wit
     findLatest: vi.fn(async () => null),
   } as EngagementRepository;
 
+  const blotatoAccounts = {
+    findActiveForOrganisationAndPlatform: vi.fn(async () => [{ id: "account-1" }]),
+  } as unknown as BlotatoAccountRepository;
+
   return {
-    deps: { actor, organisations, content, campaigns, membrain, ai, engagement },
+    deps: { actor, organisations, content, campaigns, membrain, ai, engagement, blotatoAccounts },
     ai,
     getPersisted: () => persisted,
   };
@@ -232,6 +237,45 @@ describe("AWO Engagement Intelligence", () => {
   });
 });
 
+describe("Sprint 13 account-scoped learning overview", () => {
+  it("queries performance only for the one resolved Blotato destination", async () => {
+    const fixture = dependencies();
+    const listMetricSnapshots = vi.fn(async () => []);
+    fixture.deps.engagement.listMetricSnapshots = listMetricSnapshots;
+    fixture.deps.engagement.listMetricSnapshotsForDraft = vi.fn(async () => []);
+    fixture.deps.engagement.findLatestFeedback = vi.fn(async () => null);
+    const overview = await getEngagementLearningOverview({
+      actor: fixture.deps.actor,
+      organisations: fixture.deps.organisations,
+      engagement: fixture.deps.engagement,
+      blotatoAccounts: fixture.deps.blotatoAccounts,
+    }, { organisationId: ORG_ID, draftId: DRAFT_ID, platform: "instagram", objectiveType: "bookings" });
+    expect(overview.accountScope).toBe("account_scoped");
+    expect(overview.providerAccountId).toBe("account-1");
+    expect(listMetricSnapshots).toHaveBeenCalledWith(ORG_ID, "instagram", "bookings", "account-1");
+  });
+
+  it("does not mix performance when more than one account can publish to the platform", async () => {
+    const fixture = dependencies();
+    vi.mocked(fixture.deps.blotatoAccounts.findActiveForOrganisationAndPlatform).mockResolvedValue([
+      { id: "account-1" }, { id: "account-2" },
+    ] as never);
+    const listMetricSnapshots = vi.fn(async () => []);
+    fixture.deps.engagement.listMetricSnapshots = listMetricSnapshots;
+    fixture.deps.engagement.listMetricSnapshotsForDraft = vi.fn(async () => []);
+    fixture.deps.engagement.findLatestFeedback = vi.fn(async () => null);
+    const overview = await getEngagementLearningOverview({
+      actor: fixture.deps.actor,
+      organisations: fixture.deps.organisations,
+      engagement: fixture.deps.engagement,
+      blotatoAccounts: fixture.deps.blotatoAccounts,
+    }, { organisationId: ORG_ID, draftId: DRAFT_ID, platform: "instagram", objectiveType: "engagement" });
+    expect(overview.accountScope).toBe("multiple_accounts");
+    expect(overview.performanceSummary.sampleSize).toBe(0);
+    expect(listMetricSnapshots).not.toHaveBeenCalled();
+  });
+});
+
 describe("engagement intelligence database contract", () => {
   const migration = fs.readFileSync(
     path.resolve(import.meta.dirname, "../supabase/migrations/20260810160000_engagement_intelligence.sql"),
@@ -273,5 +317,21 @@ describe("Sprint 11 learning-loop database contract", () => {
     expect(eventBody).toContain("'engagement.recommendation_selected'");
     expect(eventBody).not.toContain("new.caption_snapshot");
     expect(eventBody).not.toContain("new.hashtag_snapshot");
+  });
+});
+
+describe("Sprint 13 learning-operations database contract", () => {
+  const migration = fs.readFileSync(
+    path.resolve(import.meta.dirname, "../supabase/migrations/20260810190000_engagement_learning_operations.sql"),
+    "utf8",
+  );
+
+  it("backfills and indexes immutable metrics by exact provider account", () => {
+    expect(migration).toContain("drop trigger if exists engagement_metric_snapshots_immutable");
+    expect(migration).toContain("add column provider_account_id text");
+    expect(migration).toContain("provider_metadata ->> 'blotatoAccountId'");
+    expect(migration).toContain("engagement_metrics_account_baseline_idx");
+    expect(migration).toContain("where provider_account_id is not null");
+    expect(migration).toContain("create trigger engagement_metric_snapshots_immutable");
   });
 });

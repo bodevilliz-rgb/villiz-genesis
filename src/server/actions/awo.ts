@@ -2,9 +2,10 @@
 
 import { z } from "zod";
 import { getAIProvider } from "@/infrastructure/ai/provider-factory";
-import { generateEngagementRecommendation, recordEngagementFeedback } from "@/core/application/use-cases/engagement";
+import { generateEngagementRecommendation, getEngagementLearningOverview, recordEngagementFeedback } from "@/core/application/use-cases/engagement";
 import { collectEngagementAnalytics, type EngagementCollectionResult } from "@/core/application/use-cases/engagement/collector";
-import type { EngagementFeedbackEvent, EngagementRecommendation } from "@/core/domain/entities/engagement";
+import type { EngagementFeedbackEvent, EngagementLearningOverview, EngagementObjectiveType, EngagementRecommendation } from "@/core/domain/entities/engagement";
+import type { CampaignPlatform } from "@/core/domain/entities/campaign";
 import { isDomainError } from "@/core/domain/errors";
 import { canWriteContent } from "@/core/domain/entities/identity";
 import { createAdminClient } from "@/infrastructure/supabase/admin-client";
@@ -57,7 +58,7 @@ function applyComplianceCheck(
 }
 
 export type EngagementRecommendationActionResult =
-  | { ok: true; recommendation: EngagementRecommendation }
+  | { ok: true; recommendation: EngagementRecommendation; learningOverview: EngagementLearningOverview }
   | { ok: false; error: string };
 
 export async function generateEngagementRecommendationAction(input: {
@@ -77,12 +78,24 @@ export async function generateEngagementRecommendationAction(input: {
         content: context.content,
         membrain: context.membrain,
         engagement: context.engagement,
+        blotatoAccounts: context.blotatoAccounts,
         media: context.media,
         ai: getAIProvider(),
       },
       input,
     );
-    return { ok: true, recommendation };
+    const learningOverview = await getEngagementLearningOverview({
+      actor: context.actor,
+      organisations: context.organisations,
+      engagement: context.engagement,
+      blotatoAccounts: context.blotatoAccounts,
+    }, {
+      organisationId: input.organisationId,
+      draftId: input.draftId,
+      platform: recommendation.platform,
+      objectiveType: recommendation.objectiveType,
+    });
+    return { ok: true, recommendation, learningOverview };
   } catch (error) {
     console.error("[genesis] engagement recommendation failed", error);
     return {
@@ -119,7 +132,9 @@ export async function recordEngagementFeedbackAction(input: {
 export async function refreshEngagementAnalyticsAction(input: {
   organisationId: string;
   draftId: string;
-}): Promise<{ ok: true; result: EngagementCollectionResult } | { ok: false; error: string }> {
+  platform: CampaignPlatform;
+  objectiveType: EngagementObjectiveType;
+}): Promise<{ ok: true; result: EngagementCollectionResult; learningOverview: EngagementLearningOverview } | { ok: false; error: string }> {
   try {
     const context = await requireContext();
     const role = await context.organisations.viewerRole(input.organisationId);
@@ -132,7 +147,13 @@ export async function refreshEngagementAnalyticsAction(input: {
       engagement: new SupabaseEngagementRepository(admin),
       blotatoClient: new HttpBlotatoClient(blotatoConfig().apiKey),
     }, { organisationId: input.organisationId, draftId: input.draftId, limit: 10 });
-    return { ok: true, result };
+    const learningOverview = await getEngagementLearningOverview({
+      actor: context.actor,
+      organisations: context.organisations,
+      engagement: new SupabaseEngagementRepository(admin),
+      blotatoAccounts: context.blotatoAccounts,
+    }, input);
+    return { ok: true, result, learningOverview };
   } catch (error) {
     console.error("[genesis] engagement analytics refresh failed", error);
     return { ok: false, error: "AWO could not refresh published-post analytics." };

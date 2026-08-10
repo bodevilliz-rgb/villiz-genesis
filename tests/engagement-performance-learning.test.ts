@@ -7,7 +7,7 @@ function snapshot(index: number, observedAt = `2026-08-${String(index + 1).padSt
     id: `snapshot-${index}`, organisationId: "org", draftId: `draft-${index}`,
     publishingAttemptId: `attempt-${index}`, recommendationId: null, feedbackEventId: null,
     selectedVariant: null,
-    platform: "instagram", objectiveType: "engagement", externalPostId: `post-${index}`,
+    platform: "instagram", objectiveType: "engagement", providerAccountId: "account-1", externalPostId: `post-${index}`,
     providerSnapshotKey: `key-${index}-${observedAt}`, observedAt, providerCapturedAt: observedAt,
     metrics: { views: 1000, reach: 800, impressions: 1200, likes: 40, comments: 5, shares: 8, saves: 6,
       clicks: 3, profileVisits: 10, enquiries: 1, bookings: 0, watchTimeMs: 9000 },

@@ -130,6 +130,8 @@ export interface EngagementMetricSnapshot {
   selectedVariant: EngagementVariant | null;
   platform: CampaignPlatform;
   objectiveType: EngagementObjectiveType;
+  /** Exact Blotato destination used for the publish; null only for legacy attempts. */
+  providerAccountId: string | null;
   externalPostId: string;
   providerSnapshotKey: string;
   observedAt: string;
@@ -140,3 +142,18 @@ export interface EngagementMetricSnapshot {
 }
 
 export type EngagementMetricSnapshotWriteModel = Omit<EngagementMetricSnapshot, "id" | "createdAt">;
+
+export interface EngagementMetricSnapshotInsertResult {
+  snapshot: EngagementMetricSnapshot;
+  created: boolean;
+}
+
+export interface EngagementLearningOverview {
+  platform: CampaignPlatform;
+  objectiveType: EngagementObjectiveType;
+  accountScope: "account_scoped" | "no_account" | "multiple_accounts";
+  providerAccountId: string | null;
+  latestFeedback: EngagementFeedbackEvent | null;
+  latestDraftMetric: EngagementMetricSnapshot | null;
+  performanceSummary: EngagementPerformanceSummary & { performanceConfidence: number | null };
+}

@@ -7,7 +7,7 @@ import type {
   PublishingQueueFilters,
   PublishingRepository,
 } from "@/core/application/ports/publishing-port";
-import type { PublishingJobStatus, PublishingPlatform } from "@/core/domain/entities/publishing";
+import type { PublishingAttempt, PublishingJobStatus, PublishingPlatform } from "@/core/domain/entities/publishing";
 import type { GenesisClient } from "../supabase/server-client";
 import type { Json, PublishingAttemptRow, PublishingSimulationModeDb } from "../supabase/database.types";
 import { toClaimedPublishingJob, toPublishingAttempt, toPublishingJob, type PublishingJobRowWithRelations } from "../mappers/publishing-mapper";
@@ -423,11 +423,19 @@ export class SupabasePublishingRepository implements PublishingRepository {
     return (data ?? []).map((row) => toPublishingAttempt(row as unknown as PublishingAttemptRow));
   }
 
-  async listAttemptsForAnalytics(organisationId: string | undefined, input: { dateFrom?: string; dateTo?: string }) {
+  async listAttemptsForAnalytics(organisationId: string | undefined, input: {
+    dateFrom?: string; dateTo?: string; draftId?: string; status?: PublishingAttempt["status"];
+    requireExternalPostId?: boolean; newestFirst?: boolean; limit?: number;
+  }) {
     let query = this.client.from("publishing_attempts").select();
     if (organisationId) query = query.eq("organisation_id", organisationId);
     if (input.dateFrom) query = query.gte("created_at", input.dateFrom);
     if (input.dateTo) query = query.lte("created_at", input.dateTo);
+    if (input.draftId) query = query.eq("draft_id", input.draftId);
+    if (input.status) query = query.eq("status", input.status);
+    if (input.requireExternalPostId) query = query.not("external_post_id", "is", null);
+    if (input.newestFirst) query = query.order("completed_at", { ascending: false, nullsFirst: false });
+    if (input.limit) query = query.limit(Math.min(Math.max(input.limit, 1), 100));
 
     const { data, error } = await query;
     if (error) translateError(error, "Publishing analytics");
