@@ -8,6 +8,7 @@ function snapshot(index: number, observedAt = `2026-08-${String(index + 1).padSt
     publishingAttemptId: `attempt-${index}`, recommendationId: null, feedbackEventId: null,
     selectedVariant: null,
     platform: "instagram", objectiveType: "engagement", providerAccountId: "account-1", externalPostId: `post-${index}`,
+    measurementWindow: "7d",
     providerSnapshotKey: `key-${index}-${observedAt}`, observedAt, providerCapturedAt: observedAt,
     metrics: { views: 1000, reach: 800, impressions: 1200, likes: 40, comments: 5, shares: 8, saves: 6,
       clicks: 3, profileVisits: 10, enquiries: 1, bookings: 0, watchTimeMs: 9000 },
@@ -16,6 +17,12 @@ function snapshot(index: number, observedAt = `2026-08-${String(index + 1).padSt
 }
 
 describe("engagement performance learning", () => {
+  it("does not count early provider snapshots as comparable seven-day evidence", () => {
+    const early = Array.from({ length: 12 }, (_, index) => ({ ...snapshot(index), measurementWindow: "72h" as const }));
+    const result = performanceSummary(early, "engagement");
+    expect(result.sampleSize).toBe(0);
+    expect(result.performanceConfidence).toBeNull();
+  });
   it("normalises provider aliases and rejects invalid values", () => {
     expect(normaliseEngagementMetrics({ analytics: { viewCount: "1200", sends: 12, likes: -2 } })).toEqual(expect.objectContaining({
       views: 1200, shares: 12, likes: null,

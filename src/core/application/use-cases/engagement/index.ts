@@ -8,11 +8,14 @@ import type { EngagementRepository } from "@/core/application/ports/engagement-p
 import type { MembrainRepository } from "@/core/application/ports/membrain-port";
 import type { MediaRepository } from "@/core/application/ports/media-port";
 import type { OrganisationRepository } from "@/core/application/ports/organisation-port";
+import type { PublishingRepository } from "@/core/application/ports/publishing-port";
 import {
   engagementRecommendationModelSchema,
   generateEngagementRecommendationSchema,
   type EngagementRecommendationModelOutput,
   recordEngagementFeedbackSchema,
+  applyEngagementRecommendationSchema,
+  recordCommercialOutcomeSchema,
 } from "@/core/application/dto/engagement-dto";
 import type {
   EngagementEvidence,
@@ -20,9 +23,11 @@ import type {
   EngagementRecommendation,
   EngagementFeedbackEvent,
   EngagementLearningOverview,
+  EngagementApplicationResult,
+  EngagementCommercialOutcome,
 } from "@/core/domain/entities/engagement";
 import type { CampaignPlatform } from "@/core/domain/entities/campaign";
-import type { PublishingPlatform } from "@/core/domain/entities/publishing";
+import { isSimulatedPublishingAttempt, type PublishingPlatform } from "@/core/domain/entities/publishing";
 import { toBlotatoPlatform } from "@/core/domain/entities/blotato";
 import { retrieveContext } from "@/core/application/use-cases/membrain";
 import { performanceSummary } from "./performance";
@@ -287,37 +292,54 @@ export async function recordEngagementFeedback(
   const input = parsed.data;
   const role = await deps.organisations.viewerRole(input.organisationId);
   if (!canWriteContent(deps.actor, role)) throw new ForbiddenError("You do not have permission to record engagement feedback.");
+  if (input.action === "selected") {
+    throw new ValidationError("Use Apply recommendation so the draft update and learning record remain atomic.");
+  }
   if (!deps.engagement.findById || !deps.engagement.createFeedback) throw new ValidationError("Engagement feedback storage is not available.");
   const recommendation = await deps.engagement.findById(input.organisationId, input.recommendationId);
   if (!recommendation || recommendation.draftId !== input.draftId) throw new NotFoundError("Engagement recommendation");
   const draft = await deps.content.findDraft(input.organisationId, input.draftId);
   if (!draft) throw new NotFoundError("Draft");
-  if (input.action === "selected" && recommendation.draftVersion !== draft.version) {
-    throw new ValidationError("This recommendation is outdated. Generate a new recommendation before selecting it.");
-  }
-  if (input.action === "selected" && (!input.variant || !input.captionSnapshot)) {
-    throw new ValidationError("A selected recommendation must include the chosen caption and variant.");
-  }
-  if (input.action === "selected" && input.variant !== "custom") {
-    const expectedCaption = input.variant === "recommended"
-      ? recommendation.recommendedCaption
-      : recommendation.alternativeCaptions[input.variant === "alternative_1" ? 0 : 1];
-    if (!expectedCaption || input.captionSnapshot !== expectedCaption) {
-      throw new ValidationError("The selected caption does not match that recommendation variant.");
-    }
-  }
-  const expectedHashtags = [
-    ...recommendation.hashtags.brand, ...recommendation.hashtags.local,
-    ...recommendation.hashtags.service, ...recommendation.hashtags.audience,
-  ];
-  if (input.action === "selected" && JSON.stringify(input.hashtagSnapshot) !== JSON.stringify(expectedHashtags)) {
-    throw new ValidationError("The selected hashtag snapshot does not match this recommendation.");
-  }
   return deps.engagement.createFeedback({
     ...input,
     reason: input.reason?.trim() || null,
     createdBy: deps.actor.id,
   });
+}
+
+export async function applyEngagementRecommendation(
+  deps: Pick<EngagementDeps, "actor" | "organisations" | "engagement" | "content">,
+  raw: unknown,
+): Promise<EngagementApplicationResult> {
+  const parsed = applyEngagementRecommendationSchema.safeParse(raw);
+  if (!parsed.success) throw new ValidationError("Check the recommendation selection.", parsed.error.flatten().fieldErrors);
+  const input = parsed.data;
+  const role = await deps.organisations.viewerRole(input.organisationId);
+  if (!canWriteContent(deps.actor, role)) throw new ForbiddenError("You do not have permission to apply engagement recommendations.");
+  if (!deps.engagement.applyRecommendation) throw new ValidationError("Atomic recommendation application is not available.");
+  const recommendation = await deps.engagement.findById?.(input.organisationId, input.recommendationId);
+  if (!recommendation || recommendation.draftId !== input.draftId) throw new NotFoundError("Engagement recommendation");
+  const draft = await deps.content.findDraft(input.organisationId, input.draftId);
+  if (!draft) throw new NotFoundError("Draft");
+  if (recommendation.draftVersion !== draft.version) {
+    throw new ValidationError("This recommendation is outdated. Generate a new recommendation before applying it.");
+  }
+  return deps.engagement.applyRecommendation({
+    organisationId: input.organisationId, draftId: input.draftId,
+    recommendationId: input.recommendationId, variant: input.variant,
+    captionSnapshot: input.captionSnapshot, hashtagSnapshot: input.hashtagSnapshot,
+  });
+}
+
+function nextScheduledCollectionAt(now = new Date()): string {
+  const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 4, 15));
+  if (next.getTime() <= now.getTime()) next.setUTCDate(next.getUTCDate() + 1);
+  return next.toISOString();
+}
+
+function attemptAccountId(metadata: Record<string, unknown>): string | null {
+  const value = metadata.blotatoAccountId;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 export async function getLatestEngagementRecommendation(
@@ -331,13 +353,13 @@ export async function getLatestEngagementRecommendation(
 }
 
 export async function getEngagementLearningOverview(
-  deps: Pick<EngagementDeps, "actor" | "organisations" | "engagement" | "blotatoAccounts">,
+  deps: Pick<EngagementDeps, "actor" | "organisations" | "engagement" | "blotatoAccounts"> & { publishing?: PublishingRepository },
   input: { organisationId: string; draftId: string; platform: CampaignPlatform; objectiveType: EngagementLearningOverview["objectiveType"] },
 ): Promise<EngagementLearningOverview> {
   const role = await deps.organisations.viewerRole(input.organisationId);
   if (!deps.actor.isPlatformAdmin && !role) throw new ForbiddenError();
   const account = await resolveLearningAccount(deps.blotatoAccounts, input.organisationId, input.platform);
-  const [latestFeedback, scopedSnapshots, draftSnapshots] = await Promise.all([
+  const [latestFeedback, scopedSnapshots, draftSnapshots, commercialOutcomes, latestCommercialOutcome, attempts] = await Promise.all([
     deps.engagement.findLatestFeedback?.(input.organisationId, input.draftId) ?? Promise.resolve(null),
     account.providerAccountId
       ? deps.engagement.listMetricSnapshots?.(
@@ -345,19 +367,85 @@ export async function getEngagementLearningOverview(
         ) ?? Promise.resolve([])
       : Promise.resolve([]),
     deps.engagement.listMetricSnapshotsForDraft?.(input.organisationId, input.draftId) ?? Promise.resolve([]),
+    account.providerAccountId
+      ? deps.engagement.listCommercialOutcomes?.(input.organisationId, input.platform, account.providerAccountId) ?? Promise.resolve([])
+      : Promise.resolve([]),
+    deps.engagement.findLatestCommercialOutcomeForDraft?.(input.organisationId, input.draftId, input.platform) ?? Promise.resolve(null),
+    deps.publishing && account.providerAccountId
+      ? deps.publishing.listAttemptsForAnalytics(input.organisationId, {
+          status: "completed", requireExternalPostId: true, newestFirst: true, limit: 100,
+        })
+      : Promise.resolve([]),
   ]);
   const latestDraftMetric = draftSnapshots.find((snapshot) =>
     snapshot.platform === input.platform
       && (!account.providerAccountId || snapshot.providerAccountId === account.providerAccountId),
   ) ?? null;
+  const eligibleAttempts = attempts.filter((attempt) =>
+    attempt.platform === input.platform && !isSimulatedPublishingAttempt(attempt)
+      && attemptAccountId(attempt.providerMetadata) === account.providerAccountId,
+  );
+  const scopedAttemptIds = new Set(scopedSnapshots.map((snapshot) => snapshot.publishingAttemptId));
+  const sevenDayAttemptIds = new Set(scopedSnapshots.filter((snapshot) => snapshot.measurementWindow === "7d")
+    .map((snapshot) => snapshot.publishingAttemptId));
+  const missingAnalytics = eligibleAttempts.filter((attempt) => !scopedAttemptIds.has(attempt.id)).length;
+  const missingAttribution = new Set(scopedSnapshots.filter((snapshot) => !snapshot.recommendationId || !snapshot.feedbackEventId)
+    .map((snapshot) => snapshot.publishingAttemptId)).size;
+  const awaitingSevenDay = eligibleAttempts.filter((attempt) => scopedAttemptIds.has(attempt.id) && !sevenDayAttemptIds.has(attempt.id)).length;
+  const exclusions = [
+    { code: "missing_analytics" as const, count: missingAnalytics, label: "Published posts waiting for provider analytics" },
+    { code: "missing_attribution" as const, count: missingAttribution, label: "Posts without an exact applied recommendation match" },
+    { code: "awaiting_7d_checkpoint" as const, count: awaitingSevenDay, label: "Posts still waiting for the comparable 7-day checkpoint" },
+  ].filter((item) => item.count > 0);
+  const draftWindows = new Set(draftSnapshots.map((snapshot) => snapshot.measurementWindow));
+  const lastAnalyticsSyncAt = [...scopedSnapshots, ...draftSnapshots]
+    .map((snapshot) => snapshot.createdAt).sort().at(-1) ?? null;
   return {
     platform: input.platform,
     objectiveType: input.objectiveType,
     ...account,
     latestFeedback,
     latestDraftMetric,
-    performanceSummary: performanceSummary(scopedSnapshots, input.objectiveType),
+    latestCommercialOutcome,
+    lastAnalyticsSyncAt,
+    nextScheduledCollectionAt: nextScheduledCollectionAt(),
+    checkpoints: {
+      hours24: draftWindows.has("24h") || draftWindows.has("72h") || draftWindows.has("7d"),
+      hours72: draftWindows.has("72h") || draftWindows.has("7d"),
+      days7: draftWindows.has("7d"),
+    },
+    exclusions,
+    performanceSummary: performanceSummary(scopedSnapshots, input.objectiveType, commercialOutcomes),
   };
 }
 
-export { BRAND_ONLY_CONFIDENCE_CAP, BRAND_ONLY_LIMITATION, normaliseModelOutput, resolveLearningAccount };
+export async function recordEngagementCommercialOutcome(
+  deps: Pick<EngagementDeps, "actor" | "organisations" | "engagement" | "blotatoAccounts"> & { publishing: PublishingRepository },
+  raw: unknown,
+): Promise<EngagementCommercialOutcome> {
+  const parsed = recordCommercialOutcomeSchema.safeParse(raw);
+  if (!parsed.success) throw new ValidationError("Check the commercial outcome.", parsed.error.flatten().fieldErrors);
+  const input = parsed.data;
+  const role = await deps.organisations.viewerRole(input.organisationId);
+  if (!canWriteContent(deps.actor, role)) throw new ForbiddenError("You do not have permission to record commercial outcomes.");
+  if (input.bookings > input.enquiries) throw new ValidationError("Bookings cannot exceed enquiries.");
+  if (!deps.engagement.createCommercialOutcome) throw new ValidationError("Commercial outcome storage is not available.");
+  const account = await resolveLearningAccount(deps.blotatoAccounts, input.organisationId, input.platform);
+  if (!account.providerAccountId) throw new ValidationError("Choose one active destination account before recording outcomes.");
+  const attempts = await deps.publishing.listAttemptsForAnalytics(input.organisationId, {
+    draftId: input.draftId, status: "completed", requireExternalPostId: true, newestFirst: true, limit: 20,
+  });
+  const attempt = attempts.find((candidate) => candidate.platform === input.platform
+    && !isSimulatedPublishingAttempt(candidate)
+    && attemptAccountId(candidate.providerMetadata) === account.providerAccountId);
+  if (!attempt) throw new ValidationError("No eligible published post exists for this draft and destination account.");
+  return deps.engagement.createCommercialOutcome({
+    organisationId: input.organisationId, draftId: input.draftId,
+    publishingAttemptId: attempt.id, platform: input.platform,
+    providerAccountId: account.providerAccountId, enquiries: input.enquiries,
+    bookings: input.bookings, revenueMinor: input.revenueMinor,
+    currency: input.currency, note: input.note?.trim() || null, createdBy: deps.actor.id,
+  });
+}
+
+export { BRAND_ONLY_CONFIDENCE_CAP, BRAND_ONLY_LIMITATION, normaliseModelOutput, resolveLearningAccount, nextScheduledCollectionAt };

@@ -4,6 +4,7 @@ export type EngagementDataBasis = "brand_only" | "performance_informed";
 export type EngagementObjectiveType = "awareness" | "engagement" | "enquiries" | "bookings";
 export type EngagementFeedbackAction = "selected" | "dismissed";
 export type EngagementVariant = "recommended" | "alternative_1" | "alternative_2" | "custom";
+export type EngagementMeasurementWindow = "under_24h" | "24h" | "72h" | "7d";
 
 export interface EngagementEvidence {
   sourceType: "membrain_entry" | "media_asset" | "performance_snapshot";
@@ -106,6 +107,7 @@ export interface EngagementFeedbackEvent {
   reason: string | null;
   createdBy: string | null;
   createdAt: string;
+  appliedDraftVersion: number | null;
 }
 
 export interface EngagementFeedbackWriteModel {
@@ -136,6 +138,8 @@ export interface EngagementMetricSnapshot {
   providerSnapshotKey: string;
   observedAt: string;
   providerCapturedAt: string | null;
+  /** Fixed post-age checkpoint used for like-for-like comparisons. */
+  measurementWindow: EngagementMeasurementWindow | null;
   metrics: Record<string, number | null>;
   rawMetrics: Record<string, unknown>;
   createdAt: string;
@@ -148,6 +152,35 @@ export interface EngagementMetricSnapshotInsertResult {
   created: boolean;
 }
 
+export interface EngagementApplicationResult {
+  feedback: EngagementFeedbackEvent;
+  draftVersion: number;
+}
+
+export interface EngagementCommercialOutcome {
+  id: string;
+  organisationId: string;
+  draftId: string;
+  publishingAttemptId: string;
+  platform: CampaignPlatform;
+  providerAccountId: string;
+  enquiries: number;
+  bookings: number;
+  revenueMinor: number;
+  currency: string;
+  note: string | null;
+  createdBy: string | null;
+  createdAt: string;
+}
+
+export type EngagementCommercialOutcomeWriteModel = Omit<EngagementCommercialOutcome, "id" | "createdAt">;
+
+export interface EngagementExclusionSummary {
+  code: "missing_analytics" | "missing_attribution" | "awaiting_7d_checkpoint";
+  count: number;
+  label: string;
+}
+
 export interface EngagementLearningOverview {
   platform: CampaignPlatform;
   objectiveType: EngagementObjectiveType;
@@ -155,5 +188,10 @@ export interface EngagementLearningOverview {
   providerAccountId: string | null;
   latestFeedback: EngagementFeedbackEvent | null;
   latestDraftMetric: EngagementMetricSnapshot | null;
+  latestCommercialOutcome: EngagementCommercialOutcome | null;
+  lastAnalyticsSyncAt: string | null;
+  nextScheduledCollectionAt: string;
+  checkpoints: { hours24: boolean; hours72: boolean; days7: boolean };
+  exclusions: EngagementExclusionSummary[];
   performanceSummary: EngagementPerformanceSummary & { performanceConfidence: number | null };
 }

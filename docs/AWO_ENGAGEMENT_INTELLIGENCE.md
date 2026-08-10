@@ -1,4 +1,4 @@
-# AWO Engagement Intelligence — Sprint 11 learning loop + Sprint 13 operations
+# AWO Engagement Intelligence — learning loop, operations and publish-to-learn
 
 ## Outcome
 
@@ -12,10 +12,12 @@ Recommendations add a required objective (`awareness`, `engagement`, `enquiries`
 ## Learning lifecycle
 
 1. A Contributor or Lead generates a recommendation for a saved social draft.
-2. The operator chooses **Use & record** on the recommendation or an alternative, or records a dismissal.
-3. The existing review and publishing workflow remains the only route to publication.
-4. After Blotato confirms the post, the collector reads `GET /v2/posts/{id}/analytics` and stores immutable provider snapshots.
-5. A later recommendation for the same organisation, platform and objective uses the latest observation for each distinct post as a directional baseline.
+2. The operator chooses **Apply to draft**. Genesis shows the current and replacement payload before confirmation.
+3. One database transaction updates the caption and hashtags, creates a new draft version and records the exact recommendation attribution. A partial apply is impossible.
+4. The existing review and publishing workflow remains the only route to publication.
+5. After Blotato confirms the post, the collector reads `GET /v2/posts/{id}/analytics` and stores immutable provider snapshots.
+6. The operator may add append-only enquiry, booking and GBP revenue snapshots for the exact published attempt.
+7. A later recommendation uses comparable seven-day observations for the same organisation, platform, objective and provider account.
 
 Feedback is attribution evidence, not proof that wording caused performance. At publish execution Genesis stores a non-reversible fingerprint of the exact caption and ordered hashtag payload. A metric snapshot is linked to feedback only when that fingerprint and the destination platform match the recorded choice exactly; otherwise attribution stays null. Posts without a matched choice may still contribute to the account baseline.
 
@@ -32,7 +34,7 @@ The displayed **directional score** is objective-specific and normalized per 1,0
 - enquiries emphasizes clicks, profile visits and recorded enquiries;
 - bookings emphasizes clicks, enquiries and recorded bookings.
 
-Only the latest snapshot per external post counts toward sample size:
+Only the latest **seven-day checkpoint** per external post counts toward sample size. Earlier 24-hour and 72-hour checkpoints remain visible but cannot unlock performance-informed language:
 
 - 0–9 comparable posts: insufficient data; performance confidence is null;
 - 10–29: directional performance context;
@@ -74,16 +76,27 @@ Sprint 13 makes the learning loop usable without turning it into an autonomous p
 
 Set `CRON_SECRET` in Vercel Production to a randomly generated value of at least 16 characters before deploying `vercel.json`. Do not reuse the Blotato API key or Supabase service-role key.
 
+## Sprint 14 publish-to-learn controls
+
+- `public.apply_engagement_recommendation` is a security-invoker transaction. It locks the draft, rechecks organisation, recommendation, version, variant and hashtag payload, rejects locked drafts, updates caption and hashtags, and inserts attribution together.
+- Selected feedback cannot be created through the old record-only application path. Dismissals remain record-only.
+- The panel puts selection state, 7-day learning progress, last analytics sync, next 04:15 UTC collection and exclusion counts at the top.
+- Long caption, alternatives, creative guidance, hashtags and reasoning are collapsed by default.
+- Metric observations are labelled `under_24h`, `24h`, `72h` or `7d`; only `7d` is comparable evidence.
+- Commercial outcomes are append-only snapshots tied by composite foreign key to the exact organisation, draft and publishing attempt. The latest snapshot for an attempt supplies enquiries and bookings to objective scoring; revenue is recorded for operator decisions but does not inflate the engagement score.
+- Human approval remains mandatory after apply. Sprint 14 cannot schedule or publish.
+
 ## Deployment order
 
 1. Apply `20260810180000_engagement_learning_loop.sql` after the Sprint 10 migration.
 2. Apply `20260810190000_engagement_learning_operations.sql`.
-3. Add `CRON_SECRET` to the Vercel Production environment.
-4. Deploy the application code and `vercel.json`.
-5. Generate a recommendation and verify the objective, split confidence and metadata-aware creative guidance.
-6. Select an option and confirm `engagement.recommendation_selected` contains identifiers only and the recorded selection appears in the panel.
-7. Trigger the collector manually with `Authorization: Bearer $PUBLISHING_WORKER_SECRET` and verify `recorded` versus `alreadyRecorded`.
-8. Confirm the Vercel cron is registered for `/api/internal/engagement/collect` and its latest invocation succeeds.
-9. Confirm performance confidence remains unavailable until 10 distinct comparable posts exist for the same organisation, platform, objective and provider account.
+3. Apply `20260810200000_publish_to_learn.sql`.
+4. Keep the existing production `CRON_SECRET`; verify it contains no leading or trailing whitespace.
+5. Deploy the application code and `vercel.json`.
+6. Generate a recommendation, open the replacement preview, confirm apply, and verify the draft body, hashtags, version history and recorded selection all changed together.
+7. Complete human review and publish through the existing workflow.
+8. Trigger the collector manually and verify checkpoint and exclusion visibility.
+9. Record a commercial outcome only after a real eligible post exists.
+10. Confirm performance confidence remains unavailable until 10 distinct seven-day comparable posts exist for the same organisation, platform, objective and provider account.
 
 If Blotato analytics is unavailable, the collector records a failed item and continues; recommendation generation falls back to brand-only behavior. Existing drafting, review and publishing remain unaffected.

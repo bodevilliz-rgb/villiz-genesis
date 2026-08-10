@@ -38,6 +38,7 @@ export type EngagementDataBasisDb = "brand_only" | "performance_informed";
 export type EngagementObjectiveTypeDb = "awareness" | "engagement" | "enquiries" | "bookings";
 export type EngagementFeedbackActionDb = "selected" | "dismissed";
 export type EngagementVariantDb = "recommended" | "alternative_1" | "alternative_2" | "custom";
+export type EngagementMeasurementWindowDb = "under_24h" | "24h" | "72h" | "7d";
 export type MembrainSourceDb = "manual" | "client_brief" | "discovery_call" | "performance_insight" | "competitor_research" | "published_asset";
 export type MembrainStatusDb = "draft" | "active" | "archived";
 export type OrganisationRoleDb = "lead" | "contributor" | "reviewer";
@@ -276,6 +277,7 @@ export type EngagementFeedbackEventRow = {
   reason: string | null;
   created_by: string | null;
   created_at: string;
+  applied_draft_version: number | null;
 };
 
 export type EngagementMetricSnapshotRow = {
@@ -293,6 +295,7 @@ export type EngagementMetricSnapshotRow = {
   provider_snapshot_key: string;
   observed_at: string;
   provider_captured_at: string | null;
+  measurement_window: EngagementMeasurementWindowDb | null;
   views: number | null;
   reach: number | null;
   impressions: number | null;
@@ -307,6 +310,26 @@ export type EngagementMetricSnapshotRow = {
   watch_time_ms: number | null;
   raw_metrics: Json;
   created_at: string;
+};
+
+export type EngagementCommercialOutcomeRow = {
+  id: string;
+  organisation_id: string;
+  draft_id: string;
+  publishing_attempt_id: string;
+  platform: SocialPlatformDb;
+  provider_account_id: string;
+  enquiries: number;
+  bookings: number;
+  revenue_minor: number;
+  currency: string;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
+export type ApplyEngagementRecommendationRow = EngagementFeedbackEventRow & {
+  draft_version: number;
 };
 
 export type ConversationSummaryRow = {
@@ -969,6 +992,7 @@ export type Database = {
       >;
       engagement_feedback_events: Table<EngagementFeedbackEventRow, Partial<EngagementFeedbackEventRow>, Partial<EngagementFeedbackEventRow>>;
       engagement_metric_snapshots: Table<EngagementMetricSnapshotRow, Partial<EngagementMetricSnapshotRow>, Partial<EngagementMetricSnapshotRow>>;
+      engagement_commercial_outcomes: Table<EngagementCommercialOutcomeRow, Partial<EngagementCommercialOutcomeRow>, Partial<EngagementCommercialOutcomeRow>>;
       conversation_summaries: Table<ConversationSummaryRow>;
       daily_briefs: Table<DailyBriefRow>;
       decision_reviews: Table<DecisionReviewRow>;
@@ -1158,6 +1182,17 @@ export type Database = {
       organisation_usage_snapshot: View<UsageSnapshotRow>;
     };
     Functions: {
+      apply_engagement_recommendation: {
+        Args: {
+          p_organisation_id: string;
+          p_draft_id: string;
+          p_recommendation_id: string;
+          p_variant: EngagementVariantDb;
+          p_caption_snapshot: string;
+          p_hashtag_snapshot: string[];
+        };
+        Returns: ApplyEngagementRecommendationRow[];
+      };
       ack_automation_event: {
         Args: { p_event_id: string; p_consumer: string; p_lease_token: string };
         Returns: boolean;

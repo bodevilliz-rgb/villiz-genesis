@@ -62,5 +62,22 @@ export const recordEngagementFeedbackSchema = z.object({
   reason: z.string().trim().max(500).nullable().optional(),
 });
 
+export const applyEngagementRecommendationSchema = recordEngagementFeedbackSchema.extend({
+  action: z.literal("selected"),
+  variant: z.enum(["recommended", "alternative_1", "alternative_2", "custom"]),
+  captionSnapshot: z.string().trim().min(1).max(5000),
+});
+
+export const recordCommercialOutcomeSchema = z.object({
+  organisationId: z.string().uuid(),
+  draftId: z.string().uuid(),
+  platform: engagementPlatformSchema,
+  enquiries: z.number().int().min(0).max(100000),
+  bookings: z.number().int().min(0).max(100000),
+  revenueMinor: z.number().int().min(0).max(1_000_000_000),
+  currency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/),
+  note: z.string().trim().max(500).nullable().optional(),
+});
+
 export type GenerateEngagementRecommendationInput = z.infer<typeof generateEngagementRecommendationSchema>;
 export type EngagementRecommendationModelOutput = z.infer<typeof engagementRecommendationModelSchema>;

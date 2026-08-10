@@ -1,7 +1,7 @@
 import type { BlotatoClient } from "@/core/application/ports/blotato-client-port";
 import type { EngagementRepository } from "@/core/application/ports/engagement-port";
 import type { PublishingRepository } from "@/core/application/ports/publishing-port";
-import type { EngagementObjectiveType, EngagementRecommendation } from "@/core/domain/entities/engagement";
+import type { EngagementMeasurementWindow, EngagementObjectiveType, EngagementRecommendation } from "@/core/domain/entities/engagement";
 import { isSimulatedPublishingAttempt } from "@/core/domain/entities/publishing";
 import { engagementPayloadFingerprint } from "./fingerprint";
 import { normaliseEngagementMetrics } from "./performance";
@@ -42,6 +42,22 @@ function stableMetricKey(value: Record<string, unknown>): string {
     hash = Math.imul(hash, 16777619);
   }
   return (hash >>> 0).toString(16);
+}
+
+export function measurementWindow(
+  completedAt: string | null,
+  capturedAt: string | null,
+  observedAt: string,
+): EngagementMeasurementWindow | null {
+  if (!completedAt) return null;
+  const completedMs = Date.parse(completedAt);
+  const measuredMs = Date.parse(capturedAt ?? observedAt);
+  if (!Number.isFinite(completedMs) || !Number.isFinite(measuredMs) || measuredMs < completedMs) return null;
+  const ageHours = (measuredMs - completedMs) / (60 * 60 * 1000);
+  if (ageHours >= 168) return "7d";
+  if (ageHours >= 72) return "72h";
+  if (ageHours >= 24) return "24h";
+  return "under_24h";
 }
 
 export async function collectEngagementAnalytics(
@@ -114,6 +130,7 @@ export async function collectEngagementAnalytics(
           externalPostId: attempt.externalPostId!,
           providerSnapshotKey,
           observedAt, providerCapturedAt: snapshot.capturedAt,
+          measurementWindow: measurementWindow(attempt.completedAt, snapshot.capturedAt, observedAt),
           metrics, rawMetrics,
         });
         if (inserted.created) result.recorded += 1;

@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { getAIProvider } from "@/infrastructure/ai/provider-factory";
-import { generateEngagementRecommendation, getEngagementLearningOverview, recordEngagementFeedback } from "@/core/application/use-cases/engagement";
+import { applyEngagementRecommendation, generateEngagementRecommendation, getEngagementLearningOverview, recordEngagementCommercialOutcome, recordEngagementFeedback } from "@/core/application/use-cases/engagement";
 import { collectEngagementAnalytics, type EngagementCollectionResult } from "@/core/application/use-cases/engagement/collector";
 import type { EngagementFeedbackEvent, EngagementLearningOverview, EngagementObjectiveType, EngagementRecommendation } from "@/core/domain/entities/engagement";
 import type { CampaignPlatform } from "@/core/domain/entities/campaign";
@@ -89,6 +89,7 @@ export async function generateEngagementRecommendationAction(input: {
       organisations: context.organisations,
       engagement: context.engagement,
       blotatoAccounts: context.blotatoAccounts,
+      publishing: context.publishing,
     }, {
       organisationId: input.organisationId,
       draftId: input.draftId,
@@ -104,6 +105,27 @@ export async function generateEngagementRecommendationAction(input: {
         ? error.message
         : "AWO could not generate an engagement recommendation. Try again shortly.",
     };
+  }
+}
+
+export async function applyEngagementRecommendationAction(input: {
+  organisationId: string;
+  draftId: string;
+  recommendationId: string;
+  variant: "recommended" | "alternative_1" | "alternative_2" | "custom";
+  captionSnapshot: string;
+  hashtagSnapshot: string[];
+}): Promise<{ ok: true; feedback: EngagementFeedbackEvent; draftVersion: number } | { ok: false; error: string }> {
+  try {
+    const context = await requireContext();
+    const result = await applyEngagementRecommendation({
+      actor: context.actor, organisations: context.organisations,
+      engagement: context.engagement, content: context.content,
+    }, { ...input, action: "selected" });
+    return { ok: true, feedback: result.feedback, draftVersion: result.draftVersion };
+  } catch (error) {
+    console.error("[genesis] engagement recommendation apply failed", error);
+    return { ok: false, error: isDomainError(error) ? error.message : "AWO could not apply that recommendation." };
   }
 }
 
@@ -152,11 +174,42 @@ export async function refreshEngagementAnalyticsAction(input: {
       organisations: context.organisations,
       engagement: new SupabaseEngagementRepository(admin),
       blotatoAccounts: context.blotatoAccounts,
+      publishing: context.publishing,
     }, input);
     return { ok: true, result, learningOverview };
   } catch (error) {
     console.error("[genesis] engagement analytics refresh failed", error);
     return { ok: false, error: "AWO could not refresh published-post analytics." };
+  }
+}
+
+export async function recordEngagementCommercialOutcomeAction(input: {
+  organisationId: string;
+  draftId: string;
+  platform: CampaignPlatform;
+  objectiveType: EngagementObjectiveType;
+  enquiries: number;
+  bookings: number;
+  revenueMinor: number;
+  currency: string;
+  note?: string | null;
+}): Promise<{ ok: true; learningOverview: EngagementLearningOverview } | { ok: false; error: string }> {
+  try {
+    const context = await requireContext();
+    await recordEngagementCommercialOutcome({
+      actor: context.actor, organisations: context.organisations,
+      engagement: context.engagement, blotatoAccounts: context.blotatoAccounts,
+      publishing: context.publishing,
+    }, input);
+    const learningOverview = await getEngagementLearningOverview({
+      actor: context.actor, organisations: context.organisations,
+      engagement: context.engagement, blotatoAccounts: context.blotatoAccounts,
+      publishing: context.publishing,
+    }, input);
+    return { ok: true, learningOverview };
+  } catch (error) {
+    console.error("[genesis] commercial outcome record failed", error);
+    return { ok: false, error: isDomainError(error) ? error.message : "AWO could not record that commercial outcome." };
   }
 }
 

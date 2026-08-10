@@ -1,5 +1,5 @@
-import type { EngagementFeedbackEvent, EngagementMetricSnapshot, EngagementRecommendation } from "@/core/domain/entities/engagement";
-import type { EngagementFeedbackEventRow, EngagementMetricSnapshotRow, EngagementRecommendationRow } from "@/infrastructure/supabase/database.types";
+import type { EngagementCommercialOutcome, EngagementFeedbackEvent, EngagementMetricSnapshot, EngagementRecommendation } from "@/core/domain/entities/engagement";
+import type { EngagementCommercialOutcomeRow, EngagementFeedbackEventRow, EngagementMetricSnapshotRow, EngagementRecommendationRow } from "@/infrastructure/supabase/database.types";
 
 export function toEngagementRecommendation(row: EngagementRecommendationRow): EngagementRecommendation {
   return {
@@ -35,6 +35,7 @@ export function toEngagementFeedbackEvent(row: EngagementFeedbackEventRow): Enga
     recommendationId: row.recommendation_id, action: row.action, variant: row.variant,
     captionSnapshot: row.caption_snapshot, hashtagSnapshot: row.hashtag_snapshot,
     reason: row.reason, createdBy: row.created_by, createdAt: row.created_at,
+    appliedDraftVersion: row.applied_draft_version,
   };
 }
 
@@ -47,10 +48,21 @@ export function toEngagementMetricSnapshot(row: EngagementMetricSnapshotRow): En
     providerAccountId: row.provider_account_id,
     externalPostId: row.external_post_id, providerSnapshotKey: row.provider_snapshot_key,
     observedAt: row.observed_at, providerCapturedAt: row.provider_captured_at,
+    measurementWindow: row.measurement_window,
     metrics: { views: row.views, reach: row.reach, impressions: row.impressions, likes: row.likes,
       comments: row.comments, shares: row.shares, saves: row.saves, clicks: row.clicks,
       profileVisits: row.profile_visits, enquiries: row.enquiries, bookings: row.bookings,
       watchTimeMs: row.watch_time_ms },
     rawMetrics: row.raw_metrics as Record<string, unknown>, createdAt: row.created_at,
+  };
+}
+
+export function toEngagementCommercialOutcome(row: EngagementCommercialOutcomeRow): EngagementCommercialOutcome {
+  return {
+    id: row.id, organisationId: row.organisation_id, draftId: row.draft_id,
+    publishingAttemptId: row.publishing_attempt_id, platform: row.platform,
+    providerAccountId: row.provider_account_id, enquiries: row.enquiries,
+    bookings: row.bookings, revenueMinor: row.revenue_minor, currency: row.currency,
+    note: row.note, createdBy: row.created_by, createdAt: row.created_at,
   };
 }
