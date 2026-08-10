@@ -119,6 +119,14 @@ function dependencies(options: { role?: "lead" | "contributor" | "reviewer"; wit
       rationale: "The caption leads with identity and closes with a direct booking action.",
       predictedStrengths: ["Clear opening hook", "Direct CTA"],
       limitations: [],
+      creativeGuidance: {
+        mediaBasis: "none",
+        visualHook: "Lead with the portrait.",
+        formatRecommendation: "Use a portrait carousel.",
+        shareTrigger: "Invite someone planning a portrait.",
+        saveTrigger: "Save the preparation tips.",
+        accessibilityNote: "Add descriptive alt text.",
+      },
       confidence: 96,
     })) as AIProviderPort["generateObject"],
   };
@@ -169,7 +177,7 @@ describe("AWO Engagement Intelligence", () => {
     });
 
     expect(recommendation.confidence).toBe(70);
-    expect(recommendation.limitations[0]).toContain("does not yet have account-level engagement metrics");
+    expect(recommendation.limitations[0]).toContain("does not yet have enough comparable account-level results");
   });
 
   it("deduplicates hashtags across every group instead of presenting a spammy repeated set", async () => {
@@ -243,5 +251,27 @@ describe("engagement intelligence database contract", () => {
     expect(eventBody).not.toContain("new.recommended_caption");
     expect(eventBody).not.toContain("new.hashtag_groups");
     expect(eventBody).not.toContain("new.evidence");
+  });
+});
+
+describe("Sprint 11 learning-loop database contract", () => {
+  const migration = fs.readFileSync(
+    path.resolve(import.meta.dirname, "../supabase/migrations/20260810180000_engagement_learning_loop.sql"),
+    "utf8",
+  );
+
+  it("keeps feedback append-only and provider snapshots service-role-only", () => {
+    expect(migration).toContain("revoke update, delete on public.engagement_feedback_events from authenticated");
+    expect(migration).toContain("revoke insert, update, delete on public.engagement_metric_snapshots from authenticated");
+    expect(migration).toContain("engagement_metrics_attempt_scope_fkey");
+    expect(migration).toContain("engagement_metric_snapshots_immutable");
+    expect(migration).toContain("(organisation_id, provider_snapshot_key)");
+  });
+
+  it("emits feedback metadata without caption or hashtag snapshots", () => {
+    const eventBody = migration.split("create or replace function app.emit_engagement_feedback_event()")[1] ?? "";
+    expect(eventBody).toContain("'engagement.recommendation_selected'");
+    expect(eventBody).not.toContain("new.caption_snapshot");
+    expect(eventBody).not.toContain("new.hashtag_snapshot");
   });
 });

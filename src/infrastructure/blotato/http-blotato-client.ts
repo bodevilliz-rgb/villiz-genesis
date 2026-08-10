@@ -1,5 +1,5 @@
 import "server-only";
-import type { BlotatoClient, BlotatoMediaUploadResult, BlotatoPostStatus, BlotatoPublishInput, BlotatoPublishResult } from "@/core/application/ports/blotato-client-port";
+import type { BlotatoAnalyticsSnapshot, BlotatoClient, BlotatoMediaUploadResult, BlotatoPostAnalytics, BlotatoPostStatus, BlotatoPublishInput, BlotatoPublishResult } from "@/core/application/ports/blotato-client-port";
 import type { BlotatoAccountSummary } from "@/core/domain/entities/blotato";
 import { InfrastructureError } from "@/core/domain/errors";
 
@@ -124,5 +124,27 @@ export class HttpBlotatoClient implements BlotatoClient {
     }
 
     return (await response.json()) as BlotatoPostStatus;
+  }
+
+  async getPostAnalytics(postSubmissionId: string): Promise<BlotatoPostAnalytics> {
+    const response = await fetch(`${BASE_URL}/posts/${encodeURIComponent(postSubmissionId)}/analytics`, {
+      method: "GET", headers: this.headers(), cache: "no-store",
+    });
+    if (!response.ok) {
+      throw new InfrastructureError(`Blotato returned ${response.status} reading analytics: ${await readErrorDetail(response)}`);
+    }
+    const body = (await response.json()) as Record<string, unknown>;
+    const asRecord = (value: unknown): Record<string, unknown> =>
+      value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+    const toSnapshot = (value: unknown): BlotatoAnalyticsSnapshot => {
+      const record = asRecord(value);
+      const capturedAt = [record.capturedAt, record.captured_at, record.timestamp, record.date]
+        .find((candidate): candidate is string => typeof candidate === "string") ?? null;
+      return { capturedAt, metrics: asRecord(record.metrics ?? record.analytics ?? record) };
+    };
+    const rawHistory = body.snapshots ?? body.history;
+    const history = Array.isArray(rawHistory) ? rawHistory.map(toSnapshot) : [];
+    const latestValue = body.latest ?? body.analytics ?? body.metrics ?? body;
+    return { postId: postSubmissionId, latest: toSnapshot(latestValue), history };
   }
 }

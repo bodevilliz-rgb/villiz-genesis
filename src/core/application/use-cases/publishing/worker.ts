@@ -14,6 +14,7 @@ import { resolvePublisher } from "@/infrastructure/publishers/publisher-factory"
 import { resolveEffectiveSimulationMode } from "@/infrastructure/publishers/simulation-mode";
 import { evaluatePlatformPreflight } from "@/core/domain/entities/publishing-preflight";
 import { composePublishedText } from "@/core/application/use-cases/content/hashtags";
+import { engagementPayloadFingerprint } from "@/core/application/use-cases/engagement/fingerprint";
 import { resolvePublishMediaUrls } from "./media";
 import {
   awaitProviderConfirmation,
@@ -185,6 +186,7 @@ async function executeJob(deps: WorkerDeps, job: PublishingJob): Promise<WorkerI
     );
 
     const composedBody = composePublishedText(draft.body, draft.hashtags ?? []);
+    const publishedPayloadFingerprint = engagementPayloadFingerprint(draft.body, draft.hashtags ?? []);
 
     // Fail-closed: mandatory platform requirements are enforced at execution
     // time when live publishing is enabled — same guard, same ordering, and
@@ -243,7 +245,7 @@ async function executeJob(deps: WorkerDeps, job: PublishingJob): Promise<WorkerI
       await completePublishingAttempt(innerDeps, job, attempt, {
         externalPostId: publishResult.externalPostId,
         externalUrl: publishResult.externalUrl,
-        providerMetadata: publishResult.metadata ?? {},
+        providerMetadata: { ...(publishResult.metadata ?? {}), publishedPayloadFingerprint },
       });
       return {
         status: "processed",
@@ -261,7 +263,7 @@ async function executeJob(deps: WorkerDeps, job: PublishingJob): Promise<WorkerI
     if (publishResult.success === "pending") {
       await awaitProviderConfirmation(innerDeps, job, attempt, {
         providerSubmissionId: publishResult.providerSubmissionId,
-        providerMetadata: publishResult.metadata ?? {},
+        providerMetadata: { ...(publishResult.metadata ?? {}), publishedPayloadFingerprint },
       });
       return {
         status: "processed",

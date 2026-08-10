@@ -49,6 +49,17 @@ export interface BlotatoMediaUploadResult {
   id: string;
 }
 
+export interface BlotatoAnalyticsSnapshot {
+  capturedAt: string | null;
+  metrics: Record<string, unknown>;
+}
+
+export interface BlotatoPostAnalytics {
+  postId: string;
+  latest: BlotatoAnalyticsSnapshot;
+  history: BlotatoAnalyticsSnapshot[];
+}
+
 /**
  * The real Blotato REST API (https://backend.blotato.com/v2), abstracted so
  * every use-case and publisher depends on this interface only — never on a
@@ -71,4 +82,6 @@ export interface BlotatoClient {
   publishPost(input: BlotatoPublishInput): Promise<BlotatoPublishResult>;
   /** GET /posts/{postSubmissionId} — polled by BlotatoPublisherBase after publishPost() until Blotato reports a terminal status, so a merely-accepted submission is never mistaken for a successful publish. */
   getPostStatus(postSubmissionId: string): Promise<BlotatoPostStatus>;
+  /** GET /posts/{postSubmissionId}/analytics — returns provider metrics without interpreting them as causal lift. */
+  getPostAnalytics?(postSubmissionId: string): Promise<BlotatoPostAnalytics>;
 }

@@ -2,9 +2,16 @@
 
 import { z } from "zod";
 import { getAIProvider } from "@/infrastructure/ai/provider-factory";
-import { generateEngagementRecommendation } from "@/core/application/use-cases/engagement";
-import type { EngagementRecommendation } from "@/core/domain/entities/engagement";
+import { generateEngagementRecommendation, recordEngagementFeedback } from "@/core/application/use-cases/engagement";
+import { collectEngagementAnalytics, type EngagementCollectionResult } from "@/core/application/use-cases/engagement/collector";
+import type { EngagementFeedbackEvent, EngagementRecommendation } from "@/core/domain/entities/engagement";
 import { isDomainError } from "@/core/domain/errors";
+import { canWriteContent } from "@/core/domain/entities/identity";
+import { createAdminClient } from "@/infrastructure/supabase/admin-client";
+import { SupabaseEngagementRepository } from "@/infrastructure/repositories/supabase-engagement-repository";
+import { SupabasePublishingRepository } from "@/infrastructure/repositories/supabase-publishing-repository";
+import { HttpBlotatoClient } from "@/infrastructure/blotato/http-blotato-client";
+import { blotatoConfig } from "@/infrastructure/blotato/blotato-config";
 import { requireContext } from "../container";
 import {
   extractAwoMembrainContext,
@@ -57,6 +64,7 @@ export async function generateEngagementRecommendationAction(input: {
   organisationId: string;
   draftId: string;
   platform: string;
+  objectiveType?: string;
   objective?: string;
 }): Promise<EngagementRecommendationActionResult> {
   try {
@@ -69,6 +77,7 @@ export async function generateEngagementRecommendationAction(input: {
         content: context.content,
         membrain: context.membrain,
         engagement: context.engagement,
+        media: context.media,
         ai: getAIProvider(),
       },
       input,
@@ -82,6 +91,51 @@ export async function generateEngagementRecommendationAction(input: {
         ? error.message
         : "AWO could not generate an engagement recommendation. Try again shortly.",
     };
+  }
+}
+
+export async function recordEngagementFeedbackAction(input: {
+  organisationId: string;
+  draftId: string;
+  recommendationId: string;
+  action: "selected" | "dismissed";
+  variant: "recommended" | "alternative_1" | "alternative_2" | "custom" | null;
+  captionSnapshot: string | null;
+  hashtagSnapshot: string[];
+  reason?: string | null;
+}): Promise<{ ok: true; feedback: EngagementFeedbackEvent } | { ok: false; error: string }> {
+  try {
+    const context = await requireContext();
+    const feedback = await recordEngagementFeedback({
+      actor: context.actor, organisations: context.organisations, engagement: context.engagement, content: context.content,
+    }, input);
+    return { ok: true, feedback };
+  } catch (error) {
+    console.error("[genesis] engagement feedback failed", error);
+    return { ok: false, error: isDomainError(error) ? error.message : "AWO could not record that choice." };
+  }
+}
+
+export async function refreshEngagementAnalyticsAction(input: {
+  organisationId: string;
+  draftId: string;
+}): Promise<{ ok: true; result: EngagementCollectionResult } | { ok: false; error: string }> {
+  try {
+    const context = await requireContext();
+    const role = await context.organisations.viewerRole(input.organisationId);
+    if (!canWriteContent(context.actor, role)) return { ok: false, error: "Contributor or Lead access is required." };
+    const draft = await context.content.findDraft(input.organisationId, input.draftId);
+    if (!draft) return { ok: false, error: "Draft not found." };
+    const admin = createAdminClient();
+    const result = await collectEngagementAnalytics({
+      publishing: new SupabasePublishingRepository(admin),
+      engagement: new SupabaseEngagementRepository(admin),
+      blotatoClient: new HttpBlotatoClient(blotatoConfig().apiKey),
+    }, { organisationId: input.organisationId, draftId: input.draftId, limit: 10 });
+    return { ok: true, result };
+  } catch (error) {
+    console.error("[genesis] engagement analytics refresh failed", error);
+    return { ok: false, error: "AWO could not refresh published-post analytics." };
   }
 }
 
@@ -164,4 +218,3 @@ export async function generateHashtags(
   const result = await ai.generateObject(content, schema, { systemPrompt });
   return result;
 }
-

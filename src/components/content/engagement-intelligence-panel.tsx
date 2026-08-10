@@ -1,17 +1,18 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Check, Copy, Loader2, Sparkles } from "lucide-react";
+import { Check, Copy, Loader2, RefreshCw, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
-import { generateEngagementRecommendationAction } from "@/server/actions/awo";
+import { generateEngagementRecommendationAction, recordEngagementFeedbackAction, refreshEngagementAnalyticsAction } from "@/server/actions/awo";
 import type { CampaignPlatform } from "@/core/domain/entities/campaign";
 import { CAMPAIGN_PLATFORM_LABELS } from "@/core/domain/entities/campaign";
-import type { EngagementRecommendation } from "@/core/domain/entities/engagement";
+import type { EngagementObjectiveType, EngagementRecommendation, EngagementVariant } from "@/core/domain/entities/engagement";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 
 const PLATFORMS = Object.keys(CAMPAIGN_PLATFORM_LABELS) as CampaignPlatform[];
 
@@ -50,7 +51,9 @@ export function EngagementIntelligencePanel({
 }) {
   const [platform, setPlatform] = useState<CampaignPlatform>(initialRecommendation?.platform ?? initialPlatform);
   const [objective, setObjective] = useState("");
+  const [objectiveType, setObjectiveType] = useState<EngagementObjectiveType>(initialRecommendation?.objectiveType ?? "engagement");
   const [recommendation, setRecommendation] = useState(initialRecommendation);
+  const [editedCaption, setEditedCaption] = useState("");
   const [pending, startTransition] = useTransition();
 
   function requestRecommendation() {
@@ -59,6 +62,7 @@ export function EngagementIntelligencePanel({
         organisationId,
         draftId,
         platform,
+        objectiveType,
         objective,
       });
       if (!result.ok) {
@@ -66,7 +70,49 @@ export function EngagementIntelligencePanel({
         return;
       }
       setRecommendation(result.recommendation);
+      setEditedCaption("");
       toast.success("Engagement recommendation generated and recorded.");
+    });
+  }
+
+  function recordChoice(variant: EngagementVariant, caption: string) {
+    if (!recommendation) return;
+    startTransition(async () => {
+      const result = await recordEngagementFeedbackAction({
+        organisationId, draftId, recommendationId: recommendation.id, action: "selected", variant,
+        captionSnapshot: caption, hashtagSnapshot: allHashtags(recommendation),
+      });
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+      await copyText(caption, "Selected caption");
+      toast.success("Choice recorded for the learning loop. Human approval is still required.");
+    });
+  }
+
+  function dismissRecommendation() {
+    if (!recommendation) return;
+    startTransition(async () => {
+      const result = await recordEngagementFeedbackAction({
+        organisationId, draftId, recommendationId: recommendation.id, action: "dismissed",
+        variant: null, captionSnapshot: null, hashtagSnapshot: [],
+      });
+      if (result.ok) toast.success("Recommendation dismissed and recorded.");
+      else toast.error(result.error);
+    });
+  }
+
+  function refreshAnalytics() {
+    startTransition(async () => {
+      const response = await refreshEngagementAnalyticsAction({ organisationId, draftId });
+      if (!response.ok) {
+        toast.error(response.error);
+        return;
+      }
+      toast.success(response.result.recorded
+        ? `Recorded ${response.result.recorded} analytics snapshot${response.result.recorded === 1 ? "" : "s"}. Generate a new recommendation to use them.`
+        : "No new published-post metrics were available yet.");
     });
   }
 
@@ -95,6 +141,17 @@ export function EngagementIntelligencePanel({
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="grid gap-2">
+          <Select
+            aria-label="Primary engagement objective"
+            value={objectiveType}
+            onChange={(event) => setObjectiveType(event.target.value as EngagementObjectiveType)}
+            disabled={!canWrite || pending}
+          >
+            <option value="awareness">Awareness</option>
+            <option value="engagement">Engagement</option>
+            <option value="enquiries">Enquiries</option>
+            <option value="bookings">Bookings</option>
+          </Select>
           <Select
             aria-label="Engagement platform"
             value={platform}
@@ -135,7 +192,12 @@ export function EngagementIntelligencePanel({
               <span className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
                 {CAMPAIGN_PLATFORM_LABELS[recommendation.platform]} · Draft v{recommendation.draftVersion}
               </span>
-              <span className="text-[12px] font-medium text-foreground">Confidence {recommendation.confidence}%</span>
+              <div className="text-right text-[12px]">
+                <div className="font-medium text-foreground">Brand fit {recommendation.confidence}%</div>
+                <div className="text-muted-foreground">
+                  Performance confidence {recommendation.performanceConfidence === null ? "— not enough data" : `${recommendation.performanceConfidence}%`}
+                </div>
+              </div>
             </div>
 
             <section className="grid gap-2">
@@ -155,6 +217,9 @@ export function EngagementIntelligencePanel({
               <p className="whitespace-pre-wrap rounded-md border border-border bg-muted/30 p-3 text-[13px] leading-relaxed">
                 {recommendation.recommendedCaption}
               </p>
+              <Button type="button" size="sm" onClick={() => recordChoice("recommended", recommendation.recommendedCaption)} disabled={!canWrite || pending || isStale}>
+                <Check className="size-3.5" aria-hidden /> Use &amp; record
+              </Button>
             </section>
 
             {recommendation.alternativeCaptions.length > 0 ? (
@@ -174,11 +239,32 @@ export function EngagementIntelligencePanel({
                         <Copy className="size-3.5" aria-hidden />
                         Copy alternative {index + 1}
                       </Button>
+                      <Button type="button" size="sm" className="justify-self-start"
+                        onClick={() => recordChoice(index === 0 ? "alternative_1" : "alternative_2", caption)}
+                        disabled={!canWrite || pending || isStale}>
+                        <Check className="size-3.5" aria-hidden /> Use &amp; record alternative {index + 1}
+                      </Button>
                     </div>
                   ))}
                 </div>
               </details>
             ) : null}
+
+            <section className="grid gap-2 rounded-md border border-border p-3">
+              <h3 className="text-[12px] font-semibold">Use an edited variation</h3>
+              <Textarea
+                aria-label="Edited caption variation"
+                value={editedCaption}
+                onChange={(event) => setEditedCaption(event.target.value)}
+                maxLength={5000}
+                placeholder="Paste and edit a recommendation here to record the version you actually intend to use."
+                disabled={!canWrite || pending || isStale}
+              />
+              <Button type="button" size="sm" onClick={() => recordChoice("custom", editedCaption)}
+                disabled={!canWrite || pending || isStale || !editedCaption.trim()}>
+                <Check className="size-3.5" aria-hidden /> Use edited &amp; record
+              </Button>
+            </section>
 
             <dl className="grid gap-3 text-[12px]">
               <div>
@@ -190,6 +276,38 @@ export function EngagementIntelligencePanel({
                 <dd className="mt-1 text-muted-foreground">{recommendation.cta}</dd>
               </div>
             </dl>
+
+            <section className="grid gap-2 rounded-md border border-border p-3">
+              <h3 className="text-[12px] font-semibold">Creative guidance</h3>
+              <p className="text-[11px] text-muted-foreground">
+                {recommendation.creativeGuidance.mediaBasis === "metadata_only" ? "Based on attached-media metadata; no pixel-level visual inspection." : "No attached-media evidence was available."}
+              </p>
+              <dl className="grid gap-2 text-[12px] text-muted-foreground">
+                <div><dt className="font-medium text-foreground">Opening frame</dt><dd>{recommendation.creativeGuidance.visualHook}</dd></div>
+                <div><dt className="font-medium text-foreground">Format</dt><dd>{recommendation.creativeGuidance.formatRecommendation}</dd></div>
+                <div><dt className="font-medium text-foreground">Share trigger</dt><dd>{recommendation.creativeGuidance.shareTrigger}</dd></div>
+                <div><dt className="font-medium text-foreground">Save trigger</dt><dd>{recommendation.creativeGuidance.saveTrigger}</dd></div>
+                <div><dt className="font-medium text-foreground">Accessibility</dt><dd>{recommendation.creativeGuidance.accessibilityNote}</dd></div>
+              </dl>
+            </section>
+
+            <section className="grid gap-2 rounded-md border border-border p-3">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-[12px] font-semibold">Performance learning</h3>
+                <Button type="button" variant="ghost" size="sm" onClick={refreshAnalytics} disabled={!canWrite || pending}>
+                  <RefreshCw className="size-3.5" aria-hidden /> Refresh
+                </Button>
+              </div>
+              <p className="text-[12px] text-muted-foreground">
+                {recommendation.performanceSummary.sampleSize}/{recommendation.performanceSummary.minimumSampleSize} comparable posts · Directional score {recommendation.performanceSummary.directionalScore ?? "not available"} per 1,000 reach/views.
+              </p>
+              {recommendation.performanceSummary.championVariant ? (
+                <p className="text-[12px] text-muted-foreground">
+                  Current champion: {recommendation.performanceSummary.championVariant.replaceAll("_", " ")} · Challenger: {recommendation.performanceSummary.challengerVariant?.replaceAll("_", " ")}. Keep testing; this is observational.
+                </p>
+              ) : null}
+              <p className="text-[11px] text-subtle-foreground">Directional evidence only; it does not prove that a caption caused the result.</p>
+            </section>
 
             <section className="grid gap-2">
               <div className="flex items-center justify-between gap-2">
@@ -235,16 +353,20 @@ export function EngagementIntelligencePanel({
               {recommendation.limitations[0]}
             </div>
 
+            <Button type="button" variant="ghost" size="sm" className="justify-self-start" onClick={dismissRecommendation} disabled={!canWrite || pending || isStale}>
+              <X className="size-3.5" aria-hidden /> Dismiss &amp; record
+            </Button>
+
             <p className="text-[11px] text-subtle-foreground">
-              Evidence: {recommendation.evidence.length} active MemBrain {recommendation.evidence.length === 1 ? "entry" : "entries"}. Human approval remains required.
+              Evidence: {recommendation.evidence.length} source {recommendation.evidence.length === 1 ? "record" : "records"}. Human approval remains required.
             </p>
             {recommendation.evidence.length > 0 ? (
               <details className="text-[11px] text-subtle-foreground">
-                <summary className="cursor-pointer">View MemBrain evidence</summary>
+                <summary className="cursor-pointer">View evidence</summary>
                 <ul className="mt-2 grid gap-1 pl-4">
                   {recommendation.evidence.map((item) => (
                     <li key={`${item.sourceId}-${item.version}`} className="list-disc">
-                      {item.title} · v{item.version}
+                      {item.title}{item.version ? ` · v${item.version}` : ""}
                     </li>
                   ))}
                 </ul>
