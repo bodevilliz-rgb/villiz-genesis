@@ -253,6 +253,10 @@ function job(overrides: Partial<PublishingJob> = {}): PublishingJob {
     cancelledAt: null,
     devSimulationMode: null,
     resolvedAccountId: null,
+    // Reconciliation (item 21) only ever targets a job that actually went
+    // through the live provider path — see the executionMode guard in
+    // reconcileBlotatoStatusTimeout.
+    executionMode: "live",
     ...overrides,
   } as PublishingJob;
 }

@@ -33,6 +33,7 @@ function job(overrides: Partial<PublishingJob> = {}): PublishingJob {
     isAiGenerated: null,
     isYourBrand: null,
     isBrandedContent: null,
+    executionMode: "simulation",
     ...overrides,
   };
 }

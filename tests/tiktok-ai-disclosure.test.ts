@@ -126,6 +126,11 @@ function immediateForm(fields: Record<string, string> = {}): FormData {
   fd.append("platform", "tiktok");
   fd.append("idempotencyKey", "idem-1");
   for (const [k, v] of Object.entries(fields)) fd.append(k, v);
+  // P0 fix: this whole file exercises live-mode preflight enforcement —
+  // execution mode must be explicitly "live" for that enforcement to run
+  // at all (see resolveEffectiveLivePublishing). set(), not append(), so a
+  // caller passing executionMode via `fields` above still wins.
+  if (!fd.has("executionMode")) fd.set("executionMode", "live");
   return fd;
 }
 

@@ -363,6 +363,12 @@ function makePublishFormData(platform = "instagram"): FormData {
   fd.append("id", "draft-1");
   fd.append("platform", platform);
   fd.append("idempotencyKey", "key-123");
+  // P0 fix: every test in this file exercises live-mode preflight
+  // enforcement (blotatoConfig().livePublishingEnabled: true) — execution
+  // mode must now be explicitly "live" for that enforcement to run at all
+  // (see resolveEffectiveLivePublishing); a submission with no executionMode
+  // field fails closed to simulation, which correctly skips preflight.
+  fd.append("executionMode", "live");
   return fd;
 }
 

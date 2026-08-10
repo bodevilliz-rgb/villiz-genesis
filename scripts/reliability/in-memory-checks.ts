@@ -278,7 +278,7 @@ export const immediateJobCreationCheck: ReliabilityCheck = {
         audits: fakeAudits(),
         notifications: fakeNotifications(),
       },
-      { organisationId: ORG_A, draftId: draft.id, platform: "instagram", idempotencyKey: key },
+      { organisationId: ORG_A, draftId: draft.id, platform: "instagram", idempotencyKey: key, executionMode: "simulation" },
     );
 
     assertEqual(job.status, "queued", "a newly created immediate job must start queued");
@@ -313,15 +313,15 @@ export const duplicatePublishPreventionCheck: ReliabilityCheck = {
 
     // Same idempotency key, simulating an exact duplicate server-action call.
     const sameKey = generateIdempotencyKey();
-    const first = await createImmediatePublishingJob(deps, { organisationId: ORG_A, draftId: draft.id, platform: "facebook", idempotencyKey: sameKey });
-    const second = await createImmediatePublishingJob(deps, { organisationId: ORG_A, draftId: draft.id, platform: "facebook", idempotencyKey: sameKey });
+    const first = await createImmediatePublishingJob(deps, { organisationId: ORG_A, draftId: draft.id, platform: "facebook", idempotencyKey: sameKey, executionMode: "simulation" });
+    const second = await createImmediatePublishingJob(deps, { organisationId: ORG_A, draftId: draft.id, platform: "facebook", idempotencyKey: sameKey, executionMode: "simulation" });
     assertEqual(first.id, second.id, "two calls with the same idempotency key must resolve to the same job");
 
     // Simulated double-click: a different idempotency key (a fresh form
     // submission) but the same draft+platform, arriving while the first
     // job is still active — findActiveJobForDraftPlatform must short-circuit
     // this to the existing job rather than creating a second one.
-    const third = await createImmediatePublishingJob(deps, { organisationId: ORG_A, draftId: draft.id, platform: "facebook", idempotencyKey: generateIdempotencyKey() });
+    const third = await createImmediatePublishingJob(deps, { organisationId: ORG_A, draftId: draft.id, platform: "facebook", idempotencyKey: generateIdempotencyKey(), executionMode: "simulation" });
     assertEqual(third.id, first.id, "a concurrent create-job call for the same draft+platform must not create a second active job");
 
     assertTrue(jobs.size === 1, `only one active publishing job may exist for the same draft+platform — found ${jobs.size}`);
@@ -743,6 +743,7 @@ export const scheduledJobEligibilityCheck: ReliabilityCheck = {
       scheduledFor: future,
       timezone: "America/New_York",
       idempotencyKey: generateIdempotencyKey(),
+      executionMode: "simulation",
     });
 
     assertEqual(job.triggerType, "scheduled", "createScheduledPublishingJob must set trigger_type=scheduled");
@@ -759,6 +760,7 @@ export const scheduledJobEligibilityCheck: ReliabilityCheck = {
         scheduledFor: new Date(Date.now() - 60_000).toISOString(),
         timezone: "UTC",
         idempotencyKey: generateIdempotencyKey(),
+      executionMode: "simulation",
       });
     } catch {
       rejectedPast = true;
@@ -915,7 +917,7 @@ export const auditTrailCheck: ReliabilityCheck = {
         audits,
         notifications: fakeNotifications(),
       },
-      { organisationId: ORG_A, draftId: draft.id, platform: "linkedin", idempotencyKey: generateIdempotencyKey() },
+      { organisationId: ORG_A, draftId: draft.id, platform: "linkedin", idempotencyKey: generateIdempotencyKey(), executionMode: "simulation" },
     );
 
     assertTrue(events.some((e) => e.eventType === "publishing_job_queued"), "queuing an immediate publish must record a publishing_job_queued audit event");

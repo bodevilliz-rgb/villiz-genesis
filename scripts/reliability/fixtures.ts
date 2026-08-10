@@ -96,6 +96,7 @@ export function publishingJob(overrides: Partial<PublishingJob> = {}): Publishin
     isAiGenerated: null,
     isYourBrand: null,
     isBrandedContent: null,
+    executionMode: "simulation",
     ...overrides,
   };
 }
