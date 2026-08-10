@@ -1,5 +1,6 @@
 import type {
   EngagementMetricSnapshot,
+  EngagementCommercialOutcome,
   EngagementObjectiveType,
   EngagementPerformanceSummary,
 } from "@/core/domain/entities/engagement";
@@ -76,15 +77,29 @@ export function objectiveDirectionalScore(
 export function performanceSummary(
   snapshots: EngagementMetricSnapshot[],
   objective: EngagementObjectiveType,
+  commercialOutcomes: EngagementCommercialOutcome[] = [],
 ): EngagementPerformanceSummary & { performanceConfidence: number | null } {
+  // Only fixed seven-day checkpoints are comparable. Earlier checkpoints remain
+  // visible operationally but can never unlock performance-informed language.
+  const comparableSnapshots = snapshots.filter((snapshot) => snapshot.measurementWindow === "7d");
   const latestByPost = new Map<string, EngagementMetricSnapshot>();
-  for (const snapshot of snapshots) {
+  for (const snapshot of comparableSnapshots) {
     const current = latestByPost.get(snapshot.externalPostId);
     if (!current || snapshot.observedAt > current.observedAt) latestByPost.set(snapshot.externalPostId, snapshot);
   }
   const latest = [...latestByPost.values()];
+  const latestOutcomeByAttempt = new Map<string, EngagementCommercialOutcome>();
+  for (const outcome of commercialOutcomes) {
+    const current = latestOutcomeByAttempt.get(outcome.publishingAttemptId);
+    if (!current || outcome.createdAt > current.createdAt) latestOutcomeByAttempt.set(outcome.publishingAttemptId, outcome);
+  }
+  const scoredMetrics = (snapshot: EngagementMetricSnapshot): CanonicalEngagementMetrics => {
+    const metrics = snapshot.metrics as CanonicalEngagementMetrics;
+    const outcome = latestOutcomeByAttempt.get(snapshot.publishingAttemptId);
+    return outcome ? { ...metrics, enquiries: outcome.enquiries, bookings: outcome.bookings } : metrics;
+  };
   const scores = latest
-    .map((snapshot) => objectiveDirectionalScore(objective, snapshot.metrics as CanonicalEngagementMetrics))
+    .map((snapshot) => objectiveDirectionalScore(objective, scoredMetrics(snapshot)))
     .filter((score): score is number => score !== null);
   const sampleSize = scores.length;
   const directionalScore = sampleSize > 0
@@ -93,7 +108,7 @@ export function performanceSummary(
   const variantEntries = [...new Set(latest.map((snapshot) => snapshot.selectedVariant).filter(Boolean))]
     .map((variant) => {
       const variantScores = latest.filter((snapshot) => snapshot.selectedVariant === variant)
-        .map((snapshot) => objectiveDirectionalScore(objective, snapshot.metrics as CanonicalEngagementMetrics))
+        .map((snapshot) => objectiveDirectionalScore(objective, scoredMetrics(snapshot)))
         .filter((score): score is number => score !== null);
       return [variant!, {
         sampleSize: variantScores.length,

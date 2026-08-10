@@ -1,11 +1,17 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { EngagementIntelligencePanel } from "@/components/content/engagement-intelligence-panel";
 import type { EngagementRecommendation } from "@/core/domain/entities/engagement";
 
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+
 vi.mock("@/server/actions/awo", () => ({
   generateEngagementRecommendationAction: vi.fn(),
+  applyEngagementRecommendationAction: vi.fn(),
+  recordEngagementCommercialOutcomeAction: vi.fn(),
+  recordEngagementFeedbackAction: vi.fn(),
+  refreshEngagementAnalyticsAction: vi.fn(),
 }));
 
 const recommendation: EngagementRecommendation = {
@@ -64,8 +70,14 @@ const learningOverview = {
     action: "selected" as const, variant: "recommended" as const,
     captionSnapshot: recommendation.recommendedCaption, hashtagSnapshot: ["#VillizPixels"],
     reason: null, createdBy: "actor-1", createdAt: "2026-08-10T12:05:00Z",
+    appliedDraftVersion: null,
   },
   latestDraftMetric: null,
+  latestCommercialOutcome: null,
+  lastAnalyticsSyncAt: null,
+  nextScheduledCollectionAt: "2026-08-11T04:15:00Z",
+  checkpoints: { hours24: false, hours72: false, days7: false },
+  exclusions: [],
   performanceSummary: { ...recommendation.performanceSummary, performanceConfidence: null },
 };
 
@@ -79,16 +91,19 @@ describe("EngagementIntelligencePanel", () => {
         initialPlatform="instagram"
         initialRecommendation={recommendation}
         initialLearningOverview={learningOverview}
+        initialDraftBody="Existing caption"
+        initialDraftHashtags={[]}
+        draftLocked={false}
         canWrite={true}
       />,
     );
 
     expect(screen.getByText("Brand-informed")).toBeInTheDocument();
     expect(screen.getByText("Brand fit 70%")).toBeInTheDocument();
-    expect(screen.getAllByText(recommendation.recommendedCaption)).toHaveLength(2);
+    expect(screen.getByText(recommendation.recommendedCaption)).toBeInTheDocument();
     expect(screen.getByText("#VillizPixels")).toBeInTheDocument();
     expect(screen.getByText(/Evidence: 1 source record/)).toBeInTheDocument();
-    expect(screen.getByText(/Selected recommended/)).toBeInTheDocument();
+    expect(screen.getByText("Recorded, not current")).toBeInTheDocument();
   });
 
   it("marks a recommendation outdated when the draft version has moved on", () => {
@@ -100,6 +115,9 @@ describe("EngagementIntelligencePanel", () => {
         initialPlatform="instagram"
         initialRecommendation={recommendation}
         initialLearningOverview={learningOverview}
+        initialDraftBody="Existing caption"
+        initialDraftHashtags={[]}
+        draftLocked={false}
         canWrite={true}
       />,
     );
@@ -117,11 +135,29 @@ describe("EngagementIntelligencePanel", () => {
         initialPlatform="instagram"
         initialRecommendation={null}
         initialLearningOverview={{ ...learningOverview, latestFeedback: null }}
+        initialDraftBody="Existing caption"
+        initialDraftHashtags={[]}
+        draftLocked={false}
         canWrite={false}
       />,
     );
 
     expect(screen.getByRole("button", { name: "Generate recommendation" })).toBeDisabled();
     expect(screen.getByText(/Contributor or Lead access is required/)).toBeInTheDocument();
+  });
+
+  it("shows a before-and-after confirmation before replacing the saved draft", () => {
+    render(
+      <EngagementIntelligencePanel
+        organisationId="org-1" draftId="draft-1" currentDraftVersion={3}
+        initialPlatform="instagram" initialRecommendation={recommendation}
+        initialLearningOverview={learningOverview} initialDraftBody="Existing caption"
+        initialDraftHashtags={["ExistingTag"]} draftLocked={false} canWrite={true}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Apply to draft" }));
+    expect(screen.getByText("Confirm draft replacement")).toBeInTheDocument();
+    expect(screen.getByText("Existing caption")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Apply caption + hashtags" })).toBeInTheDocument();
   });
 });

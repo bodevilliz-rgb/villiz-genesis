@@ -99,6 +99,7 @@ export default async function DraftDetailPage({
     organisations: context.organisations,
     engagement: context.engagement,
     blotatoAccounts: context.blotatoAccounts,
+    publishing: context.publishing,
   }, {
     organisationId: orgId,
     draftId,
@@ -164,6 +165,9 @@ export default async function DraftDetailPage({
             initialPlatform={initialEngagementPlatform}
             initialRecommendation={latestEngagementRecommendation}
             initialLearningOverview={initialLearningOverview}
+            initialDraftBody={draft.body}
+            initialDraftHashtags={draft.hashtags}
+            draftLocked={isContentDraftLocked(draft.status)}
             canWrite={canWrite}
           />
 

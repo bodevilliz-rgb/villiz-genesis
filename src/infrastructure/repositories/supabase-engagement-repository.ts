@@ -1,11 +1,12 @@
 import "server-only";
 import type { EngagementRepository } from "@/core/application/ports/engagement-port";
-import type { EngagementFeedbackWriteModel, EngagementMetricSnapshotWriteModel, EngagementRecommendationWriteModel } from "@/core/domain/entities/engagement";
+import type { EngagementCommercialOutcomeWriteModel, EngagementFeedbackWriteModel, EngagementMetricSnapshotWriteModel, EngagementRecommendationWriteModel } from "@/core/domain/entities/engagement";
 import type { Json } from "@/infrastructure/supabase/database.types";
 import type { GenesisClient } from "@/infrastructure/supabase/server-client";
 import type { CampaignPlatform } from "@/core/domain/entities/campaign";
 import type { EngagementObjectiveType } from "@/core/domain/entities/engagement";
-import { toEngagementFeedbackEvent, toEngagementMetricSnapshot, toEngagementRecommendation } from "@/infrastructure/mappers/engagement-mapper";
+import { toEngagementCommercialOutcome, toEngagementFeedbackEvent, toEngagementMetricSnapshot, toEngagementRecommendation } from "@/infrastructure/mappers/engagement-mapper";
+import type { ApplyEngagementRecommendationRow } from "@/infrastructure/supabase/database.types";
 import { translateError, unwrap } from "./errors";
 
 export class SupabaseEngagementRepository implements EngagementRepository {
@@ -71,8 +72,23 @@ export class SupabaseEngagementRepository implements EngagementRepository {
       recommendation_id: input.recommendationId, action: input.action, variant: input.variant,
       caption_snapshot: input.captionSnapshot, hashtag_snapshot: input.hashtagSnapshot,
       reason: input.reason, created_by: input.createdBy,
+      applied_draft_version: null,
     }).select("*").single();
     return toEngagementFeedbackEvent(unwrap(result, "Engagement feedback"));
+  }
+
+  async applyRecommendation(input: Omit<EngagementFeedbackWriteModel, "action" | "reason" | "createdBy">) {
+    const result = await this.client.rpc("apply_engagement_recommendation", {
+      p_organisation_id: input.organisationId,
+      p_draft_id: input.draftId,
+      p_recommendation_id: input.recommendationId,
+      p_variant: input.variant!,
+      p_caption_snapshot: input.captionSnapshot!,
+      p_hashtag_snapshot: input.hashtagSnapshot,
+    });
+    const row = unwrap(result, "Apply engagement recommendation")[0] as ApplyEngagementRecommendationRow | undefined;
+    if (!row) throw new Error("Apply engagement recommendation returned no result.");
+    return { feedback: toEngagementFeedbackEvent(row), draftVersion: row.draft_version };
   }
 
   async findLatestFeedback(organisationId: string, draftId: string, before?: string) {
@@ -125,6 +141,7 @@ export class SupabaseEngagementRepository implements EngagementRepository {
       provider_account_id: input.providerAccountId,
       external_post_id: input.externalPostId, provider_snapshot_key: input.providerSnapshotKey,
       observed_at: input.observedAt, provider_captured_at: input.providerCapturedAt,
+      measurement_window: input.measurementWindow,
       views: metrics.views ?? null, reach: metrics.reach ?? null, impressions: metrics.impressions ?? null,
       likes: metrics.likes ?? null, comments: metrics.comments ?? null, shares: metrics.shares ?? null,
       saves: metrics.saves ?? null, clicks: metrics.clicks ?? null, profile_visits: metrics.profileVisits ?? null,
@@ -138,5 +155,33 @@ export class SupabaseEngagementRepository implements EngagementRepository {
       return { snapshot: toEngagementMetricSnapshot(unwrap(concurrent, "Engagement metric snapshot")), created: false };
     }
     return { snapshot: toEngagementMetricSnapshot(unwrap(result, "Engagement metric snapshot")), created: true };
+  }
+
+  async createCommercialOutcome(input: EngagementCommercialOutcomeWriteModel) {
+    const result = await this.client.from("engagement_commercial_outcomes").insert({
+      organisation_id: input.organisationId, draft_id: input.draftId,
+      publishing_attempt_id: input.publishingAttemptId, platform: input.platform,
+      provider_account_id: input.providerAccountId, enquiries: input.enquiries,
+      bookings: input.bookings, revenue_minor: input.revenueMinor, currency: input.currency,
+      note: input.note, created_by: input.createdBy,
+    }).select("*").single();
+    return toEngagementCommercialOutcome(unwrap(result, "Commercial outcome"));
+  }
+
+  async listCommercialOutcomes(organisationId: string, platform: CampaignPlatform, providerAccountId: string) {
+    const { data, error } = await this.client.from("engagement_commercial_outcomes").select("*")
+      .eq("organisation_id", organisationId).eq("platform", platform)
+      .eq("provider_account_id", providerAccountId)
+      .order("created_at", { ascending: false }).limit(250);
+    if (error) translateError(error, "Commercial outcomes");
+    return (data ?? []).map(toEngagementCommercialOutcome);
+  }
+
+  async findLatestCommercialOutcomeForDraft(organisationId: string, draftId: string, platform: CampaignPlatform) {
+    const { data, error } = await this.client.from("engagement_commercial_outcomes").select("*")
+      .eq("organisation_id", organisationId).eq("draft_id", draftId).eq("platform", platform)
+      .order("created_at", { ascending: false }).order("id", { ascending: false }).limit(1).maybeSingle();
+    if (error) translateError(error, "Commercial outcome");
+    return data ? toEngagementCommercialOutcome(data) : null;
   }
 }

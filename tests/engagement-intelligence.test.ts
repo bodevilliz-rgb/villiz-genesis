@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { generateEngagementRecommendation, getEngagementLearningOverview } from "@/core/application/use-cases/engagement";
+import { applyEngagementRecommendation, generateEngagementRecommendation, getEngagementLearningOverview, recordEngagementCommercialOutcome } from "@/core/application/use-cases/engagement";
 import type { AIProviderPort } from "@/core/application/ports/ai-provider-port";
 import type { BlotatoAccountRepository } from "@/core/application/ports/blotato-account-port";
 import type { CampaignRepository } from "@/core/application/ports/campaign-port";
@@ -9,6 +9,7 @@ import type { ContentRepository } from "@/core/application/ports/content-port";
 import type { EngagementRepository } from "@/core/application/ports/engagement-port";
 import type { MembrainRepository } from "@/core/application/ports/membrain-port";
 import type { OrganisationRepository } from "@/core/application/ports/organisation-port";
+import type { PublishingRepository } from "@/core/application/ports/publishing-port";
 import type { ContentDraft } from "@/core/domain/entities/content";
 import type { EngagementRecommendationWriteModel } from "@/core/domain/entities/engagement";
 import type { Actor } from "@/core/domain/entities/identity";
@@ -333,5 +334,88 @@ describe("Sprint 13 learning-operations database contract", () => {
     expect(migration).toContain("engagement_metrics_account_baseline_idx");
     expect(migration).toContain("where provider_account_id is not null");
     expect(migration).toContain("create trigger engagement_metric_snapshots_immutable");
+  });
+});
+
+describe("Sprint 14 publish-to-learn contract", () => {
+  const migration = fs.readFileSync(
+    path.resolve(import.meta.dirname, "../supabase/migrations/20260810200000_publish_to_learn.sql"),
+    "utf8",
+  );
+
+  it("applies the draft and inserts attribution inside one security-invoker transaction", () => {
+    expect(migration).toContain("public.apply_engagement_recommendation");
+    expect(migration).toContain("security invoker");
+    expect(migration).toContain("for update");
+    expect(migration).toContain("set body = p_caption_snapshot");
+    expect(migration).toContain("insert into public.engagement_feedback_events");
+    expect(migration).toContain("applied_draft_version");
+  });
+
+  it("keeps commercial outcomes append-only and performance checkpoints fixed", () => {
+    expect(migration).toContain("engagement_measurement_window");
+    expect(migration).toContain("'24h', '72h', '7d'");
+    expect(migration).toContain("create table public.engagement_commercial_outcomes");
+    expect(migration).toContain("revoke update, delete on public.engagement_commercial_outcomes from authenticated");
+    expect(migration).toContain("engagement_outcomes_attempt_scope_fkey");
+  });
+
+  it("uses the atomic repository path for selected recommendations", async () => {
+    const fixture = dependencies();
+    const recommendation = await generateEngagementRecommendation(fixture.deps, {
+      organisationId: ORG_ID, draftId: DRAFT_ID, platform: "instagram",
+    });
+    fixture.deps.engagement.findById = vi.fn(async () => recommendation);
+    const applyRecommendation = vi.fn(async () => ({
+      draftVersion: 4,
+      feedback: {
+        id: "feedback-1", organisationId: ORG_ID, draftId: DRAFT_ID,
+        recommendationId: recommendation.id, action: "selected" as const,
+        variant: "recommended" as const, captionSnapshot: recommendation.recommendedCaption,
+        hashtagSnapshot: ["#VillizPixels", "#CoventryPhotographer", "#PortraitPhotography", "#CoventryCreatives"],
+        reason: "Applied atomically to draft", createdBy: ACTOR_ID,
+        createdAt: "2026-08-10T20:00:00Z", appliedDraftVersion: 4,
+      },
+    }));
+    fixture.deps.engagement.applyRecommendation = applyRecommendation;
+    const result = await applyEngagementRecommendation({
+      actor: fixture.deps.actor, organisations: fixture.deps.organisations,
+      engagement: fixture.deps.engagement, content: fixture.deps.content,
+    }, {
+      organisationId: ORG_ID, draftId: DRAFT_ID, recommendationId: recommendation.id,
+      action: "selected", variant: "recommended", captionSnapshot: recommendation.recommendedCaption,
+      hashtagSnapshot: ["#VillizPixels", "#CoventryPhotographer", "#PortraitPhotography", "#CoventryCreatives"],
+    });
+    expect(result.draftVersion).toBe(4);
+    expect(applyRecommendation).toHaveBeenCalledOnce();
+  });
+
+  it("records revenue outcomes only against the exact real destination attempt", async () => {
+    const fixture = dependencies();
+    const createCommercialOutcome = vi.fn(async (input) => ({ id: "outcome-1", createdAt: "2026-08-10T20:00:00Z", ...input }));
+    fixture.deps.engagement.createCommercialOutcome = createCommercialOutcome;
+    const publishing = {
+      listAttemptsForAnalytics: vi.fn(async () => [{
+        id: "attempt-1", jobId: "job-1", organisationId: ORG_ID, draftId: DRAFT_ID,
+        platform: "instagram", attemptNumber: 1, status: "completed",
+        queuedAt: "2026-08-09T00:00:00Z", startedAt: "2026-08-09T00:00:01Z",
+        completedAt: "2026-08-09T00:00:02Z", failedAt: null, durationMs: 1000,
+        externalPostId: "post-1", externalUrl: null, errorCode: null, errorMessage: null,
+        retryOfAttemptId: null, providerMetadata: { blotatoAccountId: "account-1" },
+        createdAt: "2026-08-09T00:00:00Z",
+      }]),
+    } as unknown as PublishingRepository;
+    const outcome = await recordEngagementCommercialOutcome({
+      actor: fixture.deps.actor, organisations: fixture.deps.organisations,
+      engagement: fixture.deps.engagement, blotatoAccounts: fixture.deps.blotatoAccounts,
+      publishing,
+    }, {
+      organisationId: ORG_ID, draftId: DRAFT_ID, platform: "instagram",
+      enquiries: 3, bookings: 1, revenueMinor: 25000, currency: "GBP", note: "One portrait booking",
+    });
+    expect(outcome.publishingAttemptId).toBe("attempt-1");
+    expect(createCommercialOutcome).toHaveBeenCalledWith(expect.objectContaining({
+      providerAccountId: "account-1", revenueMinor: 25000, createdBy: ACTOR_ID,
+    }));
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { collectEngagementAnalytics } from "@/core/application/use-cases/engagement/collector";
+import { collectEngagementAnalytics, measurementWindow } from "@/core/application/use-cases/engagement/collector";
 import type { BlotatoClient } from "@/core/application/ports/blotato-client-port";
 import type { EngagementRepository } from "@/core/application/ports/engagement-port";
 import type { PublishingRepository } from "@/core/application/ports/publishing-port";
@@ -16,6 +16,13 @@ const attempt: PublishingAttempt = {
 };
 
 describe("engagement analytics collector", () => {
+  it("assigns deterministic 24h, 72h and 7d post-age checkpoints", () => {
+    const completed = "2026-08-01T00:00:00Z";
+    expect(measurementWindow(completed, "2026-08-01T23:59:00Z", "2026-08-02T00:00:00Z")).toBe("under_24h");
+    expect(measurementWindow(completed, "2026-08-02T00:00:00Z", "2026-08-02T00:00:00Z")).toBe("24h");
+    expect(measurementWindow(completed, "2026-08-04T00:00:00Z", "2026-08-04T00:00:00Z")).toBe("72h");
+    expect(measurementWindow(completed, "2026-08-08T00:00:00Z", "2026-08-08T00:00:00Z")).toBe("7d");
+  });
   it("normalises and idempotently attributes provider metrics to a pre-publication selection", async () => {
     const createMetricSnapshot = vi.fn(async (input) => ({ snapshot: { id: "metric-1", createdAt: input.observedAt, ...input }, created: true }));
     const engagement = {
