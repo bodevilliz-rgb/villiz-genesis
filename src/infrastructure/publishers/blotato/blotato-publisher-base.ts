@@ -211,10 +211,17 @@ export abstract class BlotatoPublisherBase implements PublisherPort {
     const finalStatus = await this.pollForFinalStatus(submission.postSubmissionId);
 
     if (!finalStatus) {
+      // P0 fix: this is NOT a failure. The submission was accepted and we
+      // hold a real provider id — we simply do not know the outcome yet.
+      // Previously this returned success:false with a blotato_status_timeout
+      // error code, which the worker faithfully persisted as a terminal
+      // failure, marking two genuinely-published production posts (one
+      // Instagram, one TikTok) as failed. The caller must now transition the
+      // job to awaiting_confirmation and let the background confirmation
+      // pass re-check THIS submission id — never re-submit it.
       return {
-        success: false,
-        errorCode: "blotato_status_timeout",
-        errorMessage: `Blotato had not confirmed a final status for this post after polling — check https://my.blotato.com/failed for its real outcome (submission id: ${submission.postSubmissionId}).`,
+        success: "pending",
+        providerSubmissionId: submission.postSubmissionId,
         metadata: baseMetadata,
       };
     }

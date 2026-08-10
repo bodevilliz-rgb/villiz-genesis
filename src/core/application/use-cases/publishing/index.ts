@@ -5,6 +5,7 @@ import { canWriteContent } from "@/core/domain/entities/identity";
 import {
   DEFAULT_MAX_PUBLISHING_RETRIES,
   PUBLISHING_PLATFORM_LABELS,
+  nextConfirmationCheckDelayMs,
   type PublishingAnalytics,
   type PublishingAttempt,
   type PublishingExecutionMode,
@@ -329,6 +330,46 @@ export async function completePublishingAttempt(
   }
 }
 
+/**
+ * Worker-only. P0 fix: the provider accepted the submission and returned a
+ * real id, but had not reached a terminal status within the publisher's
+ * synchronous polling budget.
+ *
+ * This is deliberately NOT failPublishingAttempt. Nothing here is terminal:
+ * the attempt keeps its provider metadata (submission id included) and moves
+ * to awaiting_confirmation rather than failed, the job moves to
+ * awaiting_confirmation with its first background check scheduled, and the
+ * draft is left exactly where it already is (`publishing`) instead of being
+ * marked failed. The background confirmation pass
+ * (runProviderConfirmationPass) is what eventually resolves it, by
+ * re-checking THIS submission id — never by re-submitting.
+ */
+export async function awaitProviderConfirmation(
+  deps: Pick<PublishingDeps, "publishing" | "audits">,
+  job: PublishingJob,
+  attempt: PublishingAttempt,
+  pending: { providerSubmissionId: string; providerMetadata: Record<string, unknown> },
+): Promise<void> {
+  await deps.publishing.awaitAttemptConfirmation(attempt.id, pending.providerMetadata);
+
+  const nextCheckAt = new Date(Date.now() + nextConfirmationCheckDelayMs(0)).toISOString();
+  await deps.publishing.markJobAwaitingConfirmation(job.id, nextCheckAt);
+
+  await deps.audits.recordEvent({
+    organisationId: job.organisationId,
+    draftId: job.draftId,
+    actorId: null,
+    eventType: "publishing_attempt_awaiting_confirmation",
+    description: `Submitted to ${PUBLISHING_PLATFORM_LABELS[job.platform]}; awaiting provider confirmation.`,
+    metadata: {
+      jobId: job.id,
+      attemptId: attempt.id,
+      postSubmissionId: pending.providerSubmissionId,
+      nextStatusCheckAt: nextCheckAt,
+    },
+  });
+}
+
 /** Worker-only. Records failure as a terminal, immutable attempt — no automatic retry. An operator must explicitly retry. */
 export async function failPublishingAttempt(
   deps: Pick<PublishingDeps, "publishing" | "content" | "audits" | "notifications">,
@@ -363,6 +404,36 @@ export async function failPublishingAttempt(
   }
 }
 
+/**
+ * True when this job holds a real provider submission whose outcome is not
+ * yet known — the exact condition under which retrying would duplicate a
+ * live post.
+ *
+ * Two shapes qualify:
+ *   1. status === "awaiting_confirmation" — the state this fix introduced.
+ *   2. A legacy row falsely marked failed with `blotato_status_timeout`
+ *      while carrying a postSubmissionId. Those pre-date this fix (the two
+ *      known production incidents) and are exactly as dangerous to retry.
+ *
+ * A provider-CONFIRMED failure (blotato_publish_failed) is deliberately not
+ * included: its outcome is known, so the governed retry flow may proceed.
+ */
+async function hasUnresolvedProviderSubmission(
+  deps: Pick<PublishingDeps, "publishing">,
+  organisationId: string,
+  job: PublishingJob,
+): Promise<boolean> {
+  if (job.status === "awaiting_confirmation") return true;
+  if (job.status !== "failed") return false;
+
+  const attempts = await deps.publishing.listAttemptsForJob(organisationId, job.id);
+  const lastAttempt = attempts[attempts.length - 1];
+  if (!lastAttempt || lastAttempt.errorCode !== "blotato_status_timeout") return false;
+
+  const submissionId = lastAttempt.providerMetadata?.postSubmissionId;
+  return typeof submissionId === "string" && submissionId.trim() !== "";
+}
+
 export async function retryFailedPublishingJob(
   deps: PublishingDeps,
   organisationId: string,
@@ -372,6 +443,19 @@ export async function retryFailedPublishingJob(
 
   const job = await deps.publishing.findJobById(organisationId, jobId);
   if (!job) throw new NotFoundError("Publishing job");
+
+  // P0 fix: never create a duplicate post because local polling timed out.
+  // A job still awaiting provider confirmation holds a REAL submission whose
+  // outcome is simply unknown — retrying would publish the same content
+  // twice. This covers both the awaiting_confirmation state and legacy rows
+  // that were falsely marked failed with blotato_status_timeout before this
+  // fix existed (the two known production incidents).
+  if (await hasUnresolvedProviderSubmission(deps, organisationId, job)) {
+    throw new ValidationError(
+      "Provider confirmation is still pending. Genesis will continue checking this submission. Do not retry yet.",
+    );
+  }
+
   if (job.status !== "failed") {
     throw new ValidationError("Only a failed publishing job can be retried.");
   }

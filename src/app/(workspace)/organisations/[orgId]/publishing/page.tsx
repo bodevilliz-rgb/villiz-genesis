@@ -18,12 +18,13 @@ import { formatRequesterName } from "@/components/publishing/requester-name";
 
 export const metadata: Metadata = { title: "Publishing Queue" };
 
-type QueueTab = "queued" | "scheduled" | "publishing" | "failed" | "published" | "cancelled";
+type QueueTab = "queued" | "scheduled" | "publishing" | "awaiting_confirmation" | "failed" | "published" | "cancelled";
 
 const TABS: { tab: QueueTab; label: string }[] = [
   { tab: "queued", label: "Queued" },
   { tab: "scheduled", label: "Scheduled" },
   { tab: "publishing", label: "Publishing" },
+  { tab: "awaiting_confirmation", label: "Awaiting Confirmation" },
   { tab: "failed", label: "Failed" },
   { tab: "published", label: "Published" },
   { tab: "cancelled", label: "Cancelled" },
@@ -45,6 +46,10 @@ function filterForTab(jobs: PublishingJob[], tab: QueueTab): PublishingJob[] {
       return jobs.filter((j) => j.status === "queued" && !isDue(j));
     case "publishing":
       return jobs.filter((j) => j.status === "processing");
+    case "awaiting_confirmation":
+      // P0 fix: a queue of its own, never folded into Failed — these posts
+      // reached the provider and are simply unconfirmed.
+      return jobs.filter((j) => j.status === "awaiting_confirmation");
     case "failed":
       return jobs.filter((j) => j.status === "failed");
     case "published":

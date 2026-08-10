@@ -232,6 +232,85 @@ export class SupabasePublishingRepository implements PublishingRepository {
     return toPublishingJob(row);
   }
 
+  async markJobAwaitingConfirmation(jobId: string, nextStatusCheckAt: string) {
+    const existing = await this.client
+      .from("publishing_jobs")
+      .select("awaiting_confirmation_since")
+      .eq("id", jobId)
+      .single();
+    const row = unwrap(existing, "Publishing job") as unknown as { awaiting_confirmation_since: string | null };
+
+    const result = await this.client
+      .from("publishing_jobs")
+      .update({
+        status: "awaiting_confirmation",
+        next_status_check_at: nextStatusCheckAt,
+        // Anchored to the FIRST transition only, so the unresolved horizon
+        // measures how long the provider has actually been unresolved rather
+        // than restarting on every check.
+        awaiting_confirmation_since: row.awaiting_confirmation_since ?? new Date().toISOString(),
+        // Explicitly not terminal: completed_at stays null until the provider
+        // itself resolves this submission one way or the other.
+        completed_at: null,
+      })
+      .eq("id", jobId)
+      .select(JOB_SELECT)
+      .single();
+
+    return toPublishingJob(unwrap(result, "Publishing job") as unknown as PublishingJobRowWithRelations);
+  }
+
+  async recordConfirmationCheck(jobId: string, nextStatusCheckAt: string | null) {
+    const existing = await this.client
+      .from("publishing_jobs")
+      .select("status_check_count")
+      .eq("id", jobId)
+      .single();
+    const row = unwrap(existing, "Publishing job") as unknown as { status_check_count: number | null };
+
+    const result = await this.client
+      .from("publishing_jobs")
+      .update({
+        last_status_check_at: new Date().toISOString(),
+        status_check_count: (row.status_check_count ?? 0) + 1,
+        next_status_check_at: nextStatusCheckAt,
+      })
+      .eq("id", jobId)
+      .select(JOB_SELECT)
+      .single();
+
+    return toPublishingJob(unwrap(result, "Publishing job") as unknown as PublishingJobRowWithRelations);
+  }
+
+  async claimJobForConfirmation(workerId: string) {
+    const { data, error } = await this.client.rpc("claim_publishing_job_for_confirmation", {
+      p_worker_id: workerId,
+    });
+    if (error) translateError(error, "Publishing confirmation claim");
+    const rows = (data ?? []) as unknown as PublishingJobRowWithRelations[];
+    const [row] = rows;
+    if (!row) return null;
+    return toPublishingJob(row);
+  }
+
+  async awaitAttemptConfirmation(attemptId: string, providerMetadata: Record<string, unknown>) {
+    const result = await this.client
+      .from("publishing_attempts")
+      .update({
+        status: "awaiting_confirmation",
+        // Deliberately NOT setting failed_at/completed_at/duration_ms: this
+        // attempt has not ended. Its provider metadata (including the real
+        // submission id) is preserved so reconciliation re-checks the exact
+        // submission rather than creating another one.
+        provider_metadata: providerMetadata as Json,
+      })
+      .eq("id", attemptId)
+      .select()
+      .single();
+
+    return toPublishingAttempt(unwrap(result, "Publishing attempt") as unknown as PublishingAttemptRow);
+  }
+
   async recoverStaleJobs(staleAfterSeconds: number) {
     const { data, error } = await this.client.rpc("recover_stale_publishing_jobs", {
       p_stale_after_seconds: staleAfterSeconds,

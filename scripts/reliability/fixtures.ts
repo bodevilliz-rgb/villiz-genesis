@@ -97,6 +97,10 @@ export function publishingJob(overrides: Partial<PublishingJob> = {}): Publishin
     isYourBrand: null,
     isBrandedContent: null,
     executionMode: "simulation",
+    nextStatusCheckAt: null,
+    lastStatusCheckAt: null,
+    statusCheckCount: 0,
+    awaitingConfirmationSince: null,
     ...overrides,
   };
 }

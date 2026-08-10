@@ -1,0 +1,31 @@
+-- P0: asynchronous provider confirmation without false failures — part 1 of 2
+-- (enum values only).
+--
+-- PRODUCTION INCIDENTS: two genuinely-published posts were recorded as
+-- failures because Genesis' local polling budget expired before the
+-- provider reached a terminal status.
+--   * TikTok  job 71582654-bf14-4359-aa3f-48dd714dd00e,
+--     attempt 2104a4e6-4dc2-4dcf-89fd-ed93731f36c8,
+--     submission 1144fce2-dc61-4e9b-b5ac-68e5f8511654 — Blotato shows
+--     PUBLISHED; Genesis showed job=failed, attempt=failed, draft=failed,
+--     error_code=blotato_status_timeout.
+--   * The same pattern previously occurred on Instagram.
+--
+-- ROOT CAUSE: `blotato_status_timeout` (the publisher exhausting its 10 × 3s
+-- synchronous status polls) was mapped straight onto the terminal `failed`
+-- state. Genesis had no way to express "the submission is real and accepted,
+-- but its outcome is not yet known", so provider-status UNCERTAINTY was
+-- persisted as provider-confirmed FAILURE.
+--
+-- FIX: a non-terminal `awaiting_confirmation` state on both the job and the
+-- attempt. Only a provider-confirmed failure ever becomes `failed`.
+--
+-- WHY THIS FILE CONTAINS ONLY THE ALTER TYPE STATEMENTS: Postgres forbids
+-- USING a newly added enum value in the same transaction that adds it, and
+-- Supabase runs each migration file in one transaction. Part 2
+-- (20260810030100) adds the columns, the partial index whose predicate
+-- references 'awaiting_confirmation', and the claim RPC — all of which would
+-- fail with "unsafe use of new value" if they lived here.
+
+alter type public.publishing_job_status add value if not exists 'awaiting_confirmation';
+alter type public.publishing_attempt_status add value if not exists 'awaiting_confirmation';

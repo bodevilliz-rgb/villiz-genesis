@@ -16,12 +16,14 @@ import { evaluatePlatformPreflight } from "@/core/domain/entities/publishing-pre
 import { composePublishedText } from "@/core/application/use-cases/content/hashtags";
 import { resolvePublishMediaUrls } from "./media";
 import {
+  awaitProviderConfirmation,
   claimNextPublishingJob,
   completePublishingAttempt,
   failPublishingAttempt,
   recoverStalePublishingJobs,
   startPublishingAttempt,
 } from "./index";
+import { runProviderConfirmationPass, type ConfirmationOutcome } from "./confirmation";
 
 export interface WorkerDeps {
   publishing: PublishingRepository;
@@ -37,6 +39,7 @@ export interface WorkerDeps {
 export type WorkerIterationResult =
   | { status: "idle" }
   | { status: "processed"; jobId: string; result: "published"; externalUrl: string }
+  | { status: "processed"; jobId: string; result: "awaiting_confirmation"; providerSubmissionId: string }
   | { status: "processed"; jobId: string; result: "failed"; failureCode: string };
 
 const DEFAULT_STALE_AFTER_SECONDS = 300;
@@ -77,10 +80,40 @@ export async function runPublishingWorkerIteration(
 
   const job = await claimNextPublishingJob({ publishing: deps.publishing }, workerId);
   if (!job) {
+    // P0 fix: no new work to publish, so spend this iteration confirming an
+    // outstanding provider submission instead. Runs the SAME shared pass the
+    // Render worker runs — see runProviderConfirmationPass, which is
+    // structurally incapable of publishing or uploading anything.
+    await runProviderConfirmation(deps, workerId);
     return { status: "idle" };
   }
 
   return executeJob(deps, job);
+}
+
+/**
+ * Shared entry point for the background provider-confirmation pass. Both
+ * this worker and the Render worker call runProviderConfirmationPass with
+ * the same dependency shape — the one place that logic exists.
+ *
+ * Never throws: a confirmation failure must not take down the publishing
+ * iteration that owns it.
+ */
+export async function runProviderConfirmation(deps: WorkerDeps, workerId: string): Promise<ConfirmationOutcome> {
+  try {
+    return await runProviderConfirmationPass(
+      {
+        publishing: deps.publishing,
+        content: deps.content,
+        audits: deps.audits,
+        notifications: deps.notifications,
+        blotatoClient: deps.blotatoClient,
+      },
+      { workerId },
+    );
+  } catch {
+    return { status: "idle" };
+  }
 }
 
 async function executeJob(deps: WorkerDeps, job: PublishingJob): Promise<WorkerIterationResult> {
@@ -183,7 +216,7 @@ async function executeJob(deps: WorkerDeps, job: PublishingJob): Promise<WorkerI
       isBrandedContent: job.isBrandedContent,
     });
 
-    if (publishResult.success) {
+    if (publishResult.success === true) {
       await completePublishingAttempt(innerDeps, job, attempt, {
         externalPostId: publishResult.externalPostId,
         externalUrl: publishResult.externalUrl,
@@ -194,6 +227,24 @@ async function executeJob(deps: WorkerDeps, job: PublishingJob): Promise<WorkerI
         jobId: job.id,
         result: "published",
         externalUrl: publishResult.externalUrl,
+      };
+    }
+
+    // P0 fix: the provider accepted the submission but has not resolved it.
+    // NOT a failure — the job moves to the non-terminal awaiting_confirmation
+    // state and the background confirmation pass re-checks this exact
+    // submission id later. This is the branch whose absence marked two
+    // genuinely-published production posts as failed.
+    if (publishResult.success === "pending") {
+      await awaitProviderConfirmation(innerDeps, job, attempt, {
+        providerSubmissionId: publishResult.providerSubmissionId,
+        providerMetadata: publishResult.metadata ?? {},
+      });
+      return {
+        status: "processed",
+        jobId: job.id,
+        result: "awaiting_confirmation",
+        providerSubmissionId: publishResult.providerSubmissionId,
       };
     }
 

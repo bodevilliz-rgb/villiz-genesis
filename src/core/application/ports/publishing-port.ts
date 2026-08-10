@@ -79,6 +79,31 @@ export interface PublishingRepository {
   markJobPublished(jobId: string): Promise<PublishingJob>;
   markJobFailed(jobId: string): Promise<PublishingJob>;
 
+  /**
+   * Moves a job into the non-terminal awaiting_confirmation state and
+   * schedules its first background provider status check. Sets
+   * awaiting_confirmation_since only on the first transition, so the
+   * unresolved horizon is anchored to when waiting actually began.
+   */
+  markJobAwaitingConfirmation(jobId: string, nextStatusCheckAt: string): Promise<PublishingJob>;
+  /**
+   * Records the outcome of one background confirmation check that did NOT
+   * resolve: bumps the counter, stamps last_status_check_at, and schedules
+   * the next check — or passes null to stop automatic checking (horizon
+   * exceeded), leaving the job awaiting_confirmation for operator attention.
+   */
+  recordConfirmationCheck(jobId: string, nextStatusCheckAt: string | null): Promise<PublishingJob>;
+  /**
+   * Worker-only. Atomically leases one due awaiting_confirmation job for a
+   * provider status check (`for update skip locked`), so two workers can
+   * never both check — and both resolve — the same job. Never sets
+   * processing and never touches claimed_by: a confirmation check is a read
+   * of an already-submitted post, never a new publish.
+   */
+  claimJobForConfirmation(workerId: string): Promise<PublishingJob | null>;
+  /** Marks an attempt as awaiting provider confirmation, preserving its provider metadata (including the submission id). Never a terminal state. */
+  awaitAttemptConfirmation(attemptId: string, providerMetadata: Record<string, unknown>): Promise<PublishingAttempt>;
+
   /** Worker-only — must be called with the service-role client. Atomic (`for update skip locked`) at the database level. */
   claimNextJob(workerId: string): Promise<PublishingJob | null>;
   /** Worker-only — must be called with the service-role client. */

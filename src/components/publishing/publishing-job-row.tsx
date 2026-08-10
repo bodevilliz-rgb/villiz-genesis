@@ -13,15 +13,30 @@ import {
   PUBLISHING_JOB_STATUS_LABELS,
   PUBLISHING_PLATFORM_LABELS,
   PUBLISHING_TRIGGER_TYPE_LABELS,
+  isProviderConfirmationUnresolved,
   type PublishingAttempt,
   type PublishingJob,
 } from "@/core/domain/entities/publishing";
 import { formatDateTime, formatDuration, formatRelative } from "@/lib/format";
 import { routes } from "@/lib/routes";
 
+/**
+ * Provider submission ids are not secrets, but they are correlatable
+ * account-activity identifiers — the queue shows enough to match a row
+ * against the provider dashboard without printing the whole value, matching
+ * redactAccountId's rationale in publishing-media.ts.
+ */
+function redactSubmissionId(id: string): string {
+  return id.length <= 12 ? id : `${id.slice(0, 8)}…${id.slice(-4)}`;
+}
+
 const STATUS_TONE: Record<PublishingJob["status"], "muted" | "warning" | "positive" | "danger" | "accent"> = {
   queued: "muted",
   processing: "accent",
+  // Warning, never danger: the post is really out there and simply
+  // unconfirmed. Showing this as a failure is the exact defect this state
+  // was introduced to remove.
+  awaiting_confirmation: "warning",
   published: "positive",
   failed: "danger",
   cancelled: "muted",
@@ -86,7 +101,19 @@ export function PublishingJobRow({
   const latestFailure = job.status === "failed" && latest?.status === "failed" ? latest : null;
   const mockUrl = job.status === "published" ? (latest?.externalUrl ?? null) : null;
 
-  const canRetry = job.status === "failed" && job.retryCount < job.maxRetries;
+  const confirmationUnresolved = isProviderConfirmationUnresolved(job);
+  const submissionId =
+    typeof latest?.providerMetadata?.postSubmissionId === "string" ? latest.providerMetadata.postSubmissionId : null;
+
+  // P0 fix: a job holding an unresolved provider submission must never offer
+  // Retry — retrying would publish the same content twice. That includes
+  // legacy rows falsely marked failed with blotato_status_timeout before this
+  // fix existed; the server enforces the same rule authoritatively (see
+  // retryFailedPublishingJob), this only stops the button being offered.
+  const retryWouldDuplicate =
+    job.status === "awaiting_confirmation" ||
+    (latest?.errorCode === "blotato_status_timeout" && !!submissionId);
+  const canRetry = job.status === "failed" && job.retryCount < job.maxRetries && !retryWouldDuplicate;
   const canCancel = job.status === "queued";
   const canOpenMockPost = job.status === "published" && !!mockUrl;
 
@@ -136,6 +163,31 @@ export function PublishingJobRow({
           <Loader2 aria-hidden="true" className="size-3.5 animate-spin text-primary" />
           Publishing to {PUBLISHING_PLATFORM_LABELS[job.platform]} — attempt {latest?.attemptNumber ?? (attempts.length || 1)}, started {formatDateTime(startedAt)}
         </p>
+      ) : null}
+
+      {job.status === "awaiting_confirmation" ? (
+        <div className="flex flex-col gap-1 rounded border border-amber-200 bg-amber-50 px-3 py-2.5 text-[12px] text-amber-800 dark:border-amber-800/40 dark:bg-amber-900/20 dark:text-amber-300">
+          <p className="font-medium">
+            {confirmationUnresolved
+              ? "Awaiting provider confirmation — needs attention"
+              : "Awaiting provider confirmation"}
+          </p>
+          <p>
+            The post was submitted to {PUBLISHING_PLATFORM_LABELS[job.platform]} successfully. Genesis is waiting for
+            the provider to confirm the final result — this is not a failure, and nothing will be published twice.
+          </p>
+          <p>Provider: Blotato</p>
+          {submissionId ? <p>Submission: {redactSubmissionId(submissionId)}</p> : null}
+          <p>Last checked: {job.lastStatusCheckAt ? formatDateTime(job.lastStatusCheckAt) : "not yet"}</p>
+          <p>
+            Next check:{" "}
+            {confirmationUnresolved
+              ? "stopped — confirm the outcome with the provider before retrying"
+              : job.nextStatusCheckAt
+                ? formatDateTime(job.nextStatusCheckAt)
+                : "not scheduled"}
+          </p>
+        </div>
       ) : null}
 
       {job.status === "queued" && !isScheduledNotYetDue ? (

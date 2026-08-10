@@ -167,6 +167,10 @@ function createHarness(input: {
         isYourBrand: jobInput.isYourBrand,
         isBrandedContent: jobInput.isBrandedContent,
         executionMode: jobInput.executionMode,
+        nextStatusCheckAt: null,
+        lastStatusCheckAt: null,
+        statusCheckCount: 0,
+        awaitingConfirmationSince: null,
       };
       jobs.set(created.id, created);
       return created;

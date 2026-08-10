@@ -138,6 +138,10 @@ function baseJob(overrides: Partial<PublishingJob> = {}): PublishingJob {
     // makes resolveEffectiveLivePublishing actually honour those per-test
     // overrides instead of unconditionally simulating.
     executionMode: "live",
+    nextStatusCheckAt: null,
+    lastStatusCheckAt: null,
+    statusCheckCount: 0,
+    awaitingConfirmationSince: null,
     ...overrides,
   };
 }

@@ -44,12 +44,14 @@ import { redactMediaUrl } from "../src/core/domain/entities/publishing-media";
 import { resolveEffectiveLivePublishing } from "../src/core/domain/entities/publishing";
 import { composePublishedText } from "../src/core/application/use-cases/content/hashtags";
 import {
+  awaitProviderConfirmation,
   claimNextPublishingJob,
   completePublishingAttempt,
   failPublishingAttempt,
   recoverStalePublishingJobs,
   startPublishingAttempt,
 } from "../src/core/application/use-cases/publishing";
+import { runProviderConfirmationPass } from "../src/core/application/use-cases/publishing/confirmation";
 import type { PublishingJob } from "../src/core/domain/entities/publishing";
 
 const POLL_INTERVAL_MS = Number(process.env.PUBLISHING_WORKER_POLL_INTERVAL_MS ?? 2000);
@@ -222,7 +224,7 @@ async function processJob(job: PublishingJob, deps: ReturnType<typeof buildDeps>
     isBrandedContent: job.isBrandedContent,
   });
 
-  if (result.success) {
+  if (result.success === true) {
     await completePublishingAttempt(deps, job, attempt, {
       externalPostId: result.externalPostId,
       externalUrl: result.externalUrl,
@@ -232,6 +234,21 @@ async function processJob(job: PublishingJob, deps: ReturnType<typeof buildDeps>
       jobId: job.id,
       attemptId: attempt.id,
       externalUrl: result.externalUrl,
+      durationMs: Date.now() - started,
+    });
+  } else if (result.success === "pending") {
+    // P0 fix: the provider accepted the submission but has not resolved it.
+    // NOT a failure — awaitProviderConfirmation moves the job and attempt to
+    // the non-terminal awaiting_confirmation state, leaves the draft alone,
+    // and schedules a background re-check of THIS submission id.
+    await awaitProviderConfirmation(deps, job, attempt, {
+      providerSubmissionId: result.providerSubmissionId,
+      providerMetadata: result.metadata ?? {},
+    });
+    log("attempt_awaiting_confirmation", {
+      jobId: job.id,
+      attemptId: attempt.id,
+      postSubmissionId: result.providerSubmissionId,
       durationMs: Date.now() - started,
     });
   } else {
@@ -309,7 +326,14 @@ export async function pollOnce(deps: ReturnType<typeof buildDeps>) {
     // database is reachable again, so any accumulated backoff resets.
     currentBackoffMs = 0;
 
-    if (!job) return;
+    if (!job) {
+      // P0 fix: no new work to publish, so spend this tick confirming an
+      // outstanding provider submission instead. Runs the SAME shared pass
+      // the Vercel API-route worker runs (runProviderConfirmationPass),
+      // which is structurally incapable of publishing or uploading.
+      await runConfirmationPass(deps);
+      return;
+    }
     try {
       await processJob(job, deps);
     } catch (error) {
@@ -319,6 +343,34 @@ export async function pollOnce(deps: ReturnType<typeof buildDeps>) {
       // observational.
       log("job_processing_error", { jobId: job.id, error: error instanceof Error ? error.message : String(error) });
     }
+  }
+}
+
+/**
+ * One background provider-confirmation check. Delegates entirely to the
+ * shared runProviderConfirmationPass so this worker and the Vercel
+ * API-route worker can never drift — the previous P0 was caused by exactly
+ * that kind of divergence between these two paths.
+ *
+ * Never throws: a confirmation problem must not kill the poll loop.
+ */
+async function runConfirmationPass(deps: ReturnType<typeof buildDeps>) {
+  try {
+    const outcome = await runProviderConfirmationPass(
+      {
+        publishing: deps.publishing,
+        content: deps.content,
+        audits: deps.audits,
+        notifications: deps.notifications,
+        blotatoClient: deps.blotatoClient,
+      },
+      { workerId: WORKER_ID },
+    );
+    if (outcome.status !== "idle") {
+      log("provider_confirmation", { ...outcome });
+    }
+  } catch (error) {
+    log("provider_confirmation_error", { error: error instanceof Error ? error.message : String(error) });
   }
 }
 

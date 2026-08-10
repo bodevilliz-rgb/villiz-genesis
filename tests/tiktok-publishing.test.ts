@@ -257,6 +257,10 @@ function job(overrides: Partial<PublishingJob> = {}): PublishingJob {
     // through the live provider path — see the executionMode guard in
     // reconcileBlotatoStatusTimeout.
     executionMode: "live",
+    nextStatusCheckAt: null,
+    lastStatusCheckAt: null,
+    statusCheckCount: 0,
+    awaitingConfirmationSince: null,
     ...overrides,
   } as PublishingJob;
 }
@@ -601,7 +605,7 @@ describe("19 — a confirmed 'published' status is reported as success with the 
     );
     const result = await publisher.publish(publishInput());
     expect(result.success).toBe(true);
-    if (result.success) expect(result.externalUrl).toBe("https://tiktok.com/@villiz/video/123");
+    if (result.success === true) expect(result.externalUrl).toBe("https://tiktok.com/@villiz/video/123");
   });
 });
 
@@ -619,7 +623,7 @@ describe("20 — a confirmed 'failed' status is reported as a business failure w
     );
     const result = await publisher.publish(publishInput());
     expect(result.success).toBe(false);
-    if (!result.success) {
+    if (result.success === false) {
       expect(result.errorCode).toBe("blotato_publish_failed");
       expect(result.errorMessage).toBe("TikTok rejected the post");
     }
@@ -715,7 +719,7 @@ describe("24 — TikTok simulation (livePublishingEnabled=false) never touches t
     const result = await publisher.publish(publishInput());
 
     expect(result.success).toBe(true);
-    if (result.success) expect(result.externalPostId).toMatch(/^mock-tiktok-\d+$/);
+    if (result.success === true) expect(result.externalPostId).toMatch(/^mock-tiktok-\d+$/);
     expect(findActiveForOrganisationAndPlatform).not.toHaveBeenCalled();
     expect(publishPost).not.toHaveBeenCalled();
     expect(uploadMedia).not.toHaveBeenCalled();

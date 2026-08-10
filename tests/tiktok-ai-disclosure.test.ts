@@ -434,7 +434,7 @@ describe("D9 — simulation behaviour is explicit: no block, no provider call", 
     const publisher = new BlotatoTikTokPublisher(publisherDeps(publishPost, false));
     const result = await publisher.publish(publishInput(null));
     expect(result.success).toBe(true);
-    if (result.success) expect(result.externalPostId).toMatch(/^mock-tiktok-\d+$/);
+    if (result.success === true) expect(result.externalPostId).toMatch(/^mock-tiktok-\d+$/);
     expect(publishPost).not.toHaveBeenCalled();
   });
 });
