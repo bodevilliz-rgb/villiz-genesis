@@ -15,6 +15,7 @@ export const generateEngagementRecommendationSchema = z.object({
   organisationId: z.string().uuid(),
   draftId: z.string().uuid(),
   platform: engagementPlatformSchema,
+  objectiveType: z.enum(["awareness", "engagement", "enquiries", "bookings"]).default("engagement"),
   objective: z.string().trim().max(300).optional().or(z.literal("")),
 });
 
@@ -39,7 +40,26 @@ export const engagementRecommendationModelSchema = z.object({
   rationale: z.string().trim().min(1).max(2000),
   predictedStrengths: z.array(z.string().trim().min(1).max(500)).min(1).max(5),
   limitations: z.array(z.string().trim().min(1).max(500)).max(5),
+  creativeGuidance: z.object({
+    mediaBasis: z.enum(["metadata_only", "none"]),
+    visualHook: z.string().trim().min(1).max(500),
+    formatRecommendation: z.string().trim().min(1).max(500),
+    shareTrigger: z.string().trim().min(1).max(500),
+    saveTrigger: z.string().trim().min(1).max(500),
+    accessibilityNote: z.string().trim().min(1).max(500),
+  }),
   confidence: z.number().int().min(0).max(100),
+});
+
+export const recordEngagementFeedbackSchema = z.object({
+  organisationId: z.string().uuid(),
+  draftId: z.string().uuid(),
+  recommendationId: z.string().uuid(),
+  action: z.enum(["selected", "dismissed"]),
+  variant: z.enum(["recommended", "alternative_1", "alternative_2", "custom"]).nullable(),
+  captionSnapshot: z.string().trim().max(5000).nullable(),
+  hashtagSnapshot: z.array(z.string().trim().max(80)).max(20).default([]),
+  reason: z.string().trim().max(500).nullable().optional(),
 });
 
 export type GenerateEngagementRecommendationInput = z.infer<typeof generateEngagementRecommendationSchema>;

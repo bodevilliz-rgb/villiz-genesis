@@ -43,6 +43,7 @@ import { evaluatePlatformPreflight } from "../src/core/domain/entities/publishin
 import { redactMediaUrl } from "../src/core/domain/entities/publishing-media";
 import { resolveEffectiveLivePublishing } from "../src/core/domain/entities/publishing";
 import { composePublishedText } from "../src/core/application/use-cases/content/hashtags";
+import { engagementPayloadFingerprint } from "../src/core/application/use-cases/engagement/fingerprint";
 import {
   awaitProviderConfirmation,
   claimNextPublishingJob,
@@ -209,6 +210,7 @@ async function processJob(job: PublishingJob, deps: ReturnType<typeof buildDeps>
   });
   const effectiveMode = resolveEffectiveSimulationMode(job.devSimulationMode);
 
+  const publishedPayloadFingerprint = engagementPayloadFingerprint(draft.body, draft.hashtags ?? []);
   const result = await publisher.publish({
     organisationId: job.organisationId,
     draftId: job.draftId,
@@ -230,7 +232,7 @@ async function processJob(job: PublishingJob, deps: ReturnType<typeof buildDeps>
     await completePublishingAttempt(deps, job, attempt, {
       externalPostId: result.externalPostId,
       externalUrl: result.externalUrl,
-      providerMetadata: result.metadata ?? {},
+      providerMetadata: { ...(result.metadata ?? {}), publishedPayloadFingerprint },
     });
     log("attempt_completed", {
       jobId: job.id,
@@ -245,7 +247,7 @@ async function processJob(job: PublishingJob, deps: ReturnType<typeof buildDeps>
     // and schedules a background re-check of THIS submission id.
     await awaitProviderConfirmation(deps, job, attempt, {
       providerSubmissionId: result.providerSubmissionId,
-      providerMetadata: result.metadata ?? {},
+      providerMetadata: { ...(result.metadata ?? {}), publishedPayloadFingerprint },
     });
     log("attempt_awaiting_confirmation", {
       jobId: job.id,

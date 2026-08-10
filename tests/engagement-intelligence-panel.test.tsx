@@ -14,6 +14,7 @@ const recommendation: EngagementRecommendation = {
   draftId: "draft-1",
   draftVersion: 3,
   platform: "instagram",
+  objectiveType: "bookings",
   objective: "Increase booking enquiries",
   dataBasis: "brand_only",
   recommendedCaption: "A portrait that feels like you. Book your session today.",
@@ -29,7 +30,17 @@ const recommendation: EngagementRecommendation = {
   rationale: "The identity-led hook supports the booking objective.",
   predictedStrengths: ["Clear hook", "Direct CTA"],
   limitations: ["Brand-informed recommendation only."],
+  creativeGuidance: {
+    mediaBasis: "none",
+    visualHook: "Lead with the portrait.",
+    formatRecommendation: "Use a portrait carousel.",
+    shareTrigger: "Invite someone planning a portrait.",
+    saveTrigger: "Save the preparation tips.",
+    accessibilityNote: "Add descriptive alt text.",
+  },
   confidence: 70,
+  performanceConfidence: null,
+  performanceSummary: { sampleSize: 0, minimumSampleSize: 10, directionalScore: null, label: "insufficient_data", championVariant: null, challengerVariant: null, variantScores: {} },
   evidence: [
     {
       sourceType: "membrain_entry",
@@ -57,10 +68,10 @@ describe("EngagementIntelligencePanel", () => {
     );
 
     expect(screen.getByText("Brand-informed")).toBeInTheDocument();
-    expect(screen.getByText("Confidence 70%")).toBeInTheDocument();
+    expect(screen.getByText("Brand fit 70%")).toBeInTheDocument();
     expect(screen.getByText(recommendation.recommendedCaption)).toBeInTheDocument();
     expect(screen.getByText("#VillizPixels")).toBeInTheDocument();
-    expect(screen.getByText(/Evidence: 1 active MemBrain entry/)).toBeInTheDocument();
+    expect(screen.getByText(/Evidence: 1 source record/)).toBeInTheDocument();
   });
 
   it("marks a recommendation outdated when the draft version has moved on", () => {

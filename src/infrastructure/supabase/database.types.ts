@@ -35,6 +35,9 @@ export type ContentDraftReviewActionDb = "submitted" | "assigned" | "reassigned"
 export type ContentDraftStatusDb = "draft" | "needs_review" | "approved" | "rejected" | "in_review" | "changes_requested" | "scheduled" | "published" | "archived" | "publishing" | "failed" | "awaiting_client";
 export type ContentDraftTypeDb = "social_post" | "email" | "blog_article" | "ad_copy" | "video_script" | "other" | "caption" | "campaign_copy" | "image_prompt";
 export type EngagementDataBasisDb = "brand_only" | "performance_informed";
+export type EngagementObjectiveTypeDb = "awareness" | "engagement" | "enquiries" | "bookings";
+export type EngagementFeedbackActionDb = "selected" | "dismissed";
+export type EngagementVariantDb = "recommended" | "alternative_1" | "alternative_2" | "custom";
 export type MembrainSourceDb = "manual" | "client_brief" | "discovery_call" | "performance_insight" | "competitor_research" | "published_asset";
 export type MembrainStatusDb = "draft" | "active" | "archived";
 export type OrganisationRoleDb = "lead" | "contributor" | "reviewer";
@@ -241,6 +244,7 @@ export type EngagementRecommendationRow = {
   draft_id: string;
   draft_version: number;
   platform: SocialPlatformDb;
+  objective_type: EngagementObjectiveTypeDb;
   objective: string | null;
   data_basis: EngagementDataBasisDb;
   recommended_caption: string;
@@ -251,9 +255,56 @@ export type EngagementRecommendationRow = {
   rationale: string;
   predicted_strengths: string[];
   limitations: string[];
+  creative_guidance: Json;
   confidence: number;
+  performance_confidence: number | null;
+  performance_summary: Json;
   evidence: Json;
   created_by: string | null;
+  created_at: string;
+};
+
+export type EngagementFeedbackEventRow = {
+  id: string;
+  organisation_id: string;
+  draft_id: string;
+  recommendation_id: string;
+  action: EngagementFeedbackActionDb;
+  variant: EngagementVariantDb | null;
+  caption_snapshot: string | null;
+  hashtag_snapshot: string[];
+  reason: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
+export type EngagementMetricSnapshotRow = {
+  id: string;
+  organisation_id: string;
+  draft_id: string;
+  publishing_attempt_id: string;
+  recommendation_id: string | null;
+  feedback_event_id: string | null;
+  selected_variant: EngagementVariantDb | null;
+  platform: SocialPlatformDb;
+  objective_type: EngagementObjectiveTypeDb;
+  external_post_id: string;
+  provider_snapshot_key: string;
+  observed_at: string;
+  provider_captured_at: string | null;
+  views: number | null;
+  reach: number | null;
+  impressions: number | null;
+  likes: number | null;
+  comments: number | null;
+  shares: number | null;
+  saves: number | null;
+  clicks: number | null;
+  profile_visits: number | null;
+  enquiries: number | null;
+  bookings: number | null;
+  watch_time_ms: number | null;
+  raw_metrics: Json;
   created_at: string;
 };
 
@@ -915,6 +966,8 @@ export type Database = {
           Fk<"engagement_recommendations_organisation_id_fkey", "organisation_id", "organisations">,
         ]
       >;
+      engagement_feedback_events: Table<EngagementFeedbackEventRow, Partial<EngagementFeedbackEventRow>, Partial<EngagementFeedbackEventRow>>;
+      engagement_metric_snapshots: Table<EngagementMetricSnapshotRow, Partial<EngagementMetricSnapshotRow>, Partial<EngagementMetricSnapshotRow>>;
       conversation_summaries: Table<ConversationSummaryRow>;
       daily_briefs: Table<DailyBriefRow>;
       decision_reviews: Table<DecisionReviewRow>;
@@ -1224,4 +1277,3 @@ export type Database = {
     CompositeTypes: Record<string, never>;
   };
 };
-

@@ -1,13 +1,16 @@
 import type { CampaignPlatform } from "./campaign";
 
 export type EngagementDataBasis = "brand_only" | "performance_informed";
+export type EngagementObjectiveType = "awareness" | "engagement" | "enquiries" | "bookings";
+export type EngagementFeedbackAction = "selected" | "dismissed";
+export type EngagementVariant = "recommended" | "alternative_1" | "alternative_2" | "custom";
 
 export interface EngagementEvidence {
-  sourceType: "membrain_entry";
+  sourceType: "membrain_entry" | "media_asset" | "performance_snapshot";
   sourceId: string;
   title: string;
-  categoryKey: string | null;
-  version: number;
+  categoryKey?: string | null;
+  version?: number;
 }
 
 export interface EngagementHashtagGroups {
@@ -15,6 +18,25 @@ export interface EngagementHashtagGroups {
   local: string[];
   service: string[];
   audience: string[];
+}
+
+export interface EngagementCreativeGuidance {
+  mediaBasis: "metadata_only" | "none";
+  visualHook: string;
+  formatRecommendation: string;
+  shareTrigger: string;
+  saveTrigger: string;
+  accessibilityNote: string;
+}
+
+export interface EngagementPerformanceSummary {
+  sampleSize: number;
+  minimumSampleSize: number;
+  directionalScore: number | null;
+  label: "insufficient_data" | "directional" | "performance_informed";
+  championVariant: EngagementVariant | null;
+  challengerVariant: EngagementVariant | null;
+  variantScores: Partial<Record<EngagementVariant, { sampleSize: number; directionalScore: number }>>;
 }
 
 /**
@@ -27,6 +49,7 @@ export interface EngagementRecommendation {
   draftId: string;
   draftVersion: number;
   platform: CampaignPlatform;
+  objectiveType: EngagementObjectiveType;
   objective: string | null;
   dataBasis: EngagementDataBasis;
   recommendedCaption: string;
@@ -37,7 +60,11 @@ export interface EngagementRecommendation {
   rationale: string;
   predictedStrengths: string[];
   limitations: string[];
+  creativeGuidance: EngagementCreativeGuidance;
+  /** Brand-grounding confidence. This preserves the Sprint 10 confidence column. */
   confidence: number;
+  performanceConfidence: number | null;
+  performanceSummary: EngagementPerformanceSummary;
   evidence: EngagementEvidence[];
   createdBy: string | null;
   createdAt: string;
@@ -48,6 +75,7 @@ export interface EngagementRecommendationWriteModel {
   draftId: string;
   draftVersion: number;
   platform: CampaignPlatform;
+  objectiveType: EngagementObjectiveType;
   objective: string | null;
   dataBasis: EngagementDataBasis;
   recommendedCaption: string;
@@ -58,7 +86,57 @@ export interface EngagementRecommendationWriteModel {
   rationale: string;
   predictedStrengths: string[];
   limitations: string[];
+  creativeGuidance: EngagementCreativeGuidance;
   confidence: number;
+  performanceConfidence: number | null;
+  performanceSummary: EngagementPerformanceSummary;
   evidence: EngagementEvidence[];
   createdBy: string;
 }
+
+export interface EngagementFeedbackEvent {
+  id: string;
+  organisationId: string;
+  draftId: string;
+  recommendationId: string;
+  action: EngagementFeedbackAction;
+  variant: EngagementVariant | null;
+  captionSnapshot: string | null;
+  hashtagSnapshot: string[];
+  reason: string | null;
+  createdBy: string | null;
+  createdAt: string;
+}
+
+export interface EngagementFeedbackWriteModel {
+  organisationId: string;
+  draftId: string;
+  recommendationId: string;
+  action: EngagementFeedbackAction;
+  variant: EngagementVariant | null;
+  captionSnapshot: string | null;
+  hashtagSnapshot: string[];
+  reason: string | null;
+  createdBy: string;
+}
+
+export interface EngagementMetricSnapshot {
+  id: string;
+  organisationId: string;
+  draftId: string;
+  publishingAttemptId: string;
+  recommendationId: string | null;
+  feedbackEventId: string | null;
+  selectedVariant: EngagementVariant | null;
+  platform: CampaignPlatform;
+  objectiveType: EngagementObjectiveType;
+  externalPostId: string;
+  providerSnapshotKey: string;
+  observedAt: string;
+  providerCapturedAt: string | null;
+  metrics: Record<string, number | null>;
+  rawMetrics: Record<string, unknown>;
+  createdAt: string;
+}
+
+export type EngagementMetricSnapshotWriteModel = Omit<EngagementMetricSnapshot, "id" | "createdAt">;
