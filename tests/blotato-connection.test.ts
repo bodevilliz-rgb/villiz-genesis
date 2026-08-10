@@ -115,7 +115,7 @@ describe("testBlotatoConnection", () => {
     const result = await testBlotatoConnection({
       actor: actor({ isPlatformAdmin: true }),
       blotatoClient: fakeClient({
-        listAccounts: async () => [summary({ id: "a", platform: "linkedin" }), summary({ id: "b", platform: "tiktok" })],
+        listAccounts: async () => [summary({ id: "a", platform: "linkedin" }), summary({ id: "b", platform: "pinterest" })],
       }),
       blotatoAccounts: fakeRepository({ upsertAccounts }),
     });
@@ -129,7 +129,7 @@ describe("testBlotatoConnection", () => {
     expect(upsertAccounts).toHaveBeenCalledWith(
       [
         expect.objectContaining({ id: "a", platform: "linkedin" }),
-        expect.objectContaining({ id: "b", platform: "tiktok" }),
+        expect.objectContaining({ id: "b", platform: "pinterest" }),
       ],
       null,
     );

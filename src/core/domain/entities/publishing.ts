@@ -13,20 +13,21 @@
  * for the provider-neutral publishing abstraction those live behind.
  */
 
-export type PublishingPlatform = "linkedin" | "facebook" | "instagram" | "x";
+export type PublishingPlatform = "linkedin" | "facebook" | "instagram" | "x" | "tiktok";
 
 export const PUBLISHING_PLATFORM_LABELS: Record<PublishingPlatform, string> = {
   linkedin: "LinkedIn",
   facebook: "Facebook",
   instagram: "Instagram",
   x: "X",
+  tiktok: "TikTok",
 };
 
-export const PUBLISHING_PLATFORMS: PublishingPlatform[] = ["linkedin", "facebook", "instagram", "x"];
+export const PUBLISHING_PLATFORMS: PublishingPlatform[] = ["linkedin", "facebook", "instagram", "x", "tiktok"];
 
 /** Narrows an arbitrary string (e.g. a loosely-typed `string | null` draft field) to a real PublishingPlatform — the one shared guard, reused wherever a platform value needs validating rather than re-implemented per call site. */
 export function isPublishingPlatform(value: string | null | undefined): value is PublishingPlatform {
-  return value === "linkedin" || value === "facebook" || value === "instagram" || value === "x";
+  return value === "linkedin" || value === "facebook" || value === "instagram" || value === "x" || value === "tiktok";
 }
 
 /**
@@ -77,6 +78,12 @@ export type PublishingIntent =
       draftId: string;
       platform: PublishingPlatform;
       resolvedAccountId: string;
+      /** Operator's explicit AI-generated-content declaration for THIS post. Only meaningful for platforms whose policy sets requiresAiDisclosure (TikTok today); null = not declared, which deterministic preflight blocks for those platforms. Never defaulted. */
+      isAiGenerated?: boolean | null;
+      /** Operator's explicit "promotes my own brand/business" declaration (TikTok commercial-content disclosure). Independent of isBrandedContent — both may be true. Null = not declared. Never defaulted. */
+      isYourBrand?: boolean | null;
+      /** Operator's explicit "promotes a third-party brand under a paid partnership" declaration (TikTok commercial-content disclosure). Null = not declared. Never defaulted. */
+      isBrandedContent?: boolean | null;
     }
   | {
       mode: "scheduled";
@@ -84,6 +91,12 @@ export type PublishingIntent =
       draftId: string;
       platform: PublishingPlatform;
       resolvedAccountId: string;
+      /** See the immediate variant — same declaration, captured in the same immutable snapshot. */
+      isAiGenerated?: boolean | null;
+      /** See the immediate variant. */
+      isYourBrand?: boolean | null;
+      /** See the immediate variant. */
+      isBrandedContent?: boolean | null;
       /** Canonical instant — always UTC, always DST-correct for displayTimezone at that instant. */
       scheduledForUtc: string;
       /** The IANA zone the operator selected — preserved for display, never used to re-derive scheduledForUtc after this snapshot is taken. */
@@ -145,6 +158,29 @@ export interface PublishingJob {
   devSimulationMode: "always_succeed" | "fail_next_attempt" | "always_fail" | null;
   /** Destination lock: the exact blotato_account_id resolved at scheduling time. The worker passes this to the publisher so it can route to the correct account even when multiple accounts are connected for the same platform. Null for jobs scheduled before Sprint 10B or when only one account is connected (no ambiguity). */
   resolvedAccountId: string | null;
+  /**
+   * Operator's explicit AI-generated-content declaration, captured at job
+   * creation from the publishing panel — the same capture-once pattern as
+   * resolvedAccountId. Only platforms whose policy sets requiresAiDisclosure
+   * (TikTok today) require it; for them, null means "never declared" and
+   * deterministic preflight blocks live publishing at BOTH job creation and
+   * worker execution. Never inferred (not from Awo usage, organisation,
+   * account, or media), never defaulted — this is a per-post compliance
+   * declaration only the operator can truthfully make.
+   */
+  isAiGenerated: boolean | null;
+  /**
+   * Operator's explicit "promotes my own brand/business" declaration
+   * (TikTok commercial-content disclosure — developers.tiktok.com/doc/
+   * content-sharing-guidelines). Same capture-once, never-defaulted pattern
+   * as isAiGenerated; independent of isBrandedContent — both may be true.
+   */
+  isYourBrand: boolean | null;
+  /**
+   * Operator's explicit "promotes a third-party brand under a paid
+   * partnership" declaration. Same pattern as isYourBrand.
+   */
+  isBrandedContent: boolean | null;
 }
 
 export interface PublishingAttempt {

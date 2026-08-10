@@ -111,6 +111,11 @@ export async function createImmediatePublishingJob(
     /** Destination lock from the channel selector UI. When provided, validates against the active pool
      *  and uses this exact account. When absent, auto-resolves if exactly one account is connected. */
     resolvedAccountId?: string | null;
+    /** Operator's per-post AI-generated-content declaration (see PublishingJob.isAiGenerated). Persisted verbatim; enforcement is the preflight's job, not this function's. */
+    isAiGenerated?: boolean | null;
+    /** Operator's per-post commercial-content declarations (see PublishingJob.isYourBrand/isBrandedContent). Persisted verbatim; enforcement is the preflight's job, not this function's. */
+    isYourBrand?: boolean | null;
+    isBrandedContent?: boolean | null;
   },
 ): Promise<PublishingJob> {
   await requireRole(deps, input.organisationId, canWriteContent);
@@ -143,6 +148,9 @@ export async function createImmediatePublishingJob(
     maxRetries: DEFAULT_MAX_PUBLISHING_RETRIES,
     devSimulationMode: input.devSimulationMode ?? null,
     resolvedAccountId,
+    isAiGenerated: input.isAiGenerated ?? null,
+    isYourBrand: input.isYourBrand ?? null,
+    isBrandedContent: input.isBrandedContent ?? null,
   });
 
   if (draft.status !== "publishing") {
@@ -175,6 +183,11 @@ export async function createScheduledPublishingJob(
     /** Destination lock from the channel selector UI. When provided, validates against the active pool
      *  and uses this exact account. When absent, auto-resolves if exactly one account is connected. */
     resolvedAccountId?: string | null;
+    /** Operator's per-post AI-generated-content declaration (see PublishingJob.isAiGenerated). Persisted verbatim; enforcement is the preflight's job, not this function's. */
+    isAiGenerated?: boolean | null;
+    /** Operator's per-post commercial-content declarations (see PublishingJob.isYourBrand/isBrandedContent). Persisted verbatim; enforcement is the preflight's job, not this function's. */
+    isYourBrand?: boolean | null;
+    isBrandedContent?: boolean | null;
   },
 ): Promise<PublishingJob> {
   await requireRole(deps, input.organisationId, canWriteContent);
@@ -214,6 +227,9 @@ export async function createScheduledPublishingJob(
     maxRetries: DEFAULT_MAX_PUBLISHING_RETRIES,
     devSimulationMode: input.devSimulationMode ?? null,
     resolvedAccountId,
+    isAiGenerated: input.isAiGenerated ?? null,
+    isYourBrand: input.isYourBrand ?? null,
+    isBrandedContent: input.isBrandedContent ?? null,
   });
 
   await deps.content.scheduleDraft(input.organisationId, input.draftId, {

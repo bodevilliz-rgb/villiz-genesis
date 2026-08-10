@@ -127,14 +127,23 @@ describe("ConnectedChannelsPanel — account selector (AssignForm)", () => {
     expect(radio.value).not.toBe("jummyte4u");
   });
 
-  it("renders @handle for a TikTok account (unsupported platform — label falls back to raw Blotato string)", () => {
+  it("renders @handle for a Pinterest account (unsupported platform — label falls back to raw Blotato string)", () => {
+    renderPanel({
+      available: [account({ id: "acc-pin", platform: "pinterest", username: "villizpixels_uk", fullname: "Pinterest" })],
+    });
+    openConnectDialog();
+    expect(screen.getByText("@villizpixels_uk")).toBeInTheDocument();
+    // Pinterest is not in the supported platform map; platformLabel returns the raw lowercase string.
+    expect(screen.getByRole("radio", { name: "pinterest @villizpixels_uk" })).toBeInTheDocument();
+  });
+
+  it("renders the 'TikTok' label for a TikTok account (Sprint 1: now a supported platform)", () => {
     renderPanel({
       available: [account({ id: "acc-tk", platform: "tiktok", username: "villizpixels_uk", fullname: "TikTok" })],
     });
     openConnectDialog();
     expect(screen.getByText("@villizpixels_uk")).toBeInTheDocument();
-    // TikTok is not in the supported platform map; platformLabel returns the raw lowercase string.
-    expect(screen.getByRole("radio", { name: "tiktok @villizpixels_uk" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "TikTok @villizpixels_uk" })).toBeInTheDocument();
   });
 
   it("renders @handle for a Facebook account", () => {

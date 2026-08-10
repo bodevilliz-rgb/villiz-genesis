@@ -37,6 +37,18 @@ function channelIdentity(ch: BlotatoAccount): string {
   return ch.id;
 }
 
+/** Encodes the intent snapshot's two commercial-disclosure booleans into the single hidden field the server's parseCommercialDisclosure expects — the exact inverse of that parser. "" when either field is unset (never declared, or not a TikTok destination). */
+function commercialDisclosureFormValue(intent: PublishingIntent | null): string {
+  if (!intent) return "";
+  const isYourBrand = "isYourBrand" in intent ? intent.isYourBrand : null;
+  const isBrandedContent = "isBrandedContent" in intent ? intent.isBrandedContent : null;
+  if (isYourBrand == null || isBrandedContent == null) return "";
+  if (isYourBrand && isBrandedContent) return "both";
+  if (isYourBrand) return "own";
+  if (isBrandedContent) return "branded";
+  return "none";
+}
+
 export function PublishingPanel({
   organisationId,
   draft,
@@ -113,13 +125,87 @@ export function PublishingPanel({
 
   const selectedAccount = supportedChannels.find((c) => c.id === selectedAccountId) ?? null;
   const derivedPlatform = selectedAccount ? mapBlotatoPlatform(selectedAccount.platform) : null;
-  const canPublish = isPublishable && !!derivedPlatform && !!selectedAccountId;
+
+  // TikTok-only per-post compliance declaration. Deliberately starts null
+  // (no default — the operator must actively choose Yes or No) and is only
+  // meaningful when the destination is TikTok; the server's deterministic
+  // preflight is the real authority and blocks live publishing while null.
+  const [aiDisclosure, setAiDisclosure] = useState<boolean | null>(null);
+  const requiresAiDisclosure = derivedPlatform === "tiktok";
+  const aiDisclosureMissing = requiresAiDisclosure && aiDisclosure === null;
+
+  // TikTok-only commercial-content declaration (developers.tiktok.com/doc/
+  // content-sharing-guidelines): "Your Brand" and "Branded Content" are
+  // independent — "own" and "branded" may both apply. Three checkboxes
+  // with mutual exclusion between "no commercial content" and the other
+  // two (checking either of the other two clears "none"; checking "none"
+  // clears the other two). No box starts checked. Deliberately computed
+  // from the raw checkbox state, not a separate "touched" flag — unchecking
+  // back to an all-false state (without explicitly re-checking "none") is
+  // indistinguishable from never having chosen, which is the correct
+  // fail-closed behaviour: only an active selection counts as a declaration.
+  const [commercialNone, setCommercialNone] = useState(false);
+  const [commercialOwnBrand, setCommercialOwnBrand] = useState(false);
+  const [commercialBranded, setCommercialBranded] = useState(false);
+  const requiresCommercialDisclosure = derivedPlatform === "tiktok";
+  const commercialSelection: "none" | "own" | "branded" | "both" | null = commercialNone
+    ? "none"
+    : commercialOwnBrand && commercialBranded
+      ? "both"
+      : commercialOwnBrand
+        ? "own"
+        : commercialBranded
+          ? "branded"
+          : null;
+  const commercialDisclosureMissing = requiresCommercialDisclosure && commercialSelection === null;
+
+  function checkCommercialNone() {
+    setCommercialNone(true);
+    setCommercialOwnBrand(false);
+    setCommercialBranded(false);
+  }
+  function toggleCommercialOwnBrand() {
+    setCommercialOwnBrand((prev) => {
+      const next = !prev;
+      if (next) setCommercialNone(false);
+      return next;
+    });
+  }
+  function toggleCommercialBranded() {
+    setCommercialBranded((prev) => {
+      const next = !prev;
+      if (next) setCommercialNone(false);
+      return next;
+    });
+  }
+
+  // TikTok's own developer content-sharing guidelines require the posting
+  // CLIENT (Genesis) to display this exact acknowledgement before the
+  // publish button — Blotato's API exposes no field for it, so there is
+  // nothing to persist or send; this is UI text only. Expands to include
+  // the Branded Content Policy per TikTok's specified composition when
+  // branded/paid-partnership content is selected.
+  const tiktokMusicUsageText =
+    commercialSelection === "branded" || commercialSelection === "both"
+      ? "By posting, you agree to TikTok's Branded Content Policy and Music Usage Confirmation."
+      : "By posting, you agree to TikTok's Music Usage Confirmation.";
+
+  const canPublish =
+    isPublishable && !!derivedPlatform && !!selectedAccountId && !aiDisclosureMissing && !commercialDisclosureMissing;
 
   const handlePublishIntercept = (e: React.MouseEvent, type: "publish" | "schedule") => {
     e.preventDefault();
     setScheduleTimeError(null);
 
-    if (!derivedPlatform || !selectedAccountId) return;
+    if (!derivedPlatform || !selectedAccountId || aiDisclosureMissing || commercialDisclosureMissing) return;
+
+    const intentAiDisclosure = requiresAiDisclosure ? aiDisclosure : null;
+    const intentIsYourBrand = requiresCommercialDisclosure
+      ? commercialSelection === "own" || commercialSelection === "both"
+      : null;
+    const intentIsBrandedContent = requiresCommercialDisclosure
+      ? commercialSelection === "branded" || commercialSelection === "both"
+      : null;
 
     if (type === "publish") {
       setIntent({
@@ -128,6 +214,9 @@ export function PublishingPanel({
         draftId: draft.id,
         platform: derivedPlatform,
         resolvedAccountId: selectedAccountId,
+        isAiGenerated: intentAiDisclosure,
+        isYourBrand: intentIsYourBrand,
+        isBrandedContent: intentIsBrandedContent,
       });
       setDialogOpen(true);
       return;
@@ -151,6 +240,9 @@ export function PublishingPanel({
       draftId: draft.id,
       platform: derivedPlatform,
       resolvedAccountId: selectedAccountId,
+      isAiGenerated: intentAiDisclosure,
+      isYourBrand: intentIsYourBrand,
+      isBrandedContent: intentIsBrandedContent,
       scheduledForUtc: scheduledForUtc.toISOString(),
       displayTimezone: timezone,
       scheduledForLocalDisplay: formatInTimeZone(scheduledForUtc, timezone),
@@ -281,6 +373,97 @@ export function PublishingPanel({
             </div>
           )}
 
+          {/* TikTok AI-generated-content declaration — required, no default */}
+          {isPublishable && requiresAiDisclosure && (
+            <fieldset className="flex flex-col gap-2.5 border-t border-border pt-3" disabled={dialogOpen}>
+              <legend className="sr-only">AI-generated content declaration</legend>
+              <span className="text-[11px] uppercase tracking-wider text-subtle-foreground font-semibold">
+                AI-generated content?
+              </span>
+              <p className="text-[12px] text-subtle-foreground leading-relaxed">
+                TikTok requires an accurate disclosure when a post&rsquo;s caption, image, or video was
+                created or significantly edited with AI. Your answer labels this specific post on TikTok —
+                choose what is true for this content.
+              </p>
+              <div className="flex gap-2">
+                <label className="flex flex-1 items-center gap-2 rounded-md border border-border px-3 py-2 cursor-pointer hover:bg-muted/40 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+                  <input
+                    type="radio"
+                    name="tiktok-ai-disclosure-choice"
+                    className="accent-primary"
+                    checked={aiDisclosure === true}
+                    onChange={() => setAiDisclosure(true)}
+                  />
+                  <span className="text-[13px] font-medium">Yes — AI-generated</span>
+                </label>
+                <label className="flex flex-1 items-center gap-2 rounded-md border border-border px-3 py-2 cursor-pointer hover:bg-muted/40 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+                  <input
+                    type="radio"
+                    name="tiktok-ai-disclosure-choice"
+                    className="accent-primary"
+                    checked={aiDisclosure === false}
+                    onChange={() => setAiDisclosure(false)}
+                  />
+                  <span className="text-[13px] font-medium">No — not AI-generated</span>
+                </label>
+              </div>
+              {aiDisclosureMissing && (
+                <p className="text-[12px] text-subtle-foreground">
+                  Choose Yes or No before publishing or scheduling to TikTok.
+                </p>
+              )}
+            </fieldset>
+          )}
+
+          {/* TikTok commercial-content declaration — required, no default */}
+          {isPublishable && requiresCommercialDisclosure && (
+            <fieldset className="flex flex-col gap-2.5 border-t border-border pt-3" disabled={dialogOpen}>
+              <legend className="sr-only">Commercial content declaration</legend>
+              <span className="text-[11px] uppercase tracking-wider text-subtle-foreground font-semibold">
+                Commercial content
+              </span>
+              <p className="text-[12px] text-subtle-foreground leading-relaxed">
+                Does this post promote a brand, product, or service? TikTok requires this disclosure on
+                every post. Own brand and paid partnership can both apply.
+              </p>
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 cursor-pointer hover:bg-muted/40 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+                  <input
+                    type="checkbox"
+                    className="accent-primary"
+                    checked={commercialNone}
+                    onChange={checkCommercialNone}
+                  />
+                  <span className="text-[13px] font-medium">No commercial content</span>
+                </label>
+                <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 cursor-pointer hover:bg-muted/40 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+                  <input
+                    type="checkbox"
+                    className="accent-primary"
+                    checked={commercialOwnBrand}
+                    onChange={toggleCommercialOwnBrand}
+                  />
+                  <span className="text-[13px] font-medium">My / our own brand or business</span>
+                </label>
+                <label className="flex items-center gap-2 rounded-md border border-border px-3 py-2 cursor-pointer hover:bg-muted/40 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+                  <input
+                    type="checkbox"
+                    className="accent-primary"
+                    checked={commercialBranded}
+                    onChange={toggleCommercialBranded}
+                  />
+                  <span className="text-[13px] font-medium">Another brand / paid partnership</span>
+                </label>
+              </div>
+              {commercialDisclosureMissing && (
+                <p className="text-[12px] text-subtle-foreground">
+                  Choose an option before publishing or scheduling to TikTok.
+                </p>
+              )}
+              <p className="text-[11px] text-subtle-foreground leading-relaxed">{tiktokMusicUsageText}</p>
+            </fieldset>
+          )}
+
           {/* Schedule Form */}
           {isPublishable && (
             <form ref={scheduleFormRef} action={scheduleAction} className="flex flex-col gap-3.5 border-t border-border pt-3">
@@ -305,6 +488,11 @@ export function PublishingPanel({
               */}
               <input type="hidden" name="scheduledForUtc" value={intent?.mode === "scheduled" ? intent.scheduledForUtc : ""} />
               <input type="hidden" name="timezone" value={intent?.mode === "scheduled" ? intent.displayTimezone : timezone} />
+              {/* Same always-enabled-hidden-input pattern as scheduledForUtc above:
+                  carries the immutable intent snapshot's AI declaration ("" = never
+                  declared; the server treats anything but "true"/"false" as null). */}
+              <input type="hidden" name="isAiGenerated" value={intent?.isAiGenerated != null ? String(intent.isAiGenerated) : ""} />
+              <input type="hidden" name="commercialDisclosure" value={commercialDisclosureFormValue(intent)} />
 
               <span className="text-[11px] uppercase tracking-wider text-subtle-foreground font-semibold">Schedule Post</span>
 
@@ -356,6 +544,9 @@ export function PublishingPanel({
               <input type="hidden" name="resolvedAccountId" value={selectedAccountId ?? ""} />
               <input type="hidden" name="idempotencyKey" value={publishIdempotencyKey} />
               <input type="hidden" name="devSimulationMode" value={devSimulationMode} />
+              {/* Immutable intent snapshot's AI declaration — see the schedule form's identical input. */}
+              <input type="hidden" name="isAiGenerated" value={intent?.isAiGenerated != null ? String(intent.isAiGenerated) : ""} />
+              <input type="hidden" name="commercialDisclosure" value={commercialDisclosureFormValue(intent)} />
 
               {showSimulationControls && (
                 <Field id="dev-simulation-mode" label="Dev: mock publish outcome">

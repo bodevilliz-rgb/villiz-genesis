@@ -157,6 +157,9 @@ function createHarness(input: {
         cancelledAt: null,
         devSimulationMode: jobInput.devSimulationMode,
         resolvedAccountId: jobInput.resolvedAccountId,
+        isAiGenerated: jobInput.isAiGenerated,
+        isYourBrand: jobInput.isYourBrand,
+        isBrandedContent: jobInput.isBrandedContent,
       };
       jobs.set(created.id, created);
       return created;
@@ -401,6 +404,9 @@ describe("A: explicit account selection — immediate publish", () => {
       platform: "linkedin",
       idempotencyKey: "a6-key",
       resolvedAccountId: null,
+      isAiGenerated: null,
+      isYourBrand: null,
+      isBrandedContent: null,
     });
     expect(job.resolvedAccountId).toBe("fake-blotato-linkedin-0");
     expect(getJobs()).toHaveLength(1);
@@ -497,6 +503,9 @@ describe("B: explicit account selection — scheduled publish", () => {
       timezone: "UTC",
       idempotencyKey: "b4-key",
       resolvedAccountId: null,
+      isAiGenerated: null,
+      isYourBrand: null,
+      isBrandedContent: null,
     });
     expect(job.resolvedAccountId).toBe("fake-blotato-linkedin-0");
   });
@@ -813,6 +822,9 @@ describe("F: idempotency gate with explicit account selection", () => {
       maxRetries: 3,
       devSimulationMode: null,
       resolvedAccountId: "blotato-li-seeded",
+      isAiGenerated: null,
+      isYourBrand: null,
+      isBrandedContent: null,
     });
 
     // The draft is "publishing" — normally blocked by status guard — but the

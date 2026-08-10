@@ -17,15 +17,14 @@ describe("mapBlotatoPlatform / toBlotatoPlatform", () => {
     expect(toBlotatoPlatform("x")).toBe("twitter");
   });
 
-  it("maps the 3 identically-named platforms straight through in both directions", () => {
-    for (const platform of ["linkedin", "facebook", "instagram"] as const) {
+  it("maps the 4 identically-named platforms straight through in both directions", () => {
+    for (const platform of ["linkedin", "facebook", "instagram", "tiktok"] as const) {
       expect(mapBlotatoPlatform(platform)).toBe(platform);
       expect(toBlotatoPlatform(platform)).toBe(platform);
     }
   });
 
   it("returns null for a Blotato platform this app does not yet publish through", () => {
-    expect(mapBlotatoPlatform("tiktok")).toBeNull();
     expect(mapBlotatoPlatform("pinterest")).toBeNull();
     expect(mapBlotatoPlatform("threads")).toBeNull();
     expect(mapBlotatoPlatform("bluesky")).toBeNull();
@@ -39,11 +38,12 @@ describe("supportedBlotatoAccounts", () => {
   it("keeps only accounts whose platform maps onto this app's own PublishingPlatform union", () => {
     const accounts = [
       account({ id: "a", platform: "linkedin" }),
-      account({ id: "b", platform: "tiktok" }),
+      account({ id: "b", platform: "pinterest" }),
       account({ id: "c", platform: "twitter" }),
+      account({ id: "d", platform: "tiktok" }),
     ];
     const supported = supportedBlotatoAccounts(accounts);
-    expect(supported.map((a) => a.id)).toEqual(["a", "c"]);
+    expect(supported.map((a) => a.id)).toEqual(["a", "c", "d"]);
   });
 });
 
@@ -53,13 +53,14 @@ describe("supportedPlatformsFromAccounts", () => {
       account({ id: "a", platform: "twitter" }),
       account({ id: "b", platform: "linkedin" }),
       account({ id: "c", platform: "linkedin" }), // duplicate platform — must not appear twice
-      account({ id: "d", platform: "tiktok" }), // unsupported — must be excluded entirely
+      account({ id: "d", platform: "pinterest" }), // unsupported — must be excluded entirely
+      account({ id: "e", platform: "tiktok" }),
     ];
-    expect(supportedPlatformsFromAccounts(accounts)).toEqual(["linkedin", "x"]);
+    expect(supportedPlatformsFromAccounts(accounts)).toEqual(["linkedin", "x", "tiktok"]);
   });
 
   it("returns an empty array when no connected account maps onto a supported platform", () => {
-    expect(supportedPlatformsFromAccounts([account({ platform: "tiktok" })])).toEqual([]);
+    expect(supportedPlatformsFromAccounts([account({ platform: "pinterest" })])).toEqual([]);
   });
 
   it("returns an empty array for no accounts at all", () => {

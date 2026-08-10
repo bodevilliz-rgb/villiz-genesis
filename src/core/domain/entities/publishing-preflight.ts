@@ -1,5 +1,20 @@
 import type { PublishingPlatform } from "./publishing";
-import { evaluateHashtagPolicy, hashtagPolicyViolationMessage } from "./platform-policy";
+import {
+  evaluateHashtagPolicy,
+  hashtagPolicyViolationMessage,
+  evaluateTextLengthPolicy,
+  textLengthPolicyViolationMessage,
+  getPlatformPublishingPolicy,
+  mediaRequiredViolationMessage,
+  aiDisclosureRequiredMessage,
+  commercialDisclosureRequiredMessage,
+} from "./platform-policy";
+
+/** The operator's TikTok commercial-content declaration — null fields mean "not yet declared" (fail-closed), never a default. */
+export interface CommercialDisclosure {
+  isYourBrand: boolean | null;
+  isBrandedContent: boolean | null;
+}
 
 export interface PlatformPreflightResult {
   /** All hard platform requirements met — safe to proceed with live publishing. */
@@ -20,17 +35,19 @@ export interface PlatformPreflightResult {
  * Rules derived solely from observed Blotato behaviour documented in the
  * codebase:
  *
- *   Instagram media requirement
- *     Source: blotato-publisher-base.ts Sprint 6D comment:
+ *   Media requirement (per-platform, see platform-policy.ts `mediaRequired`)
+ *     Instagram source: blotato-publisher-base.ts Sprint 6D comment:
  *     "Blotato accepted a post with no media, then failed it with 'requires
  *     an image or a video'" — confirmed from production observation.
+ *     TikTok source: Blotato's published TikTok docs — "Media is required —
+ *     text-only posts are not supported."
  *
  *   Empty body
  *     Universal: no platform accepts a post with no content.
  *
  *   Facebook / LinkedIn / X
  *     Text-only posts accepted — no contrary evidence in the codebase.
- *     Media remains optional on these platforms.
+ *     Media remains optional on these platforms (mediaRequired left undefined).
  *
  *   Hashtag count (per-platform, see platform-policy.ts)
  *     Source: a live Blotato 422 response — "Instagram allows a maximum of
@@ -38,6 +55,29 @@ export interface PlatformPreflightResult {
  *     hashtags. Evaluated from the normalized, deduplicated hashtags array
  *     (never regex-parsed from the composed caption), so this is exactly
  *     the count that will actually be sent.
+ *
+ *   Caption/body length (per-platform, see platform-policy.ts `textLimit`)
+ *     TikTok source: Blotato's published TikTok docs — caption limit of
+ *     2200 characters across image, video, and slideshow post types.
+ *
+ *   AI-generated-content declaration (per-platform, see platform-policy.ts
+ *   `requiresAiDisclosure`)
+ *     TikTok source: Blotato's TikTok target schema makes isAiGenerated a
+ *     REQUIRED field, and it is a per-post truthfulness declaration Genesis
+ *     can never make globally. Deliberately FAIL-CLOSED: a call site that
+ *     does not pass `aiGeneratedDisclosure` at all (undefined) blocks
+ *     exactly like an operator who never chose (null) — forgetting to
+ *     thread the value through a new code path can only ever block a
+ *     publish, never send an undeclared value.
+ *
+ *   Commercial-content declaration (per-platform, see platform-policy.ts
+ *   `requiresCommercialDisclosure`)
+ *     TikTok source: developers.tiktok.com/doc/content-sharing-guidelines —
+ *     API clients must let the poster disclose "Your Brand" (own business)
+ *     and "Branded Content" (paid third-party partnership) status, and each
+ *     may independently be true or false. Same fail-closed rule as AI
+ *     disclosure: EITHER field left null/undefined blocks — "no commercial
+ *     content" must be an explicit choice (both false), never a gap.
  *
  * `hashtags` defaults to `[]` — existing callers that don't yet pass it are
  * unaffected (an empty list can never exceed any platform's limit).
@@ -47,6 +87,8 @@ export function evaluatePlatformPreflight(
   body: string,
   publishableMediaCount: number,
   hashtags: string[] = [],
+  aiGeneratedDisclosure?: boolean | null,
+  commercialDisclosure?: CommercialDisclosure | null,
 ): PlatformPreflightResult {
   const blockers: string[] = [];
 
@@ -54,13 +96,30 @@ export function evaluatePlatformPreflight(
     blockers.push("Post body cannot be empty.");
   }
 
-  if (platform === "instagram" && publishableMediaCount === 0) {
-    blockers.push("Instagram requires at least one image or video.");
+  const policy = getPlatformPublishingPolicy(platform);
+  if (policy.mediaRequired && publishableMediaCount === 0) {
+    blockers.push(mediaRequiredViolationMessage(platform));
+  }
+
+  if (policy.requiresAiDisclosure && (aiGeneratedDisclosure === null || aiGeneratedDisclosure === undefined)) {
+    blockers.push(aiDisclosureRequiredMessage(platform));
+  }
+
+  if (
+    policy.requiresCommercialDisclosure &&
+    (!commercialDisclosure || commercialDisclosure.isYourBrand === null || commercialDisclosure.isBrandedContent === null)
+  ) {
+    blockers.push(commercialDisclosureRequiredMessage(platform));
   }
 
   const hashtagPolicy = evaluateHashtagPolicy(platform, hashtags);
   if (hashtagPolicy.exceeds) {
     blockers.push(hashtagPolicyViolationMessage(platform, hashtagPolicy));
+  }
+
+  const textLengthPolicy = evaluateTextLengthPolicy(platform, body);
+  if (textLengthPolicy.exceeds) {
+    blockers.push(textLengthPolicyViolationMessage(platform, textLengthPolicy));
   }
 
   return {

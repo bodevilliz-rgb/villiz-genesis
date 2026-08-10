@@ -93,6 +93,9 @@ export function publishingJob(overrides: Partial<PublishingJob> = {}): Publishin
     cancelledAt: null,
     devSimulationMode: null,
     resolvedAccountId: null,
+    isAiGenerated: null,
+    isYourBrand: null,
+    isBrandedContent: null,
     ...overrides,
   };
 }

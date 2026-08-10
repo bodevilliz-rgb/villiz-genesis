@@ -1,0 +1,17 @@
+-- TikTok publishing integration (Sprint 1, fix/tiktok-publishing).
+--
+-- publishing_jobs.platform and publishing_attempts.platform are typed as
+-- public.publishing_platform, a Postgres enum created in
+-- 20260801140000_publishing_engine.sql with only 'linkedin', 'facebook',
+-- 'instagram', 'x'. TikTok must plug into this same shared publishing
+-- architecture (job model, queue, retry, reconciliation, analytics) rather
+-- than a parallel one, so the enum gains a fifth value instead of a new
+-- column/table.
+--
+-- This file contains ONLY the ADD VALUE statement. Postgres forbids using a
+-- newly added enum value inside the same transaction that added it (it
+-- would error with "unsafe use of new value" if a later statement in this
+-- same migration tried to insert/compare 'tiktok'), so nothing else may be
+-- added here — application code uses the new value in later, separate
+-- transactions, which is safe.
+alter type public.publishing_platform add value if not exists 'tiktok';

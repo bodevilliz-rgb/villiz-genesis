@@ -41,7 +41,7 @@ export interface BlotatoAccount extends BlotatoAccountSummary {
 
 /**
  * Blotato's platform vocabulary is broader than this app's own
- * PublishingPlatform union (it also covers TikTok, Pinterest, Threads,
+ * PublishingPlatform union (it also covers Pinterest, Threads,
  * Bluesky, YouTube, webhook, and a catch-all "other") and it spells X
  * "twitter", not "x". Every account this app cannot yet publish through
  * still gets stored (see BlotatoAccount above) — it just can't be resolved
@@ -52,6 +52,7 @@ const BLOTATO_TO_PUBLISHING_PLATFORM: Record<string, PublishingPlatform> = {
   linkedin: "linkedin",
   facebook: "facebook",
   instagram: "instagram",
+  tiktok: "tiktok",
 };
 
 const PUBLISHING_PLATFORM_TO_BLOTATO: Record<PublishingPlatform, string> = {
@@ -59,9 +60,10 @@ const PUBLISHING_PLATFORM_TO_BLOTATO: Record<PublishingPlatform, string> = {
   linkedin: "linkedin",
   facebook: "facebook",
   instagram: "instagram",
+  tiktok: "tiktok",
 };
 
-/** Null when Blotato reports a platform this app does not yet publish through (TikTok, Pinterest, ...). */
+/** Null when Blotato reports a platform this app does not yet publish through (Pinterest, Threads, ...). */
 export function mapBlotatoPlatform(blotatoPlatform: string): PublishingPlatform | null {
   return BLOTATO_TO_PUBLISHING_PLATFORM[blotatoPlatform] ?? null;
 }
@@ -70,7 +72,7 @@ export function toBlotatoPlatform(platform: PublishingPlatform): string {
   return PUBLISHING_PLATFORM_TO_BLOTATO[platform];
 }
 
-/** Every account whose Blotato platform maps onto one of this app's 4 supported platforms. */
+/** Every account whose Blotato platform maps onto one of this app's supported platforms. */
 export function supportedBlotatoAccounts(accounts: BlotatoAccountSummary[]): BlotatoAccountSummary[] {
   return accounts.filter((account) => mapBlotatoPlatform(account.platform) !== null);
 }
@@ -87,7 +89,7 @@ export interface BlotatoConnectionTestResult {
   reachable: boolean;
   /** Every account Blotato reports, including platforms this app cannot yet publish through. */
   accounts: BlotatoAccount[];
-  /** The subset of this app's own 4 platforms that have at least one connected account. */
+  /** The subset of this app's own supported platforms that have at least one connected account. */
   supportedPlatforms: PublishingPlatform[];
   /** Populated only when reachable is false. */
   error: string | null;
