@@ -4,7 +4,7 @@ import { History } from "lucide-react";
 import { requireContext } from "@/server/container";
 import { getDraft, getLatestGenerationRequest } from "@/core/application/use-cases/content";
 import { getGenerationReadiness } from "@/core/application/use-cases/generation";
-import { getLatestEngagementRecommendation } from "@/core/application/use-cases/engagement";
+import { getEngagementLearningOverview, getLatestEngagementRecommendation } from "@/core/application/use-cases/engagement";
 import { canBypassSelfApprovalForCloudPilot, getReviewHistory, listEligibleReviewers } from "@/core/application/use-cases/review";
 import { PageHeader } from "@/components/common/page-header";
 import { DraftForm } from "@/components/content/draft-form";
@@ -94,6 +94,17 @@ export default async function DraftDetailPage({
     (scheduledPlatform && knownPlatforms.has(scheduledPlatform) ? scheduledPlatform : null) ??
     linkedCampaign?.platforms[0] ??
     "instagram";
+  const initialLearningOverview = await getEngagementLearningOverview({
+    actor: context.actor,
+    organisations: context.organisations,
+    engagement: context.engagement,
+    blotatoAccounts: context.blotatoAccounts,
+  }, {
+    organisationId: orgId,
+    draftId,
+    platform: latestEngagementRecommendation?.platform ?? initialEngagementPlatform,
+    objectiveType: latestEngagementRecommendation?.objectiveType ?? "engagement",
+  });
 
   return (
     <div className="flex flex-col gap-6">
@@ -152,6 +163,7 @@ export default async function DraftDetailPage({
             currentDraftVersion={draft.version}
             initialPlatform={initialEngagementPlatform}
             initialRecommendation={latestEngagementRecommendation}
+            initialLearningOverview={initialLearningOverview}
             canWrite={canWrite}
           />
 
@@ -199,4 +211,3 @@ export default async function DraftDetailPage({
     </div>
   );
 }
-

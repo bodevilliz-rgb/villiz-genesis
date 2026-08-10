@@ -85,11 +85,29 @@ export class SupabaseEngagementRepository implements EngagementRepository {
     return data ? toEngagementFeedbackEvent(data) : null;
   }
 
-  async listMetricSnapshots(organisationId: string, platform: CampaignPlatform, objectiveType: EngagementObjectiveType) {
+  async listFeedbackForDraft(organisationId: string, draftId: string, before: string, limit: number) {
+    const { data, error } = await this.client.from("engagement_feedback_events").select("*")
+      .eq("organisation_id", organisationId).eq("draft_id", draftId).eq("action", "selected")
+      .lte("created_at", before).order("created_at", { ascending: false }).order("id", { ascending: false })
+      .limit(Math.min(Math.max(limit, 1), 20));
+    if (error) translateError(error, "Engagement feedback attribution candidates");
+    return (data ?? []).map(toEngagementFeedbackEvent);
+  }
+
+  async listMetricSnapshots(organisationId: string, platform: CampaignPlatform, objectiveType: EngagementObjectiveType, providerAccountId: string) {
     const { data, error } = await this.client.from("engagement_metric_snapshots").select("*")
       .eq("organisation_id", organisationId).eq("platform", platform).eq("objective_type", objectiveType)
+      .eq("provider_account_id", providerAccountId)
       .order("observed_at", { ascending: false }).limit(250);
     if (error) translateError(error, "Engagement metrics");
+    return (data ?? []).map(toEngagementMetricSnapshot);
+  }
+
+  async listMetricSnapshotsForDraft(organisationId: string, draftId: string) {
+    const { data, error } = await this.client.from("engagement_metric_snapshots").select("*")
+      .eq("organisation_id", organisationId).eq("draft_id", draftId)
+      .order("observed_at", { ascending: false }).limit(100);
+    if (error) translateError(error, "Engagement draft metrics");
     return (data ?? []).map(toEngagementMetricSnapshot);
   }
 
@@ -98,12 +116,13 @@ export class SupabaseEngagementRepository implements EngagementRepository {
     const existing = await this.client.from("engagement_metric_snapshots").select("*")
       .eq("organisation_id", input.organisationId).eq("provider_snapshot_key", input.providerSnapshotKey).maybeSingle();
     if (existing.error) translateError(existing.error, "Engagement metric snapshot");
-    if (existing.data) return toEngagementMetricSnapshot(existing.data);
+    if (existing.data) return { snapshot: toEngagementMetricSnapshot(existing.data), created: false };
     const values = {
       organisation_id: input.organisationId, draft_id: input.draftId,
       publishing_attempt_id: input.publishingAttemptId, recommendation_id: input.recommendationId,
       feedback_event_id: input.feedbackEventId, selected_variant: input.selectedVariant,
       platform: input.platform, objective_type: input.objectiveType,
+      provider_account_id: input.providerAccountId,
       external_post_id: input.externalPostId, provider_snapshot_key: input.providerSnapshotKey,
       observed_at: input.observedAt, provider_captured_at: input.providerCapturedAt,
       views: metrics.views ?? null, reach: metrics.reach ?? null, impressions: metrics.impressions ?? null,
@@ -116,8 +135,8 @@ export class SupabaseEngagementRepository implements EngagementRepository {
     if (result.error?.code === "23505") {
       const concurrent = await this.client.from("engagement_metric_snapshots").select("*")
         .eq("organisation_id", input.organisationId).eq("provider_snapshot_key", input.providerSnapshotKey).single();
-      return toEngagementMetricSnapshot(unwrap(concurrent, "Engagement metric snapshot"));
+      return { snapshot: toEngagementMetricSnapshot(unwrap(concurrent, "Engagement metric snapshot")), created: false };
     }
-    return toEngagementMetricSnapshot(unwrap(result, "Engagement metric snapshot"));
+    return { snapshot: toEngagementMetricSnapshot(unwrap(result, "Engagement metric snapshot")), created: true };
   }
 }

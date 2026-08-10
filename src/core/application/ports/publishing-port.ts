@@ -123,6 +123,14 @@ export interface PublishingRepository {
    * see (the Dashboard's cross-organisation rollup); provided, it scopes to
    * one account (the Publishing Queue page).
    */
-  listAttemptsForAnalytics(organisationId: string | undefined, input: { dateFrom?: string; dateTo?: string }): Promise<PublishingAttempt[]>;
+  listAttemptsForAnalytics(organisationId: string | undefined, input: {
+    dateFrom?: string;
+    dateTo?: string;
+    draftId?: string;
+    status?: PublishingAttempt["status"];
+    requireExternalPostId?: boolean;
+    newestFirst?: boolean;
+    limit?: number;
+  }): Promise<PublishingAttempt[]>;
   listJobsForAnalytics(organisationId: string | undefined, input: { dateFrom?: string; dateTo?: string }): Promise<PublishingJob[]>;
 }

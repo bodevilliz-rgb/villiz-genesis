@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { generateEngagementRecommendationAction, recordEngagementFeedbackAction, refreshEngagementAnalyticsAction } from "@/server/actions/awo";
 import type { CampaignPlatform } from "@/core/domain/entities/campaign";
 import { CAMPAIGN_PLATFORM_LABELS } from "@/core/domain/entities/campaign";
-import type { EngagementObjectiveType, EngagementRecommendation, EngagementVariant } from "@/core/domain/entities/engagement";
+import type { EngagementLearningOverview, EngagementObjectiveType, EngagementRecommendation, EngagementVariant } from "@/core/domain/entities/engagement";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -40,6 +40,7 @@ export function EngagementIntelligencePanel({
   currentDraftVersion,
   initialPlatform,
   initialRecommendation,
+  initialLearningOverview,
   canWrite,
 }: {
   organisationId: string;
@@ -47,12 +48,14 @@ export function EngagementIntelligencePanel({
   currentDraftVersion: number;
   initialPlatform: CampaignPlatform;
   initialRecommendation: EngagementRecommendation | null;
+  initialLearningOverview: EngagementLearningOverview;
   canWrite: boolean;
 }) {
   const [platform, setPlatform] = useState<CampaignPlatform>(initialRecommendation?.platform ?? initialPlatform);
   const [objective, setObjective] = useState("");
   const [objectiveType, setObjectiveType] = useState<EngagementObjectiveType>(initialRecommendation?.objectiveType ?? "engagement");
   const [recommendation, setRecommendation] = useState(initialRecommendation);
+  const [learningOverview, setLearningOverview] = useState(initialLearningOverview);
   const [editedCaption, setEditedCaption] = useState("");
   const [pending, startTransition] = useTransition();
 
@@ -70,6 +73,7 @@ export function EngagementIntelligencePanel({
         return;
       }
       setRecommendation(result.recommendation);
+      setLearningOverview(result.learningOverview);
       setEditedCaption("");
       toast.success("Engagement recommendation generated and recorded.");
     });
@@ -86,6 +90,7 @@ export function EngagementIntelligencePanel({
         toast.error(result.error);
         return;
       }
+      setLearningOverview((current) => ({ ...current, latestFeedback: result.feedback }));
       await copyText(caption, "Selected caption");
       toast.success("Choice recorded for the learning loop. Human approval is still required.");
     });
@@ -98,21 +103,26 @@ export function EngagementIntelligencePanel({
         organisationId, draftId, recommendationId: recommendation.id, action: "dismissed",
         variant: null, captionSnapshot: null, hashtagSnapshot: [],
       });
-      if (result.ok) toast.success("Recommendation dismissed and recorded.");
-      else toast.error(result.error);
+      if (result.ok) {
+        setLearningOverview((current) => ({ ...current, latestFeedback: result.feedback }));
+        toast.success("Recommendation dismissed and recorded.");
+      } else toast.error(result.error);
     });
   }
 
   function refreshAnalytics() {
     startTransition(async () => {
-      const response = await refreshEngagementAnalyticsAction({ organisationId, draftId });
+      const response = await refreshEngagementAnalyticsAction({ organisationId, draftId, platform, objectiveType });
       if (!response.ok) {
         toast.error(response.error);
         return;
       }
+      setLearningOverview(response.learningOverview);
       toast.success(response.result.recorded
-        ? `Recorded ${response.result.recorded} analytics snapshot${response.result.recorded === 1 ? "" : "s"}. Generate a new recommendation to use them.`
-        : "No new published-post metrics were available yet.");
+        ? `Recorded ${response.result.recorded} new analytics snapshot${response.result.recorded === 1 ? "" : "s"}.`
+        : response.result.alreadyRecorded
+          ? "Analytics are up to date; no duplicate snapshots were created."
+          : "No new published-post metrics were available yet.");
     });
   }
 
@@ -195,7 +205,7 @@ export function EngagementIntelligencePanel({
               <div className="text-right text-[12px]">
                 <div className="font-medium text-foreground">Brand fit {recommendation.confidence}%</div>
                 <div className="text-muted-foreground">
-                  Performance confidence {recommendation.performanceConfidence === null ? "— not enough data" : `${recommendation.performanceConfidence}%`}
+                  Performance confidence {learningOverview.performanceSummary.performanceConfidence === null ? "— not enough data" : `${learningOverview.performanceSummary.performanceConfidence}%`}
                 </div>
               </div>
             </div>
@@ -292,6 +302,30 @@ export function EngagementIntelligencePanel({
             </section>
 
             <section className="grid gap-2 rounded-md border border-border p-3">
+              <h3 className="text-[12px] font-semibold">Recorded selection</h3>
+              {learningOverview.latestFeedback ? (
+                <div className="grid gap-1 text-[12px] text-muted-foreground">
+                  <p>
+                    {learningOverview.latestFeedback.action === "selected"
+                      ? `Selected ${learningOverview.latestFeedback.variant?.replaceAll("_", " ") ?? "variation"}`
+                      : "Recommendation dismissed"}
+                    {` · ${new Date(learningOverview.latestFeedback.createdAt).toLocaleString("en-GB")}`}
+                  </p>
+                  {learningOverview.latestFeedback.captionSnapshot ? (
+                    <p className="line-clamp-3 whitespace-pre-wrap rounded-md bg-muted/30 p-2">
+                      {learningOverview.latestFeedback.captionSnapshot}
+                    </p>
+                  ) : null}
+                  {learningOverview.latestFeedback.hashtagSnapshot.length > 0 ? (
+                    <p>{learningOverview.latestFeedback.hashtagSnapshot.length} hashtags recorded with this choice.</p>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="text-[12px] text-muted-foreground">No selection has been recorded for this draft.</p>
+              )}
+            </section>
+
+            <section className="grid gap-2 rounded-md border border-border p-3">
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-[12px] font-semibold">Performance learning</h3>
                 <Button type="button" variant="ghost" size="sm" onClick={refreshAnalytics} disabled={!canWrite || pending}>
@@ -299,11 +333,27 @@ export function EngagementIntelligencePanel({
                 </Button>
               </div>
               <p className="text-[12px] text-muted-foreground">
-                {recommendation.performanceSummary.sampleSize}/{recommendation.performanceSummary.minimumSampleSize} comparable posts · Directional score {recommendation.performanceSummary.directionalScore ?? "not available"} per 1,000 reach/views.
+                {learningOverview.performanceSummary.sampleSize}/{learningOverview.performanceSummary.minimumSampleSize} comparable posts · Directional score {learningOverview.performanceSummary.directionalScore ?? "not available"} per 1,000 reach/views.
               </p>
-              {recommendation.performanceSummary.championVariant ? (
+              {learningOverview.accountScope !== "account_scoped" ? (
+                <p className="text-[11px] text-warning">
+                  {learningOverview.accountScope === "multiple_accounts"
+                    ? "Choose a destination account before account-specific learning can be used."
+                    : "Connect an active publishing account before account-specific learning can be used."}
+                </p>
+              ) : null}
+              {learningOverview.latestDraftMetric ? (
                 <p className="text-[12px] text-muted-foreground">
-                  Current champion: {recommendation.performanceSummary.championVariant.replaceAll("_", " ")} · Challenger: {recommendation.performanceSummary.challengerVariant?.replaceAll("_", " ")}. Keep testing; this is observational.
+                  Latest published result: {Object.entries(learningOverview.latestDraftMetric.metrics)
+                    .filter(([, value]) => value !== null)
+                    .slice(0, 4)
+                    .map(([key, value]) => `${key.replace(/([A-Z])/g, " $1").toLowerCase()} ${Number(value).toLocaleString("en-GB")}`)
+                    .join(" · ")}.
+                </p>
+              ) : null}
+              {learningOverview.performanceSummary.championVariant ? (
+                <p className="text-[12px] text-muted-foreground">
+                  Observational candidate: {learningOverview.performanceSummary.championVariant.replaceAll("_", " ")} · Comparison candidate: {learningOverview.performanceSummary.challengerVariant?.replaceAll("_", " ")}. Keep testing; this is not a causal winner.
                 </p>
               ) : null}
               <p className="text-[11px] text-subtle-foreground">Directional evidence only; it does not prove that a caption caused the result.</p>

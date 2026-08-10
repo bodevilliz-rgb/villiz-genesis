@@ -7,24 +7,35 @@ import { SupabaseEngagementRepository } from "@/infrastructure/repositories/supa
 import { SupabasePublishingRepository } from "@/infrastructure/repositories/supabase-publishing-repository";
 import { createAdminClient } from "@/infrastructure/supabase/admin-client";
 
-function isAuthorized(request: NextRequest): boolean {
-  const secret = process.env.PUBLISHING_WORKER_SECRET;
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+function isAuthorized(request: NextRequest, secretName: "CRON_SECRET" | "PUBLISHING_WORKER_SECRET"): boolean {
+  const secret = process.env[secretName];
   const authorization = request.headers.get("authorization");
   return Boolean(secret && secret.length >= 16 && authorization === `Bearer ${secret}`);
 }
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
-  if (!isAuthorized(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+async function runCollector(): Promise<NextResponse> {
   const admin = createAdminClient();
   const result = await collectEngagementAnalytics({
     publishing: new SupabasePublishingRepository(admin),
     engagement: new SupabaseEngagementRepository(admin),
     blotatoClient: new HttpBlotatoClient(blotatoConfig().apiKey),
-  });
+  }, { limit: 50 });
   return NextResponse.json(result);
 }
 
-export async function GET(): Promise<NextResponse> {
-  return NextResponse.json({ error: "Method Not Allowed" }, { status: 405 });
+export async function POST(request: NextRequest): Promise<NextResponse> {
+  if (!isAuthorized(request, "PUBLISHING_WORKER_SECRET")) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  return runCollector();
 }
 
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  if (!isAuthorized(request, "CRON_SECRET")) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  return runCollector();
+}

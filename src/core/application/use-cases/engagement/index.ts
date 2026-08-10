@@ -1,6 +1,7 @@
 import { ForbiddenError, NotFoundError, ValidationError } from "@/core/domain/errors";
 import { canWriteContent, type Actor } from "@/core/domain/entities/identity";
 import type { AIProviderPort } from "@/core/application/ports/ai-provider-port";
+import type { BlotatoAccountRepository } from "@/core/application/ports/blotato-account-port";
 import type { CampaignRepository } from "@/core/application/ports/campaign-port";
 import type { ContentRepository } from "@/core/application/ports/content-port";
 import type { EngagementRepository } from "@/core/application/ports/engagement-port";
@@ -18,7 +19,11 @@ import type {
   EngagementHashtagGroups,
   EngagementRecommendation,
   EngagementFeedbackEvent,
+  EngagementLearningOverview,
 } from "@/core/domain/entities/engagement";
+import type { CampaignPlatform } from "@/core/domain/entities/campaign";
+import type { PublishingPlatform } from "@/core/domain/entities/publishing";
+import { toBlotatoPlatform } from "@/core/domain/entities/blotato";
 import { retrieveContext } from "@/core/application/use-cases/membrain";
 import { performanceSummary } from "./performance";
 
@@ -29,6 +34,7 @@ interface EngagementDeps {
   content: ContentRepository;
   membrain: MembrainRepository;
   engagement: EngagementRepository;
+  blotatoAccounts: BlotatoAccountRepository;
   media?: MediaRepository;
   ai: AIProviderPort;
 }
@@ -36,6 +42,27 @@ interface EngagementDeps {
 const BRAND_ONLY_CONFIDENCE_CAP = 70;
 const BRAND_ONLY_LIMITATION =
   "Brand-informed recommendation only. Genesis does not yet have enough comparable account-level results to call this performance-informed.";
+
+const PUBLISHABLE_ENGAGEMENT_PLATFORMS = new Set<CampaignPlatform>([
+  "instagram", "facebook", "linkedin", "x", "tiktok",
+]);
+
+async function resolveLearningAccount(
+  blotatoAccounts: BlotatoAccountRepository,
+  organisationId: string,
+  platform: CampaignPlatform,
+): Promise<{ accountScope: EngagementLearningOverview["accountScope"]; providerAccountId: string | null }> {
+  if (!PUBLISHABLE_ENGAGEMENT_PLATFORMS.has(platform)) {
+    return { accountScope: "no_account", providerAccountId: null };
+  }
+  const accounts = await blotatoAccounts.findActiveForOrganisationAndPlatform(
+    toBlotatoPlatform(platform as PublishingPlatform),
+    organisationId,
+  );
+  if (accounts.length === 0) return { accountScope: "no_account", providerAccountId: null };
+  if (accounts.length > 1) return { accountScope: "multiple_accounts", providerAccountId: null };
+  return { accountScope: "account_scoped", providerAccountId: accounts[0]!.id };
+}
 
 function nonBlank(value: string | undefined | null): string | null {
   const trimmed = value?.trim();
@@ -166,8 +193,11 @@ export async function generateEngagementRecommendation(
     throw new ValidationError("Add active MemBrain knowledge before requesting engagement intelligence.");
   }
 
+  const account = await resolveLearningAccount(deps.blotatoAccounts, input.organisationId, input.platform);
   const [snapshots, mediaAssets] = await Promise.all([
-    deps.engagement.listMetricSnapshots?.(input.organisationId, input.platform, input.objectiveType) ?? Promise.resolve([]),
+    account.providerAccountId
+      ? deps.engagement.listMetricSnapshots?.(input.organisationId, input.platform, input.objectiveType, account.providerAccountId) ?? Promise.resolve([])
+      : Promise.resolve([]),
     deps.media?.listAssetsForDraft(input.draftId) ?? Promise.resolve([]),
   ]);
   const performance = performanceSummary(snapshots, input.objectiveType);
@@ -300,4 +330,34 @@ export async function getLatestEngagementRecommendation(
   return deps.engagement.findLatest(organisationId, draftId);
 }
 
-export { BRAND_ONLY_CONFIDENCE_CAP, BRAND_ONLY_LIMITATION, normaliseModelOutput };
+export async function getEngagementLearningOverview(
+  deps: Pick<EngagementDeps, "actor" | "organisations" | "engagement" | "blotatoAccounts">,
+  input: { organisationId: string; draftId: string; platform: CampaignPlatform; objectiveType: EngagementLearningOverview["objectiveType"] },
+): Promise<EngagementLearningOverview> {
+  const role = await deps.organisations.viewerRole(input.organisationId);
+  if (!deps.actor.isPlatformAdmin && !role) throw new ForbiddenError();
+  const account = await resolveLearningAccount(deps.blotatoAccounts, input.organisationId, input.platform);
+  const [latestFeedback, scopedSnapshots, draftSnapshots] = await Promise.all([
+    deps.engagement.findLatestFeedback?.(input.organisationId, input.draftId) ?? Promise.resolve(null),
+    account.providerAccountId
+      ? deps.engagement.listMetricSnapshots?.(
+          input.organisationId, input.platform, input.objectiveType, account.providerAccountId,
+        ) ?? Promise.resolve([])
+      : Promise.resolve([]),
+    deps.engagement.listMetricSnapshotsForDraft?.(input.organisationId, input.draftId) ?? Promise.resolve([]),
+  ]);
+  const latestDraftMetric = draftSnapshots.find((snapshot) =>
+    snapshot.platform === input.platform
+      && (!account.providerAccountId || snapshot.providerAccountId === account.providerAccountId),
+  ) ?? null;
+  return {
+    platform: input.platform,
+    objectiveType: input.objectiveType,
+    ...account,
+    latestFeedback,
+    latestDraftMetric,
+    performanceSummary: performanceSummary(scopedSnapshots, input.objectiveType),
+  };
+}
+
+export { BRAND_ONLY_CONFIDENCE_CAP, BRAND_ONLY_LIMITATION, normaliseModelOutput, resolveLearningAccount };

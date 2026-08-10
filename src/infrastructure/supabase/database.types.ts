@@ -288,6 +288,7 @@ export type EngagementMetricSnapshotRow = {
   selected_variant: EngagementVariantDb | null;
   platform: SocialPlatformDb;
   objective_type: EngagementObjectiveTypeDb;
+  provider_account_id: string | null;
   external_post_id: string;
   provider_snapshot_key: string;
   observed_at: string;
