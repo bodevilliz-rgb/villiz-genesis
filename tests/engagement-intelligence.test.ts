@@ -36,6 +36,7 @@ const draft: ContentDraft = {
   contentType: "social_post",
   summary: null,
   body: "Your next chapter deserves to be photographed. Book your portrait session.",
+  hashtags: [],
   status: "draft",
   awoStatus: "ready_for_awo",
   version: 3,
