@@ -22,7 +22,7 @@ export default async function PublishingSettingsPage() {
       <PageHeader
         eyebrow="Settings"
         title="Publishing"
-        description="The Blotato connection used to publish content to LinkedIn, Facebook, Instagram, and X. Shared across every client account — Blotato has no concept of a Villiz organisation."
+        description="The Blotato connection used to publish content to LinkedIn, Facebook, Instagram, TikTok, and X. Shared across every client account — Blotato has no concept of a Villiz organisation."
       />
 
       <Card>
@@ -41,8 +41,8 @@ export default async function PublishingSettingsPage() {
         <CardHeader>
           <CardTitle>Connected accounts</CardTitle>
           <CardDescription>
-            Everything Blotato reports for this workspace. Only accounts on LinkedIn, Facebook, Instagram, or X can be
-            used to publish through this app today — the rest are recorded for visibility.
+            Everything Blotato reports for this workspace. Accounts on LinkedIn, Facebook, Instagram, TikTok, or X can
+            be used to publish through this app today — the rest are recorded for visibility.
           </CardDescription>
         </CardHeader>
         <CardContent>

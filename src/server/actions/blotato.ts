@@ -31,7 +31,7 @@ export async function testBlotatoConnectionAction(_prev: ActionState, _formData:
 
     const supportedLabel = result.supportedPlatforms.length > 0
       ? result.supportedPlatforms.map((p) => PUBLISHING_PLATFORM_LABELS[p]).join(", ")
-      : "none of this app's 4 platforms yet";
+      : "none of this app's 5 platforms yet";
 
     return successState(
       `Blotato is reachable. Found ${result.accounts.length} connected ${result.accounts.length === 1 ? "account" : "accounts"} — supported for publishing: ${supportedLabel}.`,
