@@ -34,6 +34,10 @@ function job(overrides: Partial<PublishingJob> = {}): PublishingJob {
     isYourBrand: null,
     isBrandedContent: null,
     executionMode: "simulation",
+    nextStatusCheckAt: null,
+    lastStatusCheckAt: null,
+    statusCheckCount: 0,
+    awaitingConfirmationSince: null,
     ...overrides,
   };
 }

@@ -40,9 +40,9 @@ export type OrganisationRoleDb = "lead" | "contributor" | "reviewer";
 export type OrganisationStatusDb = "prospect" | "active" | "paused" | "offboarded";
 export type PlatformRoleDb = "owner" | "admin" | "member";
 export type PostStatusDb = "idea" | "researching" | "drafting" | "in_review" | "approved" | "scheduled" | "published" | "failed" | "archived";
-export type PublishingAttemptStatusDb = "queued" | "started" | "completed" | "failed";
+export type PublishingAttemptStatusDb = "queued" | "started" | "awaiting_confirmation" | "completed" | "failed";
 export type PublishingExecutionModeDb = "simulation" | "live";
-export type PublishingJobStatusDb = "queued" | "processing" | "published" | "failed" | "cancelled";
+export type PublishingJobStatusDb = "queued" | "processing" | "awaiting_confirmation" | "published" | "failed" | "cancelled";
 export type PublishingPlatformDb = "linkedin" | "facebook" | "instagram" | "x" | "tiktok";
 export type PublishingSimulationModeDb = "always_succeed" | "fail_next_attempt" | "always_fail";
 export type PublishingTriggerTypeDb = "immediate" | "scheduled" | "retry";
@@ -595,6 +595,10 @@ export type PublishingJobRow = {
   is_your_brand: boolean | null;
   is_branded_content: boolean | null;
   execution_mode: PublishingExecutionModeDb;
+  next_status_check_at: string | null;
+  last_status_check_at: string | null;
+  status_check_count: number;
+  awaiting_confirmation_since: string | null;
 };
 
 export type ScheduledPostRow = {
@@ -1082,6 +1086,13 @@ export type Database = {
       claim_next_publishing_job: {
         Args: {
           p_worker_id: string;
+        };
+        Returns: unknown;
+      };
+      claim_publishing_job_for_confirmation: {
+        Args: {
+          p_worker_id: string;
+          p_lease_seconds?: number;
         };
         Returns: unknown;
       };

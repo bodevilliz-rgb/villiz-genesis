@@ -39,21 +39,50 @@ export function isPublishingPlatform(value: string | null | undefined): value is
  * and its "Queued" view from the complementary case — see
  * getPublishingQueue in application/use-cases/publishing.
  */
-export type PublishingJobStatus = "queued" | "processing" | "published" | "failed" | "cancelled";
+/**
+ * P0 fix (2026-08-10, second incident): `awaiting_confirmation` exists
+ * because a provider submission that has been ACCEPTED but has not yet
+ * reached a terminal provider status is not a failure. Genesis previously
+ * had no way to say "the post is really out there, we just don't know its
+ * outcome yet", so the publisher's local polling budget expiring
+ * (blotato_status_timeout) was mapped straight onto `failed` — marking two
+ * genuinely-published production posts (one Instagram, one TikTok:
+ * submission 1144fce2-dc61-4e9b-b5ac-68e5f8511654) as failures.
+ *
+ * Only a provider-CONFIRMED failure may become `failed`. Provider-status
+ * uncertainty is non-terminal by construction — see
+ * isTerminalPublishingJobStatus, which deliberately excludes this state.
+ */
+export type PublishingJobStatus =
+  | "queued"
+  | "processing"
+  | "awaiting_confirmation"
+  | "published"
+  | "failed"
+  | "cancelled";
 
 export const PUBLISHING_JOB_STATUS_LABELS: Record<PublishingJobStatus, string> = {
   queued: "Queued",
   processing: "Publishing",
+  awaiting_confirmation: "Awaiting confirmation",
   published: "Published",
   failed: "Failed",
   cancelled: "Cancelled",
 };
 
-export type PublishingAttemptStatus = "queued" | "started" | "completed" | "failed";
+/**
+ * `awaiting_confirmation` mirrors the job-level state: the attempt really
+ * did reach the provider and really did get a submission id back, so
+ * recording it as `failed` would falsify attempt history. It stays
+ * non-terminal (and therefore outside every success/failure analytic)
+ * until the provider itself resolves it.
+ */
+export type PublishingAttemptStatus = "queued" | "started" | "awaiting_confirmation" | "completed" | "failed";
 
 export const PUBLISHING_ATTEMPT_STATUS_LABELS: Record<PublishingAttemptStatus, string> = {
   queued: "Queued",
   started: "Started",
+  awaiting_confirmation: "Awaiting confirmation",
   completed: "Completed",
   failed: "Failed",
 };
@@ -246,6 +275,21 @@ export interface PublishingJob {
    * partnership" declaration. Same pattern as isYourBrand.
    */
   isBrandedContent: boolean | null;
+  /**
+   * When the background confirmation pass should next call getPostStatus for
+   * this job's existing provider submission. Only ever set while status is
+   * `awaiting_confirmation`. Null means "no automatic check scheduled" —
+   * either the job is not awaiting confirmation at all, or it has passed
+   * MAX_CONFIRMATION_HORIZON_MS and now needs operator attention
+   * (see isProviderConfirmationUnresolved).
+   */
+  nextStatusCheckAt: string | null;
+  /** When the provider's status was last checked for this job. Null until the first background check. */
+  lastStatusCheckAt: string | null;
+  /** How many background confirmation checks have run for this job. Drives the backoff curve; never resets. */
+  statusCheckCount: number;
+  /** When this job first entered awaiting_confirmation — the anchor for MAX_CONFIRMATION_HORIZON_MS. */
+  awaitingConfirmationSince: string | null;
 }
 
 export interface PublishingAttempt {
@@ -286,10 +330,27 @@ export type PublisherResult =
       errorCode: string;
       errorMessage: string;
       metadata?: Record<string, unknown>;
+    }
+  | {
+      /**
+       * P0 fix: the provider ACCEPTED the submission and returned a real id,
+       * but had not reached a terminal status before the synchronous polling
+       * budget expired. Deliberately a third outcome rather than
+       * `success: false` — every existing `!result.success` branch treats its
+       * subject as a failure, and this is precisely the case that must never
+       * be treated as one again.
+       */
+      success: "pending";
+      /** The provider's own submission id — the exact value later reconciliation must re-check, and must never re-submit. */
+      providerSubmissionId: string;
+      metadata?: Record<string, unknown>;
     };
 
 /** The failure half of PublisherResult, reused wherever only a failure is meaningful (e.g. failPublishingAttempt's input). */
 export type PublishingFailure = Extract<PublisherResult, { success: false }>;
+
+/** The awaiting-confirmation half of PublisherResult. */
+export type PublishingPending = Extract<PublisherResult, { success: "pending" }>;
 
 export interface PlatformAnalytics {
   platform: PublishingPlatform;
@@ -331,6 +392,14 @@ export interface PublishingAnalytics {
   immediatePublications: number;
   jobsQueued: number;
   jobsProcessing: number;
+  /**
+   * Jobs whose provider submission is accepted but not yet resolved. Counted
+   * and surfaced separately, and deliberately excluded from every
+   * success/failure rate above — an unresolved provider status is neither a
+   * success nor a failure, and treating it as either is exactly the defect
+   * this state was introduced to remove.
+   */
+  jobsAwaitingConfirmation: number;
   jobsFailedRequiringAttention: number;
   publishedToday: number;
   scheduledVsImmediate: {
@@ -367,6 +436,59 @@ export function isValidPublishingJobTransition(from: PublishingJobStatus, to: Pu
 
 export function isTerminalPublishingJobStatus(status: PublishingJobStatus): boolean {
   return status === "published" || status === "failed" || status === "cancelled";
+}
+
+/**
+ * Background confirmation-check backoff, in milliseconds, by how many
+ * background checks this job has already had (0 = the first background
+ * check after the synchronous window expired).
+ *
+ * Chosen from observed provider behaviour, not invented: the synchronous
+ * publisher window is already 10 checks × 3s = 30s, and both production
+ * incidents had the provider reach "published" some time after that. Blotato
+ * processes video asynchronously (TikTok transcoding in particular), so the
+ * useful range is minutes, not seconds. This ramps 1m → 2m → 5m → 10m → 20m
+ * and then holds at 30m, which resolves the common case within a couple of
+ * minutes while costing at most ~2 provider status calls per hour for a
+ * genuinely stuck submission. Deliberately bounded: never faster than a
+ * minute (no busy-loop against the provider) and never slower than half an
+ * hour (an operator is never left staring at a stale state for long).
+ */
+const CONFIRMATION_BACKOFF_MS = [60_000, 120_000, 300_000, 600_000, 1_200_000, 1_800_000] as const;
+
+export function nextConfirmationCheckDelayMs(completedCheckCount: number): number {
+  const index = Math.min(Math.max(completedCheckCount, 0), CONFIRMATION_BACKOFF_MS.length - 1);
+  return CONFIRMATION_BACKOFF_MS[index]!;
+}
+
+/**
+ * How long a submission may stay unresolved before Genesis stops checking
+ * automatically. 24 hours: long enough to survive a provider incident or
+ * transcoding backlog (both incidents resolved within minutes, so this is
+ * ~3 orders of magnitude of headroom), short enough that a job never sits
+ * in an automated loop indefinitely. Reaching this horizon NEVER
+ * republishes and never invents a failure — it stops the automatic checks
+ * and surfaces the job for operator attention with the submission id
+ * intact (see isProviderConfirmationUnresolved).
+ */
+export const MAX_CONFIRMATION_HORIZON_MS = 24 * 60 * 60 * 1000;
+
+export function hasExceededConfirmationHorizon(firstAwaitedAt: string, now: Date): boolean {
+  const started = new Date(firstAwaitedAt).getTime();
+  if (Number.isNaN(started)) return false;
+  return now.getTime() - started >= MAX_CONFIRMATION_HORIZON_MS;
+}
+
+/**
+ * A job Genesis has stopped auto-checking but has NOT resolved: still
+ * awaiting_confirmation, with no next check scheduled. Derived rather than
+ * given its own enum value — the distinction is "is a check scheduled",
+ * which `nextStatusCheckAt` already answers, and inventing a second
+ * terminal-looking state would risk exactly the false-failure semantics
+ * this whole fix removes.
+ */
+export function isProviderConfirmationUnresolved(job: Pick<PublishingJob, "status" | "nextStatusCheckAt">): boolean {
+  return job.status === "awaiting_confirmation" && job.nextStatusCheckAt === null;
 }
 
 /**

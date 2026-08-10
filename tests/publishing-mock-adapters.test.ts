@@ -64,7 +64,7 @@ describe("MockPublisherBase — success path", () => {
 
     expect(resultA.success).toBe(true);
     expect(resultB.success).toBe(true);
-    if (resultA.success && resultB.success) {
+    if (resultA.success === true && resultB.success === true) {
       expect(resultA.externalPostId).toBe(resultB.externalPostId);
       expect(resultA.externalPostId).toMatch(/^mock-linkedin-\d+$/);
       expect(resultA.externalUrl).toBe(`https://mock.local/linkedin/${resultA.externalPostId}`);
@@ -76,7 +76,7 @@ describe("MockPublisherBase — success path", () => {
     const publisher = new MockLinkedInPublisher();
     const resultA = await publisher.publish(input({ attemptId: "attempt-one" }));
     const resultB = await publisher.publish(input({ attemptId: "attempt-two" }));
-    if (resultA.success && resultB.success) {
+    if (resultA.success === true && resultB.success === true) {
       expect(resultA.externalPostId).not.toBe(resultB.externalPostId);
     }
   });
@@ -87,7 +87,7 @@ describe("MockPublisherBase — simulation modes", () => {
     const publisher = new MockFacebookPublisher();
     const result = await publisher.publish(input({ devSimulationMode: "always_fail" }));
     expect(result.success).toBe(false);
-    if (!result.success) {
+    if (result.success === false) {
       expect(result.errorCode).toBe("mock_simulated_failure");
       expect(result.errorMessage).toContain("facebook");
     }
@@ -125,6 +125,6 @@ describe("publisher-factory — resolvePublisher", () => {
     const publisher = resolvePublisher("linkedin", fakeBlotatoDeps);
     const result = await publisher.publish(input({ attemptId: "attempt-factory-check" }));
     expect(result.success).toBe(true);
-    if (result.success) expect(result.externalPostId).toMatch(/^mock-linkedin-\d+$/);
+    if (result.success === true) expect(result.externalPostId).toMatch(/^mock-linkedin-\d+$/);
   });
 });

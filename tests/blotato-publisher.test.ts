@@ -101,7 +101,7 @@ describe("BlotatoPublisherBase — live publishing disabled (shipped default)", 
     const result = await publisher.publish(input({ attemptId: "attempt-fixed" }));
 
     expect(result.success).toBe(true);
-    if (result.success) {
+    if (result.success === true) {
       expect(result.externalPostId).toMatch(/^mock-linkedin-\d+$/);
       expect(result.externalUrl).toBe(`https://mock.local/linkedin/${result.externalPostId}`);
     }
@@ -113,7 +113,7 @@ describe("BlotatoPublisherBase — live publishing disabled (shipped default)", 
     const publisher = new BlotatoLinkedInPublisher(deps({ livePublishingEnabled: false }));
     const result = await publisher.publish(input({ devSimulationMode: "always_fail" }));
     expect(result.success).toBe(false);
-    if (!result.success) expect(result.errorCode).toBe("mock_simulated_failure");
+    if (result.success === false) expect(result.errorCode).toBe("mock_simulated_failure");
   });
 });
 
@@ -143,7 +143,7 @@ describe("BlotatoPublisherBase — live publishing enabled", () => {
       mediaUrls: ["https://media.blotato.com/uploaded-asset.jpg"],
     });
     expect(result.success).toBe(true);
-    if (result.success) {
+    if (result.success === true) {
       expect(result.externalPostId).toBe("submission-x-1");
       expect(result.metadata).toMatchObject({ blotatoAccountId: "acc-x", postSubmissionId: "submission-x-1" });
     }
@@ -157,7 +157,7 @@ describe("BlotatoPublisherBase — live publishing enabled", () => {
     const result = await publisher.publish(input());
 
     expect(result.success).toBe(false);
-    if (!result.success) {
+    if (result.success === false) {
       expect(result.errorCode).toBe("blotato_no_connected_account");
       expect(result.errorMessage).toContain("linkedin");
     }
@@ -232,7 +232,7 @@ describe("BlotatoPublisherBase — final-status polling", () => {
     expect(getPostStatus).toHaveBeenCalledTimes(2);
     expect(getPostStatus).toHaveBeenCalledWith("submission-42");
     expect(result.success).toBe(true);
-    if (result.success) {
+    if (result.success === true) {
       expect(result.externalUrl).toBe("https://blotato-cdn.example.com/post/1");
       expect(result.externalPostId).toBe("submission-42");
     }
@@ -255,13 +255,25 @@ describe("BlotatoPublisherBase — final-status polling", () => {
     const result = await publisher.publish(input());
 
     expect(result.success).toBe(false);
-    if (!result.success) {
+    if (result.success === false) {
       expect(result.errorCode).toBe("blotato_publish_failed");
       expect(result.errorMessage).toBe("Publishing on instagram requires an image or a video");
     }
   });
 
-  it("never reports success if Blotato never reaches a terminal status before the poll budget is exhausted", async () => {
+  /**
+   * P0 fix: exhausting the synchronous poll budget is neither a success NOR
+   * a failure — it is `pending`. This test previously asserted
+   * `success: false` with a blotato_status_timeout error code, and that
+   * assertion was exactly what the worker faithfully persisted as a terminal
+   * failure, marking two genuinely-published production posts (one Instagram,
+   * one TikTok — submission 1144fce2-dc61-4e9b-b5ac-68e5f8511654) as failed.
+   *
+   * The original intent — "never reports success" — is preserved and still
+   * asserted: `success` must not be `true`. What changed is that the
+   * alternative is no longer a fabricated failure.
+   */
+  it("reports pending (never success, never failure) if Blotato has not reached a terminal status before the poll budget is exhausted", async () => {
     const getPostStatus = vi.fn(async (id: string) => publishedStatus({ postSubmissionId: id, status: "in-progress", publicUrl: null }));
 
     const publisher = new BlotatoLinkedInPublisher(
@@ -277,10 +289,14 @@ describe("BlotatoPublisherBase — final-status polling", () => {
     const result = await publisher.publish(input());
 
     expect(getPostStatus).toHaveBeenCalledTimes(3);
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.errorCode).toBe("blotato_status_timeout");
-      expect(result.errorMessage).toContain("submission-42");
+    expect(result.success).not.toBe(true);
+    expect(result.success).toBe("pending");
+    if (result.success === "pending") {
+      // The real submission id must survive — it is the exact value the
+      // background confirmation pass will later re-check, and must never be
+      // re-submitted.
+      expect(result.providerSubmissionId).toBe("submission-42");
+      expect(result.metadata).toMatchObject({ postSubmissionId: "submission-42" });
     }
   });
 
@@ -377,7 +393,7 @@ describe("BlotatoPublisherBase — destination lock: resolvedAccountId routing",
     const result = await publisher.publish(input({ resolvedAccountId: "acc-removed" }));
 
     expect(result.success).toBe(false);
-    if (!result.success) expect(result.errorCode).toBe("blotato_ambiguous_account");
+    if (result.success === false) expect(result.errorCode).toBe("blotato_ambiguous_account");
     expect(publishPost).not.toHaveBeenCalled();
   });
 
@@ -394,7 +410,7 @@ describe("BlotatoPublisherBase — destination lock: resolvedAccountId routing",
     const result = await publisher.publish(input({ resolvedAccountId: undefined }));
 
     expect(result.success).toBe(false);
-    if (!result.success) expect(result.errorCode).toBe("blotato_ambiguous_account");
+    if (result.success === false) expect(result.errorCode).toBe("blotato_ambiguous_account");
     expect(publishPost).not.toHaveBeenCalled();
   });
 });

@@ -3,9 +3,12 @@ import { PUBLISHING_ATTEMPT_STATUS_LABELS, type PublishingAttempt } from "@/core
 import { formatDateTime, formatDuration } from "@/lib/format";
 import { FailureClassificationBadge } from "./failure-classification";
 
-const STATUS_TONE: Record<PublishingAttempt["status"], "muted" | "accent" | "positive" | "danger"> = {
+const STATUS_TONE: Record<PublishingAttempt["status"], "muted" | "accent" | "positive" | "danger" | "warning"> = {
   queued: "muted",
   started: "accent",
+  // Non-terminal and not a failure — the submission reached the provider and
+  // is simply unconfirmed (see PublishingAttemptStatus).
+  awaiting_confirmation: "warning",
   completed: "positive",
   failed: "danger",
 };

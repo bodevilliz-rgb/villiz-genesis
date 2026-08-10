@@ -41,6 +41,11 @@ export function toPublishingJob(row: PublishingJobRowWithRelations): PublishingJ
     // read before the migration is applied or otherwise missing the
     // column, rather than ever defaulting toward "live".
     executionMode: (row as PublishingJobRowWithRelations & { execution_mode?: "simulation" | "live" | null }).execution_mode ?? "simulation",
+    nextStatusCheckAt: (row as PublishingJobRowWithRelations & { next_status_check_at?: string | null }).next_status_check_at ?? null,
+    lastStatusCheckAt: (row as PublishingJobRowWithRelations & { last_status_check_at?: string | null }).last_status_check_at ?? null,
+    statusCheckCount: (row as PublishingJobRowWithRelations & { status_check_count?: number | null }).status_check_count ?? 0,
+    awaitingConfirmationSince:
+      (row as PublishingJobRowWithRelations & { awaiting_confirmation_since?: string | null }).awaiting_confirmation_since ?? null,
   };
 }
 

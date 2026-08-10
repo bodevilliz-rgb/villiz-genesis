@@ -251,6 +251,17 @@ function inMemoryPublishingRepository(seed: PublishingJob[] = []) {
       const found = jobs.get(jobId);
       return found && found.organisationId === organisationId ? found : null;
     },
+    /**
+     * P0 fix: retryFailedPublishingJob now inspects the job's most recent
+     * attempt before requeueing, to refuse a retry while a real provider
+     * submission is still unresolved (which would duplicate a live post).
+     * This fake previously had no attempts at all; returning an empty list is
+     * the honest representation of "this check seeds no attempts", and the
+     * guard correctly treats that as nothing to block on.
+     */
+    async listAttemptsForJob() {
+      return [];
+    },
   };
 
   return { repo: repo as PublishingRepository, jobs };
@@ -508,7 +519,7 @@ export const blotatoPayloadConstructionCheck: ReliabilityCheck = {
       assertEqual(uploadMediaCalledWith, ORIGINAL_ASSET_URL, `${platform}: uploadMedia must receive the original asset URL`);
       // publishPost must receive the Blotato-domain URL, not the original URL
       assertEqual(capturedMediaUrls, [BLOTATO_MEDIA_URL], `${platform}: publishPost.mediaUrls must contain the Blotato-domain URL from uploadMedia`);
-      assertTrue(result.success, `${platform}: publish must report success once Blotato confirms published`);
+      assertTrue(result.success === true, `${platform}: publish must report success once Blotato confirms published`);
     }
   },
 };
@@ -536,7 +547,7 @@ export const providerStatusPollingCheck: ReliabilityCheck = {
       );
       const result = await publisher.publish(publishInput());
       assertTrue(calls >= 2, "polling must continue past a non-terminal in-progress status");
-      assertTrue(result.success, "success must only be reported once the provider confirms published");
+      assertTrue(result.success === true, "success must only be reported once the provider confirms published");
     }
 
     // 2. in-progress -> failed.
@@ -573,7 +584,18 @@ export const providerStatusPollingCheck: ReliabilityCheck = {
       );
       const result = await publisher.publish(publishInput());
       assertEqual(calls, 3, "polling must stop at the configured max attempts, not spin forever");
-      assertTrue(!result.success, "exhausting the poll budget without a terminal status must never be reported as success");
+      // P0 fix: exhausting the budget is neither success nor failure — it is
+      // `pending`, carrying the real submission id for later confirmation.
+      // The original intent (never reported as success) is preserved and
+      // still asserted; what changed is that the alternative is no longer a
+      // fabricated failure, which is what marked two genuinely-published
+      // production posts as failed.
+      assertTrue(result.success !== true, "exhausting the poll budget without a terminal status must never be reported as success");
+      assertEqual(result.success, "pending", "exhausting the poll budget must report pending, never a fabricated failure");
+      assertTrue(
+        result.success === "pending" && typeof result.providerSubmissionId === "string" && result.providerSubmissionId.length > 0,
+        "a pending result must carry the real provider submission id for later confirmation",
+      );
     }
 
     // 4/5/6. Network error / 429 / 500 from the provider during polling: the
@@ -623,7 +645,7 @@ export const providerStatusPollingCheck: ReliabilityCheck = {
       );
       const result = await publisher.publish(publishInput());
       assertEqual(publishPostCalls, 1, "publish() must call publishPost exactly once per attempt — recovery re-polls, it never resubmits");
-      if (result.success) assertEqual(result.externalPostId, "reused-submission", "the same postSubmissionId must be carried through to the result");
+      if (result.success === true) assertEqual(result.externalPostId, "reused-submission", "the same postSubmissionId must be carried through to the result");
     }
   },
 };
@@ -666,6 +688,16 @@ export const retryPublishCheck: ReliabilityCheck = {
         requeued = { ...failedJob, status: "queued", retryCount: failedJob.retryCount + 1 };
         return requeued;
       },
+      /**
+       * P0 fix: retry now inspects the latest attempt to refuse retrying
+       * while a real provider submission is unresolved. Wiring the locally
+       * seeded attempt in makes this check prove the complementary half of
+       * that rule: an ordinary failed attempt (no blotato_status_timeout, no
+       * submission id) is still freely retryable.
+       */
+      async listAttemptsForJob() {
+        return attempts;
+      },
     };
 
     const result = await retryFailedPublishingJob(
@@ -688,7 +720,10 @@ export const retryPublishCheck: ReliabilityCheck = {
 
     // Maximum retry limit is enforced.
     const exhausted = publishingJob({ id: "job-retry-2", status: "failed", retryCount: 3, maxRetries: 3 });
-    const exhaustedRepo: Partial<PublishingRepository> = { async findJobById() { return exhausted; } };
+    const exhaustedRepo: Partial<PublishingRepository> = {
+      async findJobById() { return exhausted; },
+      async listAttemptsForJob() { return []; },
+    };
     let threw = false;
     try {
       await retryFailedPublishingJob(

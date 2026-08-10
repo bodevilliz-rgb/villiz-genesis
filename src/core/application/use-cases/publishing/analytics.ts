@@ -113,6 +113,13 @@ export function computePublishingAnalytics(
     immediatePublications: jobs.filter((j) => j.triggerType === "immediate" && j.status === "published").length,
     jobsQueued: jobs.filter((j) => j.status === "queued").length,
     jobsProcessing: jobs.filter((j) => j.status === "processing").length,
+    // P0 fix: surfaced separately and deliberately absent from every rate
+    // above. An accepted-but-unresolved provider submission is neither a
+    // success nor a failure — every rate here is computed from `completed`/
+    // `failed` attempts and terminal jobs only (see
+    // isTerminalPublishingJobStatus, which excludes awaiting_confirmation),
+    // so these jobs cannot contaminate any of them.
+    jobsAwaitingConfirmation: jobs.filter((j) => j.status === "awaiting_confirmation").length,
     jobsFailedRequiringAttention: jobs.filter((j) => j.status === "failed").length,
     publishedToday: jobs.filter(
       (j) => j.status === "published" && j.completedAt !== null && isSameUtcDay(new Date(j.completedAt), referenceDate),
