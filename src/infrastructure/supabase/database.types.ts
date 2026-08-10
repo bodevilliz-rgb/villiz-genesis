@@ -34,6 +34,7 @@ export type ContentDraftAwoStatusDb = "not_requested" | "ready_for_awo";
 export type ContentDraftReviewActionDb = "submitted" | "assigned" | "reassigned" | "approved" | "changes_requested" | "rejected" | "reopened";
 export type ContentDraftStatusDb = "draft" | "needs_review" | "approved" | "rejected" | "in_review" | "changes_requested" | "scheduled" | "published" | "archived" | "publishing" | "failed" | "awaiting_client";
 export type ContentDraftTypeDb = "social_post" | "email" | "blog_article" | "ad_copy" | "video_script" | "other" | "caption" | "campaign_copy" | "image_prompt";
+export type EngagementDataBasisDb = "brand_only" | "performance_informed";
 export type MembrainSourceDb = "manual" | "client_brief" | "discovery_call" | "performance_insight" | "competitor_research" | "published_asset";
 export type MembrainStatusDb = "draft" | "active" | "archived";
 export type OrganisationRoleDb = "lead" | "contributor" | "reviewer";
@@ -232,6 +233,28 @@ export type ContentGenerationRequestRow = {
   membrain_context_estimated_tokens: number;
   requested_by: string | null;
   requested_at: string;
+};
+
+export type EngagementRecommendationRow = {
+  id: string;
+  organisation_id: string;
+  draft_id: string;
+  draft_version: number;
+  platform: SocialPlatformDb;
+  objective: string | null;
+  data_basis: EngagementDataBasisDb;
+  recommended_caption: string;
+  alternative_captions: string[];
+  hook: string;
+  cta: string;
+  hashtag_groups: Json;
+  rationale: string;
+  predicted_strengths: string[];
+  limitations: string[];
+  confidence: number;
+  evidence: Json;
+  created_by: string | null;
+  created_at: string;
 };
 
 export type ConversationSummaryRow = {
@@ -882,6 +905,16 @@ export type Database = {
           Fk<"content_generation_requests_requested_by_fkey", "requested_by", "profiles">,
         ]
       >;
+      engagement_recommendations: Table<
+        EngagementRecommendationRow,
+        Partial<EngagementRecommendationRow>,
+        Partial<EngagementRecommendationRow>,
+        [
+          Fk<"engagement_recommendations_created_by_fkey", "created_by", "profiles">,
+          Fk<"engagement_recommendations_draft_org_fkey", "draft_id", "content_drafts">,
+          Fk<"engagement_recommendations_organisation_id_fkey", "organisation_id", "organisations">,
+        ]
+      >;
       conversation_summaries: Table<ConversationSummaryRow>;
       daily_briefs: Table<DailyBriefRow>;
       decision_reviews: Table<DecisionReviewRow>;
@@ -1174,6 +1207,7 @@ export type Database = {
       content_draft_review_action: ContentDraftReviewActionDb;
       content_draft_status: ContentDraftStatusDb;
       content_draft_type: ContentDraftTypeDb;
+      engagement_data_basis: EngagementDataBasisDb;
       membrain_source: MembrainSourceDb;
       membrain_status: MembrainStatusDb;
       organisation_role: OrganisationRoleDb;
@@ -1190,3 +1224,4 @@ export type Database = {
     CompositeTypes: Record<string, never>;
   };
 };
+

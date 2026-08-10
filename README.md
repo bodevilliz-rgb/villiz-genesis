@@ -19,6 +19,7 @@ The first application on the platform is **Villiz Social Manager**.
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Supabase + Vercel setup, first user, environment variables |
 | [`docs/SPRINT-1.md`](docs/SPRINT-1.md) | Test report, bugs found and fixed, deployment steps |
 | [`docs/TESTING.md`](docs/TESTING.md) | How to run the suites and add to them |
+| [`docs/AWO_ENGAGEMENT_INTELLIGENCE.md`](docs/AWO_ENGAGEMENT_INTELLIGENCE.md) | Evidence, safety boundaries and rollout for engagement recommendations |
 
 ---
 
@@ -171,3 +172,4 @@ Everything else about auth is proven at the database layer.
 Sprint 2 — Content Studio, Campaign Manager, Publishing Queue, Media Library —
 is not started. Navigation entries for it are visible but disabled, so the shape
 of the product is legible from day one without pretending the features exist.
+

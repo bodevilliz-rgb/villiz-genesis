@@ -2,6 +2,9 @@
 
 import { z } from "zod";
 import { getAIProvider } from "@/infrastructure/ai/provider-factory";
+import { generateEngagementRecommendation } from "@/core/application/use-cases/engagement";
+import type { EngagementRecommendation } from "@/core/domain/entities/engagement";
+import { isDomainError } from "@/core/domain/errors";
 import { requireContext } from "../container";
 import {
   extractAwoMembrainContext,
@@ -44,6 +47,42 @@ function applyComplianceCheck(
     text,
     complianceWarning: `REVIEW REQUIRED: Found prohibited term(s) (${violations.join(", ")}) that could not be automatically repaired. This output must be reviewed before use.`,
   };
+}
+
+export type EngagementRecommendationActionResult =
+  | { ok: true; recommendation: EngagementRecommendation }
+  | { ok: false; error: string };
+
+export async function generateEngagementRecommendationAction(input: {
+  organisationId: string;
+  draftId: string;
+  platform: string;
+  objective?: string;
+}): Promise<EngagementRecommendationActionResult> {
+  try {
+    const context = await requireContext();
+    const recommendation = await generateEngagementRecommendation(
+      {
+        actor: context.actor,
+        organisations: context.organisations,
+        campaigns: context.campaigns,
+        content: context.content,
+        membrain: context.membrain,
+        engagement: context.engagement,
+        ai: getAIProvider(),
+      },
+      input,
+    );
+    return { ok: true, recommendation };
+  } catch (error) {
+    console.error("[genesis] engagement recommendation failed", error);
+    return {
+      ok: false,
+      error: isDomainError(error)
+        ? error.message
+        : "AWO could not generate an engagement recommendation. Try again shortly.",
+    };
+  }
 }
 
 export async function generateCaption(
@@ -125,3 +164,4 @@ export async function generateHashtags(
   const result = await ai.generateObject(content, schema, { systemPrompt });
   return result;
 }
+
