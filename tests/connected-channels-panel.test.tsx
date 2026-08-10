@@ -8,14 +8,15 @@
  * src/components/settings/connected-channels-panel.tsx is changed.
  */
 
-import { describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { BlotatoAccount } from "@/core/domain/entities/blotato";
 
 // ── Mock external dependencies ────────────────────────────────────────────────
 
 vi.mock("@/server/actions/organisation-social-accounts", () => ({
   assignChannelAction: vi.fn(),
+  refreshAvailableChannelsAction: vi.fn(async (previous) => previous),
   removeChannelAction: vi.fn(),
 }));
 
@@ -30,10 +31,16 @@ vi.mock("sonner", () => ({
 // ── Component under test ───────────────────────────────────────────────────────
 
 import { ConnectedChannelsPanel } from "@/components/settings/connected-channels-panel";
+import { refreshAvailableChannelsAction } from "@/server/actions/organisation-social-accounts";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
 const ORG_ID = "00000000-0000-4000-8000-000000000001";
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(refreshAvailableChannelsAction).mockImplementation(async (previous) => previous);
+});
 
 function account(overrides: Partial<BlotatoAccount> = {}): BlotatoAccount {
   return {
@@ -74,6 +81,60 @@ function openConnectDialog() {
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe("ConnectedChannelsPanel — account selector (AssignForm)", () => {
+  it("refreshes Blotato automatically when the channel dialog opens", async () => {
+    renderPanel({ available: [] });
+    openConnectDialog();
+
+    await waitFor(() => expect(refreshAvailableChannelsAction).toHaveBeenCalledTimes(1));
+    const formData = vi.mocked(refreshAvailableChannelsAction).mock.calls[0]![1] as FormData;
+    expect(formData.get("organisationId")).toBe(ORG_ID);
+  });
+
+  it("shows an account discovered by the automatic provider refresh without leaving the modal", async () => {
+    const newlyConnected = account({ id: "new-tiktok", platform: "tiktok", username: "mervicsignatures" });
+    vi.mocked(refreshAvailableChannelsAction).mockResolvedValueOnce({
+      status: "success",
+      message: "Found 1 available account.",
+      accounts: [newlyConnected],
+    });
+
+    renderPanel({ available: [] });
+    openConnectDialog();
+
+    expect(await screen.findByText("@mervicsignatures")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "TikTok @mervicsignatures" })).toBeInTheDocument();
+    expect(screen.queryByText(/run test connection/i)).toBeNull();
+  });
+
+  it("keeps provider refresh failures inside the modal with a retry action", async () => {
+    vi.mocked(refreshAvailableChannelsAction)
+      .mockResolvedValueOnce({ status: "error", message: "Could not refresh Blotato accounts.", accounts: [] })
+      .mockResolvedValueOnce({ status: "success", message: "Found 1 available account.", accounts: [account()] });
+
+    renderPanel({ available: [] });
+    openConnectDialog();
+
+    expect(await screen.findByText("Could not refresh Blotato accounts.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("@testuser")).toBeInTheDocument();
+    expect(refreshAvailableChannelsAction).toHaveBeenCalledTimes(2);
+  });
+
+  it("explains a successful empty refresh and allows another in-place refresh", async () => {
+    vi.mocked(refreshAvailableChannelsAction).mockResolvedValue({
+      status: "success",
+      message: "Blotato is connected, but every current account is already assigned or unavailable.",
+      accounts: [],
+    });
+
+    renderPanel({ available: [] });
+    openConnectDialog();
+
+    expect(await screen.findByText(/every current account is already assigned or unavailable/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh accounts" }));
+    await waitFor(() => expect(refreshAvailableChannelsAction).toHaveBeenCalledTimes(2));
+  });
+
   it("renders @jummyte4u for an Instagram account with that username", () => {
     renderPanel({
       available: [account({ id: "acc-jm", platform: "instagram", username: "jummyte4u", fullname: "Jummy" })],
@@ -190,11 +251,11 @@ describe("ConnectedChannelsPanel — account selector (AssignForm)", () => {
     expect(screen.getByText(providerId)).toBeInTheDocument();
   });
 
-  it("shows a helpful message when no unassigned accounts are available", () => {
+  it("does not send the operator to Publishing Settings when no cached accounts are available", async () => {
     renderPanel({ available: [] });
     openConnectDialog();
-    expect(screen.getByText(/no unassigned blotato accounts are available/i)).toBeInTheDocument();
-    expect(screen.getByText(/run test connection/i)).toBeInTheDocument();
+    await waitFor(() => expect(refreshAvailableChannelsAction).toHaveBeenCalled());
+    expect(screen.queryByText(/run test connection/i)).toBeNull();
   });
 });
 

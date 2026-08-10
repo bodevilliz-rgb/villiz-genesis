@@ -54,6 +54,11 @@ export async function assignChannelToOrganisation(
 
   const all = await deps.blotatoAccounts.listAccounts();
   const target = all.find((a) => a.id === blotatoAccountId);
+  if (!target || !target.providerActive) {
+    throw new ConflictError(
+      "This account is no longer available from Blotato. Refresh the account list and try again.",
+    );
+  }
   if (target?.organisationId && target.organisationId !== organisationId) {
     throw new ConflictError(
       `This account is already assigned to a different organisation. Remove it from that organisation first.`,

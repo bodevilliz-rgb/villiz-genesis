@@ -244,6 +244,29 @@ describe("assignChannelToOrganisation", () => {
     ).rejects.toThrow(ConflictError);
   });
 
+  it("rejects an account missing from the latest provider-backed account list", async () => {
+    const repo = buildRepo({ listAccounts: async () => [], listActiveForOrganisation: async () => [] });
+
+    await expect(
+      assignChannelToOrganisation(
+        { actor: actor(), blotatoAccounts: repo, usage: buildUsageRepo() },
+        { organisationId: ORG_A, blotatoAccountId: "stale-account" },
+      ),
+    ).rejects.toThrow("no longer available from Blotato");
+  });
+
+  it("rejects an account that the latest provider sync marked unavailable", async () => {
+    const stale = account({ id: "stale-account", organisationId: null, providerActive: false });
+    const repo = buildRepo({ listAccounts: async () => [stale], listActiveForOrganisation: async () => [] });
+
+    await expect(
+      assignChannelToOrganisation(
+        { actor: actor(), blotatoAccounts: repo, usage: buildUsageRepo() },
+        { organisationId: ORG_A, blotatoAccountId: stale.id },
+      ),
+    ).rejects.toThrow("no longer available from Blotato");
+  });
+
   it("8 — previously removed account (active=false, null org) can be re-assigned", async () => {
     const removed = account({ id: "acc-removed", organisationId: null, active: false });
     const reactivated = account({ id: "acc-removed", organisationId: ORG_A, active: true });
