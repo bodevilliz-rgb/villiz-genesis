@@ -213,3 +213,60 @@ export async function runProviderConfirmationPass(
 export function isAwaitingProviderConfirmation(job: Pick<PublishingJob, "status">): boolean {
   return job.status === "awaiting_confirmation";
 }
+
+/**
+ * Backoff for INFRASTRUCTURE failures of the confirmation pass (a broken
+ * RPC, an unreachable database) — deliberately distinct from
+ * nextConfirmationCheckDelayMs, which paces provider status checks for a
+ * healthy job.
+ *
+ * P0 follow-up: a return-shape defect made every confirmation attempt throw,
+ * and because the pass ran on each poll tick the worker emitted an identical
+ * error every ~2 seconds indefinitely — hammering Supabase and the logs with
+ * no possibility of progress. Ramps 5s → 10s → 20s → 40s → 80s and holds at
+ * 120s: fast enough that a transient blip self-heals within one cycle, slow
+ * enough that a genuinely broken subsystem costs ~30 calls/hour instead of
+ * ~1800.
+ */
+const CONFIRMATION_ERROR_BACKOFF_MS = [5_000, 10_000, 20_000, 40_000, 80_000, 120_000] as const;
+
+export function nextConfirmationErrorBackoffMs(consecutiveFailures: number): number {
+  const index = Math.min(Math.max(consecutiveFailures - 1, 0), CONFIRMATION_ERROR_BACKOFF_MS.length - 1);
+  return CONFIRMATION_ERROR_BACKOFF_MS[index]!;
+}
+
+export interface ConfirmationErrorGate {
+  /** False while backing off from a recent infrastructure failure — the caller skips the pass entirely. */
+  shouldAttempt(now: number): boolean;
+  /** Clears any backoff. Called after a pass completes without throwing. */
+  recordSuccess(): void;
+  /** Starts/extends the backoff. Returns the delay applied, and whether this is the first failure of the streak (so the caller can log once rather than every tick). */
+  recordFailure(now: number): { backoffMs: number; isFirstOfStreak: boolean };
+}
+
+/**
+ * Small mutable gate the workers hold across ticks. Pure and injectable so
+ * the "does not retry every 2 seconds" behaviour is directly testable
+ * without timers or a real worker loop.
+ */
+export function createConfirmationErrorGate(): ConfirmationErrorGate {
+  let consecutiveFailures = 0;
+  let retryAfter = 0;
+
+  return {
+    shouldAttempt(now: number): boolean {
+      return now >= retryAfter;
+    },
+    recordSuccess(): void {
+      consecutiveFailures = 0;
+      retryAfter = 0;
+    },
+    recordFailure(now: number): { backoffMs: number; isFirstOfStreak: boolean } {
+      const isFirstOfStreak = consecutiveFailures === 0;
+      consecutiveFailures += 1;
+      const backoffMs = nextConfirmationErrorBackoffMs(consecutiveFailures);
+      retryAfter = now + backoffMs;
+      return { backoffMs, isFirstOfStreak };
+    },
+  };
+}

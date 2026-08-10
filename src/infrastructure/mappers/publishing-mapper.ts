@@ -12,6 +12,55 @@ function toProfileRef(ref: ProfileRef) {
   return ref ? { id: ref.id, fullName: ref.full_name, email: ref.email } : null;
 }
 
+/**
+ * The ONE place a claim RPC's payload becomes a domain job, regardless of
+ * what PostgREST hands back.
+ *
+ * P0 follow-up (2026-08-10): claim_publishing_job_for_confirmation was
+ * declared `returns publishing_jobs` (a single composite) while the
+ * proven-working claim_next_publishing_job is `returns setof`. PostgREST
+ * serialises those differently — an array for a set, a bare object for a
+ * single composite — and a plpgsql `return null` from a single-composite
+ * function can arrive as a composite of ALL-NULL fields rather than null at
+ * all (diagnosed in 20260801160000). The repository destructured the payload
+ * as an array (`const [row] = rows`), so a non-array payload threw
+ * "rows is not iterable" on every worker tick.
+ *
+ * 20260810040000 fixes the SQL to the proven `setof` shape. This function
+ * additionally removes the application's dependence on that shape entirely,
+ * so the same class of defect cannot recur for either claim RPC:
+ *
+ *   - null / undefined            → null   (nothing claimed)
+ *   - []                          → null   (nothing claimed — the setof shape)
+ *   - [row] / row                 → job    (array or bare composite)
+ *   - a composite with a null id  → null   (the all-null "nothing" composite)
+ *   - anything else               → throws a clear, named error rather than
+ *                                   a cryptic TypeError deep in a worker loop
+ */
+export function toClaimedPublishingJob(payload: unknown, context: string): PublishingJob | null {
+  if (payload === null || payload === undefined) return null;
+
+  const candidate = Array.isArray(payload) ? payload[0] : payload;
+  if (candidate === null || candidate === undefined) return null;
+
+  if (typeof candidate !== "object") {
+    throw new Error(
+      `${context} returned an unexpected payload shape (${typeof candidate}) — expected a publishing_jobs row, an array of them, or null.`,
+    );
+  }
+
+  const row = candidate as Partial<PublishingJobRow>;
+  if (!("id" in row)) {
+    throw new Error(`${context} returned an object with no 'id' column — it does not look like a publishing_jobs row.`);
+  }
+
+  // The all-null composite a single-row plpgsql function can produce for
+  // "nothing to claim". Truthy as an object, but genuinely nothing.
+  if (typeof row.id !== "string" || row.id === "") return null;
+
+  return toPublishingJob(row as PublishingJobRowWithRelations);
+}
+
 export function toPublishingJob(row: PublishingJobRowWithRelations): PublishingJob {
   return {
     id: row.id,
