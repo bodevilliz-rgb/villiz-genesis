@@ -100,3 +100,18 @@ Set `CRON_SECRET` in Vercel Production to a randomly generated value of at least
 10. Confirm performance confidence remains unavailable until 10 distinct seven-day comparable posts exist for the same organisation, platform, objective and provider account.
 
 If Blotato analytics is unavailable, the collector records a failed item and continues; recommendation generation falls back to brand-only behavior. Existing drafting, review and publishing remain unaffected.
+
+## Sprint 15 LinkedIn personal-profile optimiser
+
+Sprint 15 reuses the existing LinkedIn channel and Engagement Intelligence workflow. It does not create a separate application or use scraping/browser automation.
+
+- LinkedIn recommendations are explicitly generated for a personal profile, not a company Page.
+- The system may use only MemBrain-supported identity, role, experience, proof and claims. Missing spokesperson evidence must never be invented.
+- Every recommendation includes a six-part editorial rubric: opening hook, single clear idea, personal voice, credibility, scanability and conversation CTA.
+- The displayed readiness score is calculated from those six rubric values. It is editorial guidance, not predicted reach, engagement or commercial performance.
+- The operator sees the reader value, credibility anchor, conversation prompt and the highest-value improvements before applying the caption.
+- Existing atomic Apply to draft, human review, scheduling, exact attribution and account-scoped learning controls remain unchanged.
+- LinkedIn personal profiles publish through the connected Blotato account without a company Page ID.
+- Older recommendations remain readable because LinkedIn guidance is optional in the stored JSON structure.
+
+No database migration is required for Sprint 15. Native LinkedIn analytics XLSX import and profile-audit tooling remain separate follow-on work; the initial pilot validates post optimisation with Villiz Pixels and Mervic Signatures first.

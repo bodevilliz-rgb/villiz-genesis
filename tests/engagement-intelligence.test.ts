@@ -13,6 +13,7 @@ import type { PublishingRepository } from "@/core/application/ports/publishing-p
 import type { ContentDraft } from "@/core/domain/entities/content";
 import type { EngagementRecommendationWriteModel } from "@/core/domain/entities/engagement";
 import type { Actor } from "@/core/domain/entities/identity";
+import { engagementRecommendationModelSchema } from "@/core/application/dto/engagement-dto";
 
 const ORG_ID = "00000000-0000-4000-8000-000000000001";
 const DRAFT_ID = "00000000-0000-4000-8000-000000000002";
@@ -128,6 +129,7 @@ function dependencies(options: { role?: "lead" | "contributor" | "reviewer"; wit
         shareTrigger: "Invite someone planning a portrait.",
         saveTrigger: "Save the preparation tips.",
         accessibilityNote: "Add descriptive alt text.",
+        linkedinPersonalProfile: null,
       },
       confidence: 96,
     })) as AIProviderPort["generateObject"],
@@ -235,6 +237,76 @@ describe("AWO Engagement Intelligence", () => {
 
     const membrain = fixture.deps.membrain as unknown as { retrieveContext: ReturnType<typeof vi.fn> };
     expect(membrain.retrieveContext.mock.calls[0]?.[0].query.length).toBeLessThanOrEqual(500);
+  });
+
+  it("enforces personal-profile LinkedIn guidance and recalculates editorial readiness", async () => {
+    const fixture = dependencies();
+    vi.mocked(fixture.ai.generateObject).mockResolvedValueOnce({
+      recommendedCaption: "One lesson I learned while creating portraits.\n\nClarity builds confidence.\n\nWhat has helped you feel prepared?",
+      alternativeCaptions: ["A personal professional lesson."],
+      hook: "One lesson I learned while creating portraits.",
+      cta: "What has helped you feel prepared?",
+      hashtags: { brand: ["#VillizPixels"], local: [], service: ["#PortraitPhotography"], audience: [] },
+      rationale: "A person-led lesson invites a relevant professional conversation.",
+      predictedStrengths: ["Personal opening"],
+      limitations: [],
+      creativeGuidance: {
+        mediaBasis: "none",
+        visualHook: "Use a relevant portrait.",
+        formatRecommendation: "Use a text-led post.",
+        shareTrigger: "Share the practical lesson.",
+        saveTrigger: "Save the preparation insight.",
+        accessibilityNote: "Add alt text when media is attached.",
+        linkedinPersonalProfile: {
+          accountType: "personal_profile",
+          postArchetype: "lesson_learned",
+          readinessScore: 99,
+          audiencePromise: "A practical lesson about portrait confidence.",
+          credibilityAnchor: "The existing draft and MemBrain-supported studio guidance.",
+          conversationPrompt: "What has helped you feel prepared?",
+          dimensions: { hook: 4, singleIdea: 5, personalVoice: 5, credibility: 3, scanability: 4, conversationCta: 5 },
+          improvementActions: ["Add one MemBrain-supported concrete example."],
+        },
+      },
+      confidence: 82,
+    });
+
+    const result = await generateEngagementRecommendation(fixture.deps, {
+      organisationId: ORG_ID,
+      draftId: DRAFT_ID,
+      platform: "linkedin",
+      objectiveType: "engagement",
+    });
+
+    expect(result.creativeGuidance.linkedinPersonalProfile).toEqual(expect.objectContaining({
+      accountType: "personal_profile",
+      readinessScore: 87,
+    }));
+    const options = vi.mocked(fixture.ai.generateObject).mock.calls[0]?.[2];
+    expect(options?.systemPrompt).toContain("person's LinkedIn profile, never a company Page");
+    expect(options?.systemPrompt).toContain("do not invent it");
+  });
+
+  it("removes LinkedIn guidance from recommendations for other platforms", async () => {
+    const fixture = dependencies();
+    const original = await vi.mocked(fixture.ai.generateObject)("draft", engagementRecommendationModelSchema);
+    vi.mocked(fixture.ai.generateObject).mockReset();
+    vi.mocked(fixture.ai.generateObject).mockResolvedValueOnce({
+      ...(original as Record<string, unknown>),
+      creativeGuidance: {
+        ...((original as { creativeGuidance: Record<string, unknown> }).creativeGuidance),
+        linkedinPersonalProfile: {
+          accountType: "personal_profile", postArchetype: "how_to", readinessScore: 100,
+          audiencePromise: "Value", credibilityAnchor: "Evidence", conversationPrompt: "Question",
+          dimensions: { hook: 5, singleIdea: 5, personalVoice: 5, credibility: 5, scanability: 5, conversationCta: 5 },
+          improvementActions: ["None"],
+        },
+      },
+    });
+    const result = await generateEngagementRecommendation(fixture.deps, {
+      organisationId: ORG_ID, draftId: DRAFT_ID, platform: "instagram",
+    });
+    expect(result.creativeGuidance.linkedinPersonalProfile).toBeNull();
   });
 });
 
