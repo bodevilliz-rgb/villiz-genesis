@@ -166,6 +166,7 @@ function createHarness(input: {
         isAiGenerated: jobInput.isAiGenerated,
         isYourBrand: jobInput.isYourBrand,
         isBrandedContent: jobInput.isBrandedContent,
+        executionMode: jobInput.executionMode,
       };
       jobs.set(created.id, created);
       return created;
@@ -360,6 +361,7 @@ describe("createImmediatePublishingJob", () => {
       draftId: DRAFT_ID,
       platform: "linkedin",
       idempotencyKey: "key-1",
+      executionMode: "simulation",
     });
     expect(job.status).toBe("queued");
     expect(job.triggerType).toBe("immediate");
@@ -370,27 +372,27 @@ describe("createImmediatePublishingJob", () => {
   it("refuses a draft still in review — the exact invalid transition the mission's Definition of Done rules out", async () => {
     const { deps } = createHarness({ draft: baseDraft({ status: "in_review" }), viewerRole: "contributor" });
     await expect(
-      createImmediatePublishingJob(deps, { organisationId: ORG_ID, draftId: DRAFT_ID, platform: "linkedin", idempotencyKey: "key-1" }),
+      createImmediatePublishingJob(deps, { organisationId: ORG_ID, draftId: DRAFT_ID, platform: "linkedin", idempotencyKey: "key-1", executionMode: "simulation" }),
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
   it("refuses a viewer with no write role on the account (permission enforcement)", async () => {
     const { deps } = createHarness({ draft: baseDraft({ status: "approved" }), viewerRole: null });
     await expect(
-      createImmediatePublishingJob(deps, { organisationId: ORG_ID, draftId: DRAFT_ID, platform: "linkedin", idempotencyKey: "key-1" }),
+      createImmediatePublishingJob(deps, { organisationId: ORG_ID, draftId: DRAFT_ID, platform: "linkedin", idempotencyKey: "key-1", executionMode: "simulation" }),
     ).rejects.toBeInstanceOf(ForbiddenError);
   });
 
   it("returns the draft's existing active job for a different organisation id instead of ever finding it (organisation isolation)", async () => {
     const { deps } = createHarness({ draft: baseDraft({ status: "approved" }), viewerRole: "contributor" });
     await expect(
-      createImmediatePublishingJob(deps, { organisationId: OTHER_ORG_ID, draftId: DRAFT_ID, platform: "linkedin", idempotencyKey: "key-1" }),
+      createImmediatePublishingJob(deps, { organisationId: OTHER_ORG_ID, draftId: DRAFT_ID, platform: "linkedin", idempotencyKey: "key-1", executionMode: "simulation" }),
     ).rejects.toBeInstanceOf(ForbiddenError);
   });
 
   it("double-clicking Publish Now with the same idempotency key returns the same job, never a second one", async () => {
     const { deps, getJobs } = createHarness({ draft: baseDraft({ status: "approved" }), viewerRole: "contributor" });
-    const input = { organisationId: ORG_ID, draftId: DRAFT_ID, platform: "linkedin" as const, idempotencyKey: "same-key" };
+    const input = { organisationId: ORG_ID, draftId: DRAFT_ID, platform: "linkedin" as const, idempotencyKey: "same-key", executionMode: "simulation" as const };
     const first = await createImmediatePublishingJob(deps, input);
     const second = await createImmediatePublishingJob(deps, input);
     expect(second.id).toBe(first.id);
@@ -410,6 +412,7 @@ describe("createScheduledPublishingJob", () => {
       scheduledFor: future,
       timezone: "UTC",
       idempotencyKey: "sched-1",
+      executionMode: "simulation",
     });
     expect(job.triggerType).toBe("scheduled");
     expect(getDraft().status).toBe("scheduled");
@@ -431,6 +434,7 @@ describe("createScheduledPublishingJob", () => {
         scheduledFor: future,
         timezone: "UTC",
         idempotencyKey: "sched-forged",
+        executionMode: "simulation",
       }),
     ).rejects.toBeInstanceOf(ForbiddenError);
   });
@@ -445,6 +449,7 @@ describe("createScheduledPublishingJob", () => {
         scheduledFor: "2020-01-01T00:00:00.000Z",
         timezone: "UTC",
         idempotencyKey: "sched-1",
+        executionMode: "simulation",
       }),
     ).rejects.toBeInstanceOf(ValidationError);
   });
@@ -460,6 +465,7 @@ describe("retryFailedPublishingJob", () => {
       triggerType: "immediate",
       scheduledFor: "2026-08-01T10:00:00.000Z",
       idempotencyKey: "job-to-retry",
+      executionMode: "simulation",
       requestedBy: ACTOR_ID,
       maxRetries: 3,
       devSimulationMode: null,
@@ -485,6 +491,7 @@ describe("retryFailedPublishingJob", () => {
       triggerType: "immediate",
       scheduledFor: "2026-08-01T10:00:00.000Z",
       idempotencyKey: "still-queued",
+      executionMode: "simulation",
       requestedBy: ACTOR_ID,
       maxRetries: 3,
       devSimulationMode: null,
@@ -505,6 +512,7 @@ describe("retryFailedPublishingJob", () => {
       triggerType: "immediate",
       scheduledFor: "2026-08-01T10:00:00.000Z",
       idempotencyKey: "at-limit",
+      executionMode: "simulation",
       requestedBy: ACTOR_ID,
       maxRetries: 1,
       devSimulationMode: null,
@@ -531,6 +539,7 @@ describe("cancelPublishingJob", () => {
       triggerType: "scheduled",
       scheduledFor: "2099-01-01T10:00:00.000Z",
       idempotencyKey: "to-cancel",
+      executionMode: "simulation",
       requestedBy: ACTOR_ID,
       maxRetries: 3,
       devSimulationMode: null,
@@ -553,6 +562,7 @@ describe("cancelPublishingJob", () => {
       triggerType: "immediate",
       scheduledFor: "2026-08-01T10:00:00.000Z",
       idempotencyKey: "processing-job",
+      executionMode: "simulation",
       requestedBy: ACTOR_ID,
       maxRetries: 3,
       devSimulationMode: null,
@@ -577,6 +587,7 @@ describe("attempt lifecycle — immutable history, audit events, notifications",
       triggerType: "immediate",
       scheduledFor: "2026-08-01T10:00:00.000Z",
       idempotencyKey: "attempt-flow",
+      executionMode: "simulation",
       requestedBy: ACTOR_ID,
       maxRetries: 3,
       devSimulationMode: null,
@@ -603,6 +614,7 @@ describe("attempt lifecycle — immutable history, audit events, notifications",
       triggerType: "immediate",
       scheduledFor: "2026-08-01T10:00:00.000Z",
       idempotencyKey: "complete-flow",
+      executionMode: "simulation",
       requestedBy: ACTOR_ID,
       maxRetries: 3,
       devSimulationMode: null,
@@ -643,6 +655,7 @@ describe("attempt lifecycle — immutable history, audit events, notifications",
       triggerType: "immediate",
       scheduledFor: "2026-08-01T10:00:00.000Z",
       idempotencyKey: "fail-flow",
+      executionMode: "simulation",
       requestedBy: ACTOR_ID,
       maxRetries: 3,
       devSimulationMode: null,
@@ -682,6 +695,7 @@ describe("attempt lifecycle — immutable history, audit events, notifications",
       triggerType: "immediate",
       scheduledFor: "2026-08-01T10:00:00.000Z",
       idempotencyKey: "retry-history",
+      executionMode: "simulation",
       requestedBy: ACTOR_ID,
       maxRetries: 3,
       devSimulationMode: null,
@@ -750,6 +764,7 @@ describe("destination lock — account pre-check at scheduling time", () => {
       draftId: DRAFT_ID,
       platform: "linkedin",
       idempotencyKey: "lock-imm-1",
+      executionMode: "simulation",
     });
     expect(job.resolvedAccountId).toBe("fake-blotato-linkedin-0");
     expect(getJobs()[0]?.resolvedAccountId).toBe("fake-blotato-linkedin-0");
@@ -768,6 +783,7 @@ describe("destination lock — account pre-check at scheduling time", () => {
       scheduledFor: future,
       timezone: "UTC",
       idempotencyKey: "lock-sched-1",
+      executionMode: "simulation",
     });
     expect(job.resolvedAccountId).toBe("fake-blotato-facebook-0");
     expect(getJobs()[0]?.resolvedAccountId).toBe("fake-blotato-facebook-0");
@@ -785,6 +801,7 @@ describe("destination lock — account pre-check at scheduling time", () => {
         draftId: DRAFT_ID,
         platform: "linkedin",
         idempotencyKey: "lock-imm-zero",
+        executionMode: "simulation",
       }),
     ).rejects.toBeInstanceOf(ValidationError);
     expect(getJobs()).toHaveLength(0);
@@ -804,6 +821,7 @@ describe("destination lock — account pre-check at scheduling time", () => {
         scheduledFor: future,
         timezone: "UTC",
         idempotencyKey: "lock-sched-zero",
+        executionMode: "simulation",
       }),
     ).rejects.toBeInstanceOf(ValidationError);
     expect(getJobs()).toHaveLength(0);
@@ -821,6 +839,7 @@ describe("destination lock — account pre-check at scheduling time", () => {
         draftId: DRAFT_ID,
         platform: "x",
         idempotencyKey: "lock-imm-many",
+        executionMode: "simulation",
       }),
     ).rejects.toBeInstanceOf(ValidationError);
     expect(getJobs()).toHaveLength(0);
@@ -840,6 +859,7 @@ describe("destination lock — account pre-check at scheduling time", () => {
         scheduledFor: future,
         timezone: "UTC",
         idempotencyKey: "lock-sched-many",
+        executionMode: "simulation",
       }),
     ).rejects.toBeInstanceOf(ValidationError);
     expect(getJobs()).toHaveLength(0);
@@ -876,6 +896,11 @@ async function seedTimedOutJob(
     maxRetries: 3,
     devSimulationMode: null,
     resolvedAccountId: null,
+    // Reconciliation only ever targets a job that actually went through the
+    // live provider path (a blotato_status_timeout error is structurally
+    // unreachable from simulation) — see the new executionMode guard in
+    // reconcileBlotatoStatusTimeout.
+    executionMode: "live",
     isAiGenerated: null,
     isYourBrand: null,
     isBrandedContent: null,
@@ -1051,6 +1076,7 @@ describe("reconcileBlotatoStatusTimeout", () => {
       triggerType: "immediate",
       scheduledFor: "2026-08-09T14:03:45.863Z",
       idempotencyKey: "still-queued-reconcile",
+      executionMode: "simulation",
       requestedBy: ACTOR_ID,
       maxRetries: 3,
       devSimulationMode: null,

@@ -41,6 +41,7 @@ import { resolveEffectiveSimulationMode } from "../src/infrastructure/publishers
 import { resolvePublishMediaUrls } from "../src/core/application/use-cases/publishing/media";
 import { evaluatePlatformPreflight } from "../src/core/domain/entities/publishing-preflight";
 import { redactMediaUrl } from "../src/core/domain/entities/publishing-media";
+import { resolveEffectiveLivePublishing } from "../src/core/domain/entities/publishing";
 import { composePublishedText } from "../src/core/application/use-cases/content/hashtags";
 import {
   claimNextPublishingJob,
@@ -126,7 +127,16 @@ const pollBackoff = createBackoffController();
 
 async function processJob(job: PublishingJob, deps: ReturnType<typeof buildDeps>) {
   const started = Date.now();
-  log("job_claimed", { jobId: job.id, draftId: job.draftId, platform: job.platform, triggerType: job.triggerType });
+  log("job_claimed", { jobId: job.id, draftId: job.draftId, platform: job.platform, triggerType: job.triggerType, executionMode: job.executionMode });
+
+  // P0 fix: the ONLY authority for whether this publish may reach the real
+  // provider is the operator-reviewed value persisted on the job
+  // (job.executionMode) combined with this process's own global kill
+  // switch — never this worker's own environment alone. This closes the
+  // incident where this exact worker process (Render), with its own
+  // BLOTATO_LIVE_PUBLISHING_ENABLED=true, silently executed a job the
+  // operator had reviewed and confirmed as Simulation on Vercel.
+  const effectiveLive = resolveEffectiveLivePublishing(job.executionMode, deps.blotatoLivePublishingEnabled);
 
   const attempt = await startPublishingAttempt(deps, job);
   log("attempt_started", { jobId: job.id, attemptId: attempt.id, attemptNumber: attempt.attemptNumber });
@@ -164,7 +174,7 @@ async function processJob(job: PublishingJob, deps: ReturnType<typeof buildDeps>
   // Media may have been removed from the draft after the job was queued
   // (e.g. operator retries a job that was previously valid). Simulation
   // always proceeds regardless, so this guard is invisible in UAT.
-  if (deps.blotatoLivePublishingEnabled) {
+  if (effectiveLive) {
     const preflight = evaluatePlatformPreflight(job.platform, draft.body, media.mediaUrls.length, draft.hashtags ?? [], job.isAiGenerated, {
       isYourBrand: job.isYourBrand,
       isBrandedContent: job.isBrandedContent,
@@ -189,7 +199,7 @@ async function processJob(job: PublishingJob, deps: ReturnType<typeof buildDeps>
   const publisher = resolvePublisher(job.platform, {
     blotatoAccounts: deps.blotatoAccounts,
     blotatoClient: deps.blotatoClient,
-    livePublishingEnabled: deps.blotatoLivePublishingEnabled,
+    livePublishingEnabled: effectiveLive,
     assetMimeTypes: media.mimeTypes,
     onBeforePublish: (preview) => log("blotato_dry_run_preview", { jobId: job.id, draftId: job.draftId, ...preview }),
   });

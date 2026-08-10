@@ -41,6 +41,7 @@ export type OrganisationStatusDb = "prospect" | "active" | "paused" | "offboarde
 export type PlatformRoleDb = "owner" | "admin" | "member";
 export type PostStatusDb = "idea" | "researching" | "drafting" | "in_review" | "approved" | "scheduled" | "published" | "failed" | "archived";
 export type PublishingAttemptStatusDb = "queued" | "started" | "completed" | "failed";
+export type PublishingExecutionModeDb = "simulation" | "live";
 export type PublishingJobStatusDb = "queued" | "processing" | "published" | "failed" | "cancelled";
 export type PublishingPlatformDb = "linkedin" | "facebook" | "instagram" | "x" | "tiktok";
 export type PublishingSimulationModeDb = "always_succeed" | "fail_next_attempt" | "always_fail";
@@ -593,6 +594,7 @@ export type PublishingJobRow = {
   is_ai_generated: boolean | null;
   is_your_brand: boolean | null;
   is_branded_content: boolean | null;
+  execution_mode: PublishingExecutionModeDb;
 };
 
 export type ScheduledPostRow = {

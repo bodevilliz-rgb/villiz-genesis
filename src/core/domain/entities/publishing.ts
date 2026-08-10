@@ -61,6 +61,56 @@ export const PUBLISHING_ATTEMPT_STATUS_LABELS: Record<PublishingAttemptStatus, s
 export type PublishingTriggerType = "immediate" | "scheduled" | "retry";
 
 /**
+ * P0 fix (2026-08-10 incident): a Pre-Publish Review that displayed "Mode:
+ * Simulation" was followed by a REAL Blotato submission — because
+ * live-vs-simulation had never been anything but a value each executing
+ * process derived independently from its own BLOTATO_LIVE_PUBLISHING_ENABLED
+ * env var. The Render background worker's environment had live publishing
+ * enabled; Vercel's (what the operator actually saw) did not. Nothing
+ * persisted what the operator reviewed, so the two processes silently
+ * disagreed.
+ *
+ * PublishingExecutionMode is captured ONCE — from the same isLivePublishing
+ * value the Pre-Publish Review Mode badge itself renders from — at the exact
+ * moment the operator confirms Publish Now / Schedule, the same
+ * capture-once pattern as resolvedAccountId/isAiGenerated. It is persisted
+ * on the job row and is the ONLY thing any worker (Render or the Vercel
+ * API-route) may consult to decide whether a publish is allowed to reach
+ * the real provider — see resolveEffectiveLivePublishing. A process's own
+ * environment can never again silently upgrade a job the operator reviewed
+ * as simulation into a live provider call.
+ */
+export type PublishingExecutionMode = "simulation" | "live";
+
+export const PUBLISHING_EXECUTION_MODE_LABELS: Record<PublishingExecutionMode, string> = {
+  simulation: "Simulation",
+  live: "Live",
+};
+
+/**
+ * The single authority for whether a publish is allowed to reach the real
+ * provider. `jobExecutionMode` is the operator-reviewed, immutable value
+ * captured on the job at creation; `globalLiveEnabled` is the deployment-
+ * wide BLOTATO_LIVE_PUBLISHING_ENABLED kill switch for whichever process is
+ * asking.
+ *
+ * One-directional fail-safe: a "simulation" job NEVER goes live, regardless
+ * of what the asking process's own environment says — this is the exact
+ * rule the incident violated. A "live" job still requires the asking
+ * process's own global flag too — this preserves the existing, unchanged
+ * kill-switch behaviour (BLOTATO_LIVE_PUBLISHING_ENABLED=false already
+ * means "simulate, full stop, regardless of anything else" for every
+ * platform) rather than inventing a new failure mode for it.
+ */
+export function resolveEffectiveLivePublishing(
+  jobExecutionMode: PublishingExecutionMode,
+  globalLiveEnabled: boolean,
+): boolean {
+  if (jobExecutionMode === "simulation") return false;
+  return globalLiveEnabled;
+}
+
+/**
  * The operator's publishing intent, captured ONCE — at the instant they
  * click "Publish Now" or "Schedule" — and passed immutably through
  * Pre-Publish Review to confirmation. Nothing inside the review may mutate
@@ -78,6 +128,8 @@ export type PublishingIntent =
       draftId: string;
       platform: PublishingPlatform;
       resolvedAccountId: string;
+      /** P0 fix: the exact Mode the operator was shown in Pre-Publish Review, captured once and persisted with the job — see resolveEffectiveLivePublishing. Never re-derived from a process's own environment after this snapshot is taken. */
+      executionMode: PublishingExecutionMode;
       /** Operator's explicit AI-generated-content declaration for THIS post. Only meaningful for platforms whose policy sets requiresAiDisclosure (TikTok today); null = not declared, which deterministic preflight blocks for those platforms. Never defaulted. */
       isAiGenerated?: boolean | null;
       /** Operator's explicit "promotes my own brand/business" declaration (TikTok commercial-content disclosure). Independent of isBrandedContent — both may be true. Null = not declared. Never defaulted. */
@@ -91,6 +143,8 @@ export type PublishingIntent =
       draftId: string;
       platform: PublishingPlatform;
       resolvedAccountId: string;
+      /** See the immediate variant. */
+      executionMode: PublishingExecutionMode;
       /** See the immediate variant — same declaration, captured in the same immutable snapshot. */
       isAiGenerated?: boolean | null;
       /** See the immediate variant. */
@@ -158,6 +212,17 @@ export interface PublishingJob {
   devSimulationMode: "always_succeed" | "fail_next_attempt" | "always_fail" | null;
   /** Destination lock: the exact blotato_account_id resolved at scheduling time. The worker passes this to the publisher so it can route to the correct account even when multiple accounts are connected for the same platform. Null for jobs scheduled before Sprint 10B or when only one account is connected (no ambiguity). */
   resolvedAccountId: string | null;
+  /**
+   * P0 fix (2026-08-10 incident): the exact Mode ("Simulation"/"Live") the
+   * operator was shown and confirmed in Pre-Publish Review, captured once
+   * at job creation. This is now the ONLY thing any worker may consult to
+   * decide whether a publish reaches the real provider — see
+   * resolveEffectiveLivePublishing. Never re-derived from a process's own
+   * BLOTATO_LIVE_PUBLISHING_ENABLED after this snapshot is taken, so a
+   * Render worker and Vercel can never again silently disagree about what
+   * the operator actually reviewed.
+   */
+  executionMode: PublishingExecutionMode;
   /**
    * Operator's explicit AI-generated-content declaration, captured at job
    * creation from the publishing panel — the same capture-once pattern as

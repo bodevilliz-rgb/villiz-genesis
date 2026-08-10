@@ -13,6 +13,7 @@ const scheduledIntent: PublishingIntent = {
   draftId: "draft-1",
   platform: "instagram",
   resolvedAccountId: "acc-1",
+  executionMode: "simulation",
   scheduledForUtc: "2026-08-15T13:00:00.000Z",
   displayTimezone: "Europe/London",
   scheduledForLocalDisplay: "Aug 15, 2026, 2:00 PM",
@@ -24,6 +25,7 @@ const immediateIntent: PublishingIntent = {
   draftId: "draft-1",
   platform: "instagram",
   resolvedAccountId: "acc-1",
+  executionMode: "simulation",
 };
 
 describe("confirmButtonLabel", () => {

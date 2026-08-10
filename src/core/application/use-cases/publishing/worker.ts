@@ -8,6 +8,7 @@ import type { NotificationRepository } from "@/core/application/ports/notificati
 import type { MediaRepository } from "@/core/application/ports/media-port";
 import type { StoragePort } from "@/core/application/ports/storage-port";
 import type { PublishingJob } from "@/core/domain/entities/publishing";
+import { resolveEffectiveLivePublishing } from "@/core/domain/entities/publishing";
 import { blotatoConfig } from "@/infrastructure/blotato/blotato-config";
 import { resolvePublisher } from "@/infrastructure/publishers/publisher-factory";
 import { resolveEffectiveSimulationMode } from "@/infrastructure/publishers/simulation-mode";
@@ -103,6 +104,14 @@ async function executeJob(deps: WorkerDeps, job: PublishingJob): Promise<WorkerI
 
   try {
     const config = blotatoConfig();
+    // P0 fix: the ONLY authority for whether this publish may reach the
+    // real provider is the operator-reviewed value persisted on the job
+    // (job.executionMode) combined with this process's own global kill
+    // switch — never this process's global flag alone. This is what
+    // closes the incident where a Render worker's own environment silently
+    // upgraded a job the operator reviewed as Simulation into a live
+    // Blotato submission.
+    const effectiveLive = resolveEffectiveLivePublishing(job.executionMode, config.livePublishingEnabled);
 
     const draft = await deps.content.findDraft(job.organisationId, job.draftId);
     if (!draft) {
@@ -124,7 +133,7 @@ async function executeJob(deps: WorkerDeps, job: PublishingJob): Promise<WorkerI
     // Fail-closed: mandatory platform requirements are enforced at execution
     // time when live publishing is enabled — same guard, same ordering, and
     // same error code as the background worker core.
-    if (config.livePublishingEnabled) {
+    if (effectiveLive) {
       const preflight = evaluatePlatformPreflight(job.platform, draft.body, media.mediaUrls.length, draft.hashtags ?? [], job.isAiGenerated, {
         isYourBrand: job.isYourBrand,
         isBrandedContent: job.isBrandedContent,
@@ -149,7 +158,7 @@ async function executeJob(deps: WorkerDeps, job: PublishingJob): Promise<WorkerI
     const publisher = resolvePublisher(job.platform, {
       blotatoAccounts: deps.blotatoAccounts,
       blotatoClient: deps.blotatoClient,
-      livePublishingEnabled: config.livePublishingEnabled,
+      livePublishingEnabled: effectiveLive,
       assetMimeTypes: media.mimeTypes,
     });
 

@@ -160,6 +160,7 @@ function createHarness(input: {
         isAiGenerated: jobInput.isAiGenerated,
         isYourBrand: jobInput.isYourBrand,
         isBrandedContent: jobInput.isBrandedContent,
+        executionMode: jobInput.executionMode,
       };
       jobs.set(created.id, created);
       return created;
@@ -304,6 +305,7 @@ describe("A: explicit account selection — immediate publish", () => {
       draftId: DRAFT_ID,
       platform: "linkedin",
       idempotencyKey: "a1-key",
+      executionMode: "simulation",
       resolvedAccountId: "blotato-li-specific",
     });
     expect(job.resolvedAccountId).toBe("blotato-li-specific");
@@ -321,6 +323,7 @@ describe("A: explicit account selection — immediate publish", () => {
       draftId: DRAFT_ID,
       platform: "linkedin",
       idempotencyKey: "a2-key",
+      executionMode: "simulation",
       resolvedAccountId: "blotato-li-beta",
     });
     expect(job.resolvedAccountId).toBe("blotato-li-beta");
@@ -337,6 +340,7 @@ describe("A: explicit account selection — immediate publish", () => {
       draftId: DRAFT_ID,
       platform: "instagram",
       idempotencyKey: "a3-key",
+      executionMode: "simulation",
       resolvedAccountId: "ig-a",
     });
     expect(job.resolvedAccountId).toBe("ig-a");
@@ -354,6 +358,7 @@ describe("A: explicit account selection — immediate publish", () => {
         draftId: DRAFT_ID,
         platform: "linkedin",
         idempotencyKey: "a4-key",
+        executionMode: "simulation",
         resolvedAccountId: "blotato-stale-or-wrong-org",
       }),
     ).rejects.toBeInstanceOf(ValidationError);
@@ -387,6 +392,7 @@ describe("A: explicit account selection — immediate publish", () => {
         draftId: DRAFT_ID,
         platform: "linkedin",
         idempotencyKey: "a5-key",
+        executionMode: "simulation",
         resolvedAccountId: "blotato-li-inactive",
       }),
     ).rejects.toBeInstanceOf(ValidationError);
@@ -403,6 +409,7 @@ describe("A: explicit account selection — immediate publish", () => {
       draftId: DRAFT_ID,
       platform: "linkedin",
       idempotencyKey: "a6-key",
+      executionMode: "simulation",
       resolvedAccountId: null,
       isAiGenerated: null,
       isYourBrand: null,
@@ -424,6 +431,7 @@ describe("A: explicit account selection — immediate publish", () => {
       draftId: DRAFT_ID,
       platform: "linkedin",
       idempotencyKey: "a7-key",
+      executionMode: "simulation",
       resolvedAccountId: null, // empty string coerced to null by action
     });
     expect(job.resolvedAccountId).toBe("fake-blotato-linkedin-0");
@@ -446,6 +454,7 @@ describe("B: explicit account selection — scheduled publish", () => {
       scheduledFor: FUTURE,
       timezone: "UTC",
       idempotencyKey: "b1-key",
+      executionMode: "simulation",
       resolvedAccountId: "blotato-li-alpha",
     });
     expect(job.resolvedAccountId).toBe("blotato-li-alpha");
@@ -465,6 +474,7 @@ describe("B: explicit account selection — scheduled publish", () => {
       scheduledFor: FUTURE,
       timezone: "UTC",
       idempotencyKey: "b2-key",
+      executionMode: "simulation",
       resolvedAccountId: "ig-c",
     });
     expect(job.resolvedAccountId).toBe("ig-c");
@@ -484,6 +494,7 @@ describe("B: explicit account selection — scheduled publish", () => {
         scheduledFor: FUTURE,
         timezone: "UTC",
         idempotencyKey: "b3-key",
+        executionMode: "simulation",
         resolvedAccountId: "blotato-nonexistent",
       }),
     ).rejects.toBeInstanceOf(ValidationError);
@@ -502,6 +513,7 @@ describe("B: explicit account selection — scheduled publish", () => {
       scheduledFor: FUTURE,
       timezone: "UTC",
       idempotencyKey: "b4-key",
+      executionMode: "simulation",
       resolvedAccountId: null,
       isAiGenerated: null,
       isYourBrand: null,
@@ -523,6 +535,7 @@ describe("B: explicit account selection — scheduled publish", () => {
       scheduledFor: FUTURE,
       timezone: "Europe/London",
       idempotencyKey: "b5-key",
+      executionMode: "simulation",
       resolvedAccountId: "blotato-li-beta",
     });
     expect(getDraft().scheduledPlatform).toBe("linkedin");
@@ -545,6 +558,7 @@ describe("C: auto-resolution without explicit account ID", () => {
         draftId: DRAFT_ID,
         platform: "facebook",
         idempotencyKey: "c1-key",
+        executionMode: "simulation",
       }),
     ).rejects.toBeInstanceOf(ValidationError);
     expect(getJobs()).toHaveLength(0);
@@ -561,6 +575,7 @@ describe("C: auto-resolution without explicit account ID", () => {
       draftId: DRAFT_ID,
       platform: "instagram",
       idempotencyKey: "c2-key",
+      executionMode: "simulation",
     }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ValidationError);
     expect((err as Error).message).toContain("Instagram");
@@ -576,6 +591,7 @@ describe("C: auto-resolution without explicit account ID", () => {
       draftId: DRAFT_ID,
       platform: "linkedin",
       idempotencyKey: "c3-key",
+      executionMode: "simulation",
     });
     expect(job.resolvedAccountId).toBe("fake-blotato-linkedin-0");
     expect(getJobs()).toHaveLength(1);
@@ -593,6 +609,7 @@ describe("C: auto-resolution without explicit account ID", () => {
         draftId: DRAFT_ID,
         platform: "linkedin",
         idempotencyKey: "c4-key",
+        executionMode: "simulation",
       }),
     ).rejects.toBeInstanceOf(ValidationError);
     expect(getJobs()).toHaveLength(0);
@@ -609,6 +626,7 @@ describe("C: auto-resolution without explicit account ID", () => {
       draftId: DRAFT_ID,
       platform: "linkedin",
       idempotencyKey: "c5-key",
+      executionMode: "simulation",
     }).catch((e: unknown) => e);
     expect((err as Error).message).toContain("LinkedIn");
     expect((err as Error).message).toMatch(/select/i);
@@ -641,6 +659,7 @@ describe("D: platform routing — Blotato platform strings", () => {
       draftId: DRAFT_ID,
       platform: "x",
       idempotencyKey: "d1-key",
+      executionMode: "simulation",
       resolvedAccountId: "blotato-twitter-0",
     });
     expect(job.resolvedAccountId).toBe("blotato-twitter-0");
@@ -656,6 +675,7 @@ describe("D: platform routing — Blotato platform strings", () => {
       draftId: DRAFT_ID,
       platform: "linkedin",
       idempotencyKey: "d2-key",
+      executionMode: "simulation",
     });
     expect(job.platform).toBe("linkedin");
     expect(job.resolvedAccountId).toBe("fake-blotato-linkedin-0");
@@ -686,6 +706,7 @@ describe("D: platform routing — Blotato platform strings", () => {
         draftId: DRAFT_ID,
         platform: "instagram",
         idempotencyKey: "d3-key",
+        executionMode: "simulation",
         resolvedAccountId: "blotato-li-only", // wrong platform — not in Instagram pool
       }),
     ).rejects.toBeInstanceOf(ValidationError);
@@ -715,6 +736,7 @@ describe("D: platform routing — Blotato platform strings", () => {
       draftId: DRAFT_ID,
       platform: "facebook",
       idempotencyKey: "d4-key",
+      executionMode: "simulation",
       resolvedAccountId: "blotato-fb-0",
     });
     expect(job.resolvedAccountId).toBe("blotato-fb-0");
@@ -732,6 +754,7 @@ describe("E: devSimulationMode stored on job row", () => {
       draftId: DRAFT_ID,
       platform: "linkedin",
       idempotencyKey: "e1-key",
+      executionMode: "simulation",
     });
     expect(job.devSimulationMode).toBeNull();
   });
@@ -743,6 +766,7 @@ describe("E: devSimulationMode stored on job row", () => {
       draftId: DRAFT_ID,
       platform: "linkedin",
       idempotencyKey: "e2-key",
+      executionMode: "simulation",
       devSimulationMode: "fail_next_attempt",
     });
     expect(job.devSimulationMode).toBe("fail_next_attempt");
@@ -755,6 +779,7 @@ describe("E: devSimulationMode stored on job row", () => {
       draftId: DRAFT_ID,
       platform: "linkedin",
       idempotencyKey: "e3-key",
+      executionMode: "simulation",
       devSimulationMode: "always_fail",
     });
     expect(job.devSimulationMode).toBe("always_fail");
@@ -771,6 +796,7 @@ describe("E: devSimulationMode stored on job row", () => {
       draftId: DRAFT_ID,
       platform: "linkedin",
       idempotencyKey: "e4-key",
+      executionMode: "simulation",
       devSimulationMode: "always_fail",
       resolvedAccountId: "blotato-li-alpha",
     });
@@ -793,6 +819,7 @@ describe("F: idempotency gate with explicit account selection", () => {
       draftId: DRAFT_ID,
       platform: "linkedin" as const,
       idempotencyKey: "f1-same-key",
+      executionMode: "simulation" as const,
       resolvedAccountId: "blotato-li-alpha",
     };
     const first = await createImmediatePublishingJob(deps, input);
@@ -818,6 +845,7 @@ describe("F: idempotency gate with explicit account selection", () => {
       triggerType: "immediate",
       scheduledFor: new Date().toISOString(),
       idempotencyKey: "f2-first",
+      executionMode: "simulation",
       requestedBy: ACTOR_ID,
       maxRetries: 3,
       devSimulationMode: null,
@@ -834,6 +862,7 @@ describe("F: idempotency gate with explicit account selection", () => {
       draftId: DRAFT_ID,
       platform: "linkedin",
       idempotencyKey: "f2-replay",
+      executionMode: "simulation",
     });
     expect(returned.id).toBe(existing.id);
     expect(returned.resolvedAccountId).toBe("blotato-li-seeded");
@@ -851,6 +880,7 @@ describe("F: idempotency gate with explicit account selection", () => {
       draftId: DRAFT_ID,
       platform: "linkedin",
       idempotencyKey: "f3-key",
+      executionMode: "simulation",
       resolvedAccountId: "blotato-li-alpha",
     });
     const replay = await createImmediatePublishingJob(deps, {
@@ -858,6 +888,7 @@ describe("F: idempotency gate with explicit account selection", () => {
       draftId: DRAFT_ID,
       platform: "linkedin",
       idempotencyKey: "f3-key",
+      executionMode: "simulation",
       resolvedAccountId: "blotato-li-beta", // different account, same key
     });
     expect(replay.id).toBe(first.id);
@@ -880,6 +911,7 @@ describe("G: status guard fires before account resolution", () => {
       draftId: DRAFT_ID,
       platform: "linkedin",
       idempotencyKey: "g1-key",
+      executionMode: "simulation",
     }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ValidationError);
     expect((err as Error).message).toMatch(/only approved|scheduled|failed/i);
@@ -897,6 +929,7 @@ describe("G: status guard fires before account resolution", () => {
         draftId: DRAFT_ID,
         platform: "linkedin",
         idempotencyKey: "g2-key",
+        executionMode: "simulation",
       }),
     ).rejects.toBeInstanceOf(ValidationError);
   });
@@ -912,6 +945,7 @@ describe("G: status guard fires before account resolution", () => {
         draftId: DRAFT_ID,
         platform: "linkedin",
         idempotencyKey: "g3-key",
+        executionMode: "simulation",
       }),
     ).rejects.toBeInstanceOf(ValidationError);
   });
@@ -927,6 +961,7 @@ describe("G: status guard fires before account resolution", () => {
         draftId: "00000000-0000-4000-8000-nonexistent",
         platform: "linkedin",
         idempotencyKey: "g4-key",
+        executionMode: "simulation",
       }),
     ).rejects.toBeInstanceOf(NotFoundError);
   });
@@ -946,6 +981,7 @@ describe("H: permission enforcement with channel selection", () => {
         draftId: DRAFT_ID,
         platform: "linkedin",
         idempotencyKey: "h1-key",
+        executionMode: "simulation",
         resolvedAccountId: "blotato-li-specific",
       }),
     ).rejects.toBeInstanceOf(ForbiddenError);
@@ -963,6 +999,7 @@ describe("H: permission enforcement with channel selection", () => {
         draftId: DRAFT_ID,
         platform: "linkedin",
         idempotencyKey: "h2-key",
+        executionMode: "simulation",
       }),
     ).rejects.toBeInstanceOf(ForbiddenError);
     expect(getJobs()).toHaveLength(0);
@@ -980,6 +1017,7 @@ describe("H: permission enforcement with channel selection", () => {
       draftId: DRAFT_ID,
       platform: "linkedin",
       idempotencyKey: "h3-key",
+      executionMode: "simulation",
     });
     expect(job.status).toBe("queued");
   });
@@ -999,6 +1037,7 @@ describe("I: audit events and draft state transitions with channel selection", (
       draftId: DRAFT_ID,
       platform: "linkedin",
       idempotencyKey: "i1-key",
+      executionMode: "simulation",
       resolvedAccountId: "blotato-li-alpha",
     });
     const event = getAuditEvents().find((e) => e.eventType === "publishing_job_queued");
@@ -1019,6 +1058,7 @@ describe("I: audit events and draft state transitions with channel selection", (
       scheduledFor: FUTURE,
       timezone: "UTC",
       idempotencyKey: "i2-key",
+      executionMode: "simulation",
       resolvedAccountId: "blotato-li-beta",
     });
     const event = getAuditEvents().find((e) => e.eventType === "publishing_job_queued");
@@ -1037,6 +1077,7 @@ describe("I: audit events and draft state transitions with channel selection", (
       draftId: DRAFT_ID,
       platform: "linkedin",
       idempotencyKey: "i3-key",
+      executionMode: "simulation",
       resolvedAccountId: "blotato-li-alpha",
     });
     expect(getDraft().status).toBe("publishing");
@@ -1055,6 +1096,7 @@ describe("I: audit events and draft state transitions with channel selection", (
       scheduledFor: FUTURE,
       timezone: "UTC",
       idempotencyKey: "i4-key",
+      executionMode: "simulation",
       resolvedAccountId: "blotato-li-alpha",
     });
     expect(getDraft().status).toBe("scheduled");
@@ -1072,6 +1114,7 @@ describe("I: audit events and draft state transitions with channel selection", (
       draftId: DRAFT_ID,
       platform: "linkedin",
       idempotencyKey: "i5-key",
+      executionMode: "simulation",
       resolvedAccountId: "blotato-li-alpha",
     });
     expect(job.status).toBe("queued");
@@ -1117,6 +1160,7 @@ describe("I: audit events and draft state transitions with channel selection", (
       scheduledFor: FUTURE,
       timezone: "UTC",
       idempotencyKey: "i6-ig-key",
+      executionMode: "simulation",
       resolvedAccountId: "blotato-instagram-main",
     });
     // LinkedIn immediate next — draft.status="scheduled" passes the PUBLISHABLE_STATUSES check
@@ -1125,6 +1169,7 @@ describe("I: audit events and draft state transitions with channel selection", (
       draftId: DRAFT_ID,
       platform: "linkedin",
       idempotencyKey: "i6-li-key",
+      executionMode: "simulation",
       resolvedAccountId: "blotato-linkedin-main",
     });
     expect(igJob.resolvedAccountId).toBe("blotato-instagram-main");

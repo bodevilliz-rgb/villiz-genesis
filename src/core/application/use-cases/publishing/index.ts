@@ -7,6 +7,7 @@ import {
   PUBLISHING_PLATFORM_LABELS,
   type PublishingAnalytics,
   type PublishingAttempt,
+  type PublishingExecutionMode,
   type PublishingJob,
   type PublishingPlatform,
 } from "@/core/domain/entities/publishing";
@@ -111,6 +112,13 @@ export async function createImmediatePublishingJob(
     /** Destination lock from the channel selector UI. When provided, validates against the active pool
      *  and uses this exact account. When absent, auto-resolves if exactly one account is connected. */
     resolvedAccountId?: string | null;
+    /**
+     * P0 fix: the exact Mode Pre-Publish Review showed and the operator
+     * confirmed — required, never optional or defaulted here. Every caller
+     * must supply it explicitly (compile-time enforced) so a job can never
+     * be created without a persisted, operator-reviewed execution mode.
+     */
+    executionMode: PublishingExecutionMode;
     /** Operator's per-post AI-generated-content declaration (see PublishingJob.isAiGenerated). Persisted verbatim; enforcement is the preflight's job, not this function's. */
     isAiGenerated?: boolean | null;
     /** Operator's per-post commercial-content declarations (see PublishingJob.isYourBrand/isBrandedContent). Persisted verbatim; enforcement is the preflight's job, not this function's. */
@@ -148,6 +156,7 @@ export async function createImmediatePublishingJob(
     maxRetries: DEFAULT_MAX_PUBLISHING_RETRIES,
     devSimulationMode: input.devSimulationMode ?? null,
     resolvedAccountId,
+    executionMode: input.executionMode,
     isAiGenerated: input.isAiGenerated ?? null,
     isYourBrand: input.isYourBrand ?? null,
     isBrandedContent: input.isBrandedContent ?? null,
@@ -183,6 +192,8 @@ export async function createScheduledPublishingJob(
     /** Destination lock from the channel selector UI. When provided, validates against the active pool
      *  and uses this exact account. When absent, auto-resolves if exactly one account is connected. */
     resolvedAccountId?: string | null;
+    /** P0 fix: see the identical field on createImmediatePublishingJob's input — required, never defaulted. */
+    executionMode: PublishingExecutionMode;
     /** Operator's per-post AI-generated-content declaration (see PublishingJob.isAiGenerated). Persisted verbatim; enforcement is the preflight's job, not this function's. */
     isAiGenerated?: boolean | null;
     /** Operator's per-post commercial-content declarations (see PublishingJob.isYourBrand/isBrandedContent). Persisted verbatim; enforcement is the preflight's job, not this function's. */
@@ -227,6 +238,7 @@ export async function createScheduledPublishingJob(
     maxRetries: DEFAULT_MAX_PUBLISHING_RETRIES,
     devSimulationMode: input.devSimulationMode ?? null,
     resolvedAccountId,
+    executionMode: input.executionMode,
     isAiGenerated: input.isAiGenerated ?? null,
     isYourBrand: input.isYourBrand ?? null,
     isBrandedContent: input.isBrandedContent ?? null,
@@ -422,6 +434,15 @@ export async function reconcileBlotatoStatusTimeout(
   if (!job) throw new NotFoundError("Publishing job");
   if (job.status !== "failed") {
     throw new ValidationError("Only a failed publishing job can be reconciled with the provider.");
+  }
+  // P0 defense in depth: a "blotato_status_timeout" error is structurally
+  // only reachable via the live provider path (simulatePublish never sets
+  // an error code or a postSubmissionId), so this should be unreachable —
+  // but the incident this fix responds to was exactly a case of trusting
+  // that a scenario was "structurally impossible" without an explicit
+  // guard. A simulation job can never have anything real to reconcile.
+  if (job.executionMode !== "live") {
+    throw new ValidationError("This job was simulated — there is no real provider submission to reconcile.");
   }
 
   const attempts = await deps.publishing.listAttemptsForJob(organisationId, jobId);

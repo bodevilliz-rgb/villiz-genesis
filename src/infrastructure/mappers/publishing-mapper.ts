@@ -37,6 +37,10 @@ export function toPublishingJob(row: PublishingJobRowWithRelations): PublishingJ
     isAiGenerated: (row as PublishingJobRowWithRelations & { is_ai_generated?: boolean | null }).is_ai_generated ?? null,
     isYourBrand: (row as PublishingJobRowWithRelations & { is_your_brand?: boolean | null }).is_your_brand ?? null,
     isBrandedContent: (row as PublishingJobRowWithRelations & { is_branded_content?: boolean | null }).is_branded_content ?? null,
+    // P0 fix: fail-safe to "simulation" — the safe direction — for any row
+    // read before the migration is applied or otherwise missing the
+    // column, rather than ever defaulting toward "live".
+    executionMode: (row as PublishingJobRowWithRelations & { execution_mode?: "simulation" | "live" | null }).execution_mode ?? "simulation",
   };
 }
 

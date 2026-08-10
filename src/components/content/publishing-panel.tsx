@@ -214,6 +214,12 @@ export function PublishingPanel({
         draftId: draft.id,
         platform: derivedPlatform,
         resolvedAccountId: selectedAccountId,
+        // P0 fix: captured from the exact same isLivePublishing value the
+        // Mode badge below (and Pre-Publish Review's own badge) renders
+        // from — never re-derived by any later process. See
+        // resolveEffectiveLivePublishing for why this must be the single
+        // authority for whether a worker is ever allowed to go live.
+        executionMode: isLivePublishing ? "live" : "simulation",
         isAiGenerated: intentAiDisclosure,
         isYourBrand: intentIsYourBrand,
         isBrandedContent: intentIsBrandedContent,
@@ -240,6 +246,8 @@ export function PublishingPanel({
       draftId: draft.id,
       platform: derivedPlatform,
       resolvedAccountId: selectedAccountId,
+      // P0 fix: see the identical capture in the immediate branch above.
+      executionMode: isLivePublishing ? "live" : "simulation",
       isAiGenerated: intentAiDisclosure,
       isYourBrand: intentIsYourBrand,
       isBrandedContent: intentIsBrandedContent,
@@ -493,6 +501,13 @@ export function PublishingPanel({
                   declared; the server treats anything but "true"/"false" as null). */}
               <input type="hidden" name="isAiGenerated" value={intent?.isAiGenerated != null ? String(intent.isAiGenerated) : ""} />
               <input type="hidden" name="commercialDisclosure" value={commercialDisclosureFormValue(intent)} />
+              {/* P0 fix: the operator-reviewed Mode, captured once into the intent
+                  snapshot — the server persists this verbatim on the job and it is
+                  the only thing any worker may ever consult to decide whether a
+                  publish reaches the real provider. Falls back to the current
+                  isLivePublishing value (never a hardcoded default) for the
+                  structurally-unreachable case of a submit before intent exists. */}
+              <input type="hidden" name="executionMode" value={intent?.executionMode ?? (isLivePublishing ? "live" : "simulation")} />
 
               <span className="text-[11px] uppercase tracking-wider text-subtle-foreground font-semibold">Schedule Post</span>
 
@@ -547,6 +562,8 @@ export function PublishingPanel({
               {/* Immutable intent snapshot's AI declaration — see the schedule form's identical input. */}
               <input type="hidden" name="isAiGenerated" value={intent?.isAiGenerated != null ? String(intent.isAiGenerated) : ""} />
               <input type="hidden" name="commercialDisclosure" value={commercialDisclosureFormValue(intent)} />
+              {/* P0 fix — see the identical input's comment on the schedule form. */}
+              <input type="hidden" name="executionMode" value={intent?.executionMode ?? (isLivePublishing ? "live" : "simulation")} />
 
               {showSimulationControls && (
                 <Field id="dev-simulation-mode" label="Dev: mock publish outcome">

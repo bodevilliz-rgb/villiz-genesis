@@ -1,5 +1,6 @@
 import type {
   PublishingAttempt,
+  PublishingExecutionMode,
   PublishingJob,
   PublishingJobStatus,
   PublishingPlatform,
@@ -17,6 +18,8 @@ export interface CreatePublishingJobInput {
   maxRetries: number;
   devSimulationMode: "always_succeed" | "fail_next_attempt" | "always_fail" | null;
   resolvedAccountId: string | null;
+  /** P0 fix: the operator-reviewed Mode captured on the job — see PublishingJob.executionMode. Always required, never inferred. */
+  executionMode: PublishingExecutionMode;
   /** Operator's per-post AI-generated-content declaration (see PublishingJob.isAiGenerated). Null = never declared. */
   isAiGenerated: boolean | null;
   /** Operator's per-post commercial-content declarations (see PublishingJob.isYourBrand/isBrandedContent). Null = never declared. */

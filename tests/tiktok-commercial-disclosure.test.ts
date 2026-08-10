@@ -136,6 +136,11 @@ function immediateForm(fields: Record<string, string> = {}): FormData {
   fd.append("idempotencyKey", "idem-1");
   fd.append("isAiGenerated", "false");
   for (const [k, v] of Object.entries(fields)) fd.append(k, v);
+  // P0 fix: this whole file exercises live-mode preflight enforcement —
+  // execution mode must be explicitly "live" for that enforcement to run
+  // at all (see resolveEffectiveLivePublishing). set(), not append(), so a
+  // caller passing executionMode via `fields` above still wins.
+  if (!fd.has("executionMode")) fd.set("executionMode", "live");
   return fd;
 }
 
@@ -401,6 +406,7 @@ describe("8 — the confirm button's requirements gate reflects an unmet commerc
       draftId: DRAFT_ID,
       platform: "tiktok",
       resolvedAccountId: "acc-tk-1",
+      executionMode: "live",
       isAiGenerated: true,
       isYourBrand: true,
       isBrandedContent: false,
@@ -419,6 +425,7 @@ describe("8 — the confirm button's requirements gate reflects an unmet commerc
       draftId: DRAFT_ID,
       platform: "tiktok",
       resolvedAccountId: "acc-tk-1",
+      executionMode: "live",
       isAiGenerated: false,
       isYourBrand: true,
       isBrandedContent: true,

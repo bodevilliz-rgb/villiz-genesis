@@ -12,7 +12,7 @@ import { checkPublishingPreflight } from "@/core/application/use-cases/publishin
 import type { CommercialDisclosure } from "@/core/domain/entities/publishing-preflight";
 import { blotatoConfig } from "@/infrastructure/blotato/blotato-config";
 import { ValidationError } from "@/core/domain/errors";
-import { isPublishingPlatform } from "@/core/domain/entities/publishing";
+import { isPublishingPlatform, resolveEffectiveLivePublishing } from "@/core/domain/entities/publishing";
 import { isContentDraftLocked } from "@/core/domain/entities/content";
 import { errorState, successState, textOrEmpty, type ActionState } from "../action-result";
 import { routes } from "@/lib/routes";
@@ -48,6 +48,20 @@ function parseAiDisclosure(formData: FormData): boolean | null {
   if (raw === "true") return true;
   if (raw === "false") return false;
   return null;
+}
+
+/**
+ * P0 fix: parses the operator-reviewed execution Mode captured in the
+ * publishing panel's intent snapshot. Fails closed to "simulation" — the
+ * one safe default — for anything but the literal string "live" (missing
+ * field, empty string, tampered value). This is the single point where a
+ * form submission becomes the value persisted on the job and later
+ * consulted by every worker (see resolveEffectiveLivePublishing); nothing
+ * downstream may ever re-derive it from a process's own environment.
+ */
+function parseExecutionMode(formData: FormData): "simulation" | "live" {
+  const raw = formData.get("executionMode")?.toString();
+  return raw === "live" ? "live" : "simulation";
 }
 
 /**
@@ -89,13 +103,21 @@ export async function createImmediatePublishingJobAction(_prev: ActionState, for
         : null;
 
     const resolvedAccountId = formData.get("resolvedAccountId")?.toString() || null;
+    const executionMode = parseExecutionMode(formData);
     const isAiGenerated = parseAiDisclosure(formData);
     const commercialDisclosure = parseCommercialDisclosure(formData);
 
     if (!isPublishingPlatform(platform)) throw new Error("Choose a destination platform.");
     if (!idempotencyKey) throw new Error("Missing request identifier — reload the page and try again.");
 
-    if (blotatoConfig().livePublishingEnabled) {
+    // P0 fix: preflight enforcement (and every deterministic platform
+    // requirement) is now gated on the SAME single authority every worker
+    // uses (resolveEffectiveLivePublishing) — not this process's global
+    // flag alone. A simulation-reviewed job must never be preflight-
+    // enforced as if it were live just because this request happens to be
+    // running where the global flag is on, and a live-reviewed job must
+    // always be enforced regardless.
+    if (resolveEffectiveLivePublishing(executionMode, blotatoConfig().livePublishingEnabled)) {
       const preflight = await checkPublishingPreflight(
         { content: context.content, media: context.media },
         { organisationId, draftId, platform, aiGeneratedDisclosure: isAiGenerated, commercialDisclosure },
@@ -112,6 +134,7 @@ export async function createImmediatePublishingJobAction(_prev: ActionState, for
       idempotencyKey,
       devSimulationMode,
       resolvedAccountId,
+      executionMode,
       isAiGenerated,
       isYourBrand: commercialDisclosure.isYourBrand,
       isBrandedContent: commercialDisclosure.isBrandedContent,
@@ -143,6 +166,7 @@ export async function createScheduledPublishingJobAction(_prev: ActionState, for
     const idempotencyKey = textOrEmpty(formData, "idempotencyKey");
 
     const resolvedAccountId = formData.get("resolvedAccountId")?.toString() || null;
+    const executionMode = parseExecutionMode(formData);
     const isAiGenerated = parseAiDisclosure(formData);
     const commercialDisclosure = parseCommercialDisclosure(formData);
 
@@ -152,7 +176,8 @@ export async function createScheduledPublishingJobAction(_prev: ActionState, for
     if (Number.isNaN(scheduledForDate.getTime())) throw new Error("That date and time could not be understood.");
     if (!idempotencyKey) throw new Error("Missing request identifier — reload the page and try again.");
 
-    if (blotatoConfig().livePublishingEnabled) {
+    // P0 fix — see the identical comment in createImmediatePublishingJobAction.
+    if (resolveEffectiveLivePublishing(executionMode, blotatoConfig().livePublishingEnabled)) {
       const preflight = await checkPublishingPreflight(
         { content: context.content, media: context.media },
         { organisationId, draftId, platform, aiGeneratedDisclosure: isAiGenerated, commercialDisclosure },
@@ -170,6 +195,7 @@ export async function createScheduledPublishingJobAction(_prev: ActionState, for
       timezone,
       idempotencyKey,
       resolvedAccountId,
+      executionMode,
       isAiGenerated,
       isYourBrand: commercialDisclosure.isYourBrand,
       isBrandedContent: commercialDisclosure.isBrandedContent,
@@ -217,7 +243,13 @@ export async function retryPublishingJobAction(_prev: ActionState, formData: For
         throw new ValidationError("Approve the corrected draft before retrying.");
       }
 
-      if (blotatoConfig().livePublishingEnabled) {
+      // P0 fix: the retry reuses the SAME job row, so its persisted
+      // executionMode — the operator-reviewed value from original creation
+      // — is what gates preflight here too, exactly matching what the
+      // worker will do when it re-claims this job. A simulated job's retry
+      // is never preflight-enforced just because this process's global
+      // flag happens to be on.
+      if (resolveEffectiveLivePublishing(existingJob.executionMode, blotatoConfig().livePublishingEnabled)) {
         // The retry reuses the SAME job row, so the governed disclosure
         // values for this publication are the ones persisted on it at
         // creation — passed through here so the checks reflect what the
@@ -292,6 +324,12 @@ export async function reschedulePublishingJob(
       // Preserve the original destination lock so a drag-and-drop reschedule never
       // re-opens account resolution and never fails on 2+ same-platform accounts.
       resolvedAccountId: activeJob.resolvedAccountId ?? null,
+      // P0 fix: preserve the original operator-reviewed execution mode —
+      // dragging to a new time is not a new Pre-Publish Review, so the
+      // replacement job must carry forward exactly what was originally
+      // confirmed, never re-derived from whatever this process's global
+      // flag happens to be right now.
+      executionMode: activeJob.executionMode,
       // Same preservation for the AI disclosure: dragging to a new time is not
       // a new declaration — the content is unchanged, so the operator's
       // original declaration carries to the replacement job.

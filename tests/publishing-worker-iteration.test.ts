@@ -168,6 +168,12 @@ function baseJob(overrides: Partial<PublishingJob> = {}): PublishingJob {
     isAiGenerated: null,
     isYourBrand: null,
     isBrandedContent: null,
+    // This file's tests are fundamentally about the live-path worker
+    // behaviour (per-test blotatoConfig().livePublishingEnabled overrides
+    // select live vs simulation) — executionMode:"live" is what makes
+    // resolveEffectiveLivePublishing actually honour those per-test
+    // overrides instead of unconditionally simulating.
+    executionMode: "live",
     ...overrides,
   };
 }
