@@ -23,7 +23,15 @@ import {
   recoverStalePublishingJobs,
   startPublishingAttempt,
 } from "./index";
-import { runProviderConfirmationPass, type ConfirmationOutcome } from "./confirmation";
+import {
+  createConfirmationErrorGate,
+  runProviderConfirmationPass,
+  type ConfirmationErrorGate,
+  type ConfirmationOutcome,
+} from "./confirmation";
+
+/** Shared across invocations within one warm serverless instance — see runProviderConfirmation. */
+const moduleConfirmationErrorGate = createConfirmationErrorGate();
 
 export interface WorkerDeps {
   publishing: PublishingRepository;
@@ -99,9 +107,21 @@ export async function runPublishingWorkerIteration(
  * Never throws: a confirmation failure must not take down the publishing
  * iteration that owns it.
  */
-export async function runProviderConfirmation(deps: WorkerDeps, workerId: string): Promise<ConfirmationOutcome> {
+export async function runProviderConfirmation(
+  deps: WorkerDeps,
+  workerId: string,
+  /**
+   * Optional shared gate so a caller that persists across invocations (a warm
+   * lambda, or a test) gets the same "don't hammer a broken subsystem"
+   * protection the Render worker has. Omitted, the pass simply runs once —
+   * a cold serverless invocation has no streak to back off from.
+   */
+  gate: ConfirmationErrorGate = moduleConfirmationErrorGate,
+): Promise<ConfirmationOutcome> {
+  if (!gate.shouldAttempt(Date.now())) return { status: "idle" };
+
   try {
-    return await runProviderConfirmationPass(
+    const outcome = await runProviderConfirmationPass(
       {
         publishing: deps.publishing,
         content: deps.content,
@@ -111,7 +131,10 @@ export async function runProviderConfirmation(deps: WorkerDeps, workerId: string
       },
       { workerId },
     );
+    gate.recordSuccess();
+    return outcome;
   } catch {
+    gate.recordFailure(Date.now());
     return { status: "idle" };
   }
 }

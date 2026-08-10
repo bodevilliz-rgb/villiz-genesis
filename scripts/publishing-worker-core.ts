@@ -51,7 +51,7 @@ import {
   recoverStalePublishingJobs,
   startPublishingAttempt,
 } from "../src/core/application/use-cases/publishing";
-import { runProviderConfirmationPass } from "../src/core/application/use-cases/publishing/confirmation";
+import { createConfirmationErrorGate, runProviderConfirmationPass } from "../src/core/application/use-cases/publishing/confirmation";
 import type { PublishingJob } from "../src/core/domain/entities/publishing";
 
 const POLL_INTERVAL_MS = Number(process.env.PUBLISHING_WORKER_POLL_INTERVAL_MS ?? 2000);
@@ -126,6 +126,8 @@ export function log(event: string, fields: Record<string, unknown> = {}) {
 let shuttingDown = false;
 let currentBackoffMs = 0;
 const pollBackoff = createBackoffController();
+/** Bounded backoff for confirmation-pass INFRASTRUCTURE failures — see createConfirmationErrorGate. Never affects the publishing poll cadence. */
+const confirmationErrorGate = createConfirmationErrorGate();
 
 async function processJob(job: PublishingJob, deps: ReturnType<typeof buildDeps>) {
   const started = Date.now();
@@ -355,6 +357,12 @@ export async function pollOnce(deps: ReturnType<typeof buildDeps>) {
  * Never throws: a confirmation problem must not kill the poll loop.
  */
 async function runConfirmationPass(deps: ReturnType<typeof buildDeps>) {
+  // P0 follow-up: a broken confirmation subsystem must not hammer Supabase or
+  // the logs on every 2s poll tick. This gate is checked BEFORE any work, so a
+  // failing pass costs nothing until its backoff expires. It never affects the
+  // publishing claim cadence above — only this pass.
+  if (!confirmationErrorGate.shouldAttempt(Date.now())) return;
+
   try {
     const outcome = await runProviderConfirmationPass(
       {
@@ -366,11 +374,20 @@ async function runConfirmationPass(deps: ReturnType<typeof buildDeps>) {
       },
       { workerId: WORKER_ID },
     );
+    confirmationErrorGate.recordSuccess();
     if (outcome.status !== "idle") {
       log("provider_confirmation", { ...outcome });
     }
   } catch (error) {
-    log("provider_confirmation_error", { error: error instanceof Error ? error.message : String(error) });
+    const { backoffMs, isFirstOfStreak } = confirmationErrorGate.recordFailure(Date.now());
+    // Log once per failure streak, not once per tick — the previous behaviour
+    // emitted an identical line every ~2 seconds indefinitely.
+    if (isFirstOfStreak) {
+      log("provider_confirmation_error", {
+        error: error instanceof Error ? error.message : String(error),
+        backoffMs,
+      });
+    }
   }
 }
 

@@ -10,7 +10,7 @@ import type {
 import type { PublishingJobStatus, PublishingPlatform } from "@/core/domain/entities/publishing";
 import type { GenesisClient } from "../supabase/server-client";
 import type { Json, PublishingAttemptRow, PublishingSimulationModeDb } from "../supabase/database.types";
-import { toPublishingAttempt, toPublishingJob, type PublishingJobRowWithRelations } from "../mappers/publishing-mapper";
+import { toClaimedPublishingJob, toPublishingAttempt, toPublishingJob, type PublishingJobRowWithRelations } from "../mappers/publishing-mapper";
 import { translateError, unwrap } from "./errors";
 
 const JOB_STATUSES: PublishingJobStatus[] = ["queued", "processing", "published", "failed", "cancelled"];
@@ -226,10 +226,8 @@ export class SupabasePublishingRepository implements PublishingRepository {
   async claimNextJob(workerId: string) {
     const { data, error } = await this.client.rpc("claim_next_publishing_job", { p_worker_id: workerId });
     if (error) translateError(error, "Publishing job claim");
-    const rows = (data ?? []) as unknown as PublishingJobRowWithRelations[];
-    const [row] = rows;
-    if (!row) return null;
-    return toPublishingJob(row);
+    // Shape-independent by design — see toClaimedPublishingJob.
+    return toClaimedPublishingJob(data, "claim_next_publishing_job");
   }
 
   async markJobAwaitingConfirmation(jobId: string, nextStatusCheckAt: string) {
@@ -287,10 +285,9 @@ export class SupabasePublishingRepository implements PublishingRepository {
       p_worker_id: workerId,
     });
     if (error) translateError(error, "Publishing confirmation claim");
-    const rows = (data ?? []) as unknown as PublishingJobRowWithRelations[];
-    const [row] = rows;
-    if (!row) return null;
-    return toPublishingJob(row);
+    // P0 follow-up: this exact destructuring previously threw "rows is not
+    // iterable" every worker tick. Both claim RPCs now share one normalizer.
+    return toClaimedPublishingJob(data, "claim_publishing_job_for_confirmation");
   }
 
   async awaitAttemptConfirmation(attemptId: string, providerMetadata: Record<string, unknown>) {
