@@ -164,6 +164,8 @@ function createHarness(input: {
         devSimulationMode: jobInput.devSimulationMode,
         resolvedAccountId: jobInput.resolvedAccountId,
         isAiGenerated: jobInput.isAiGenerated,
+        isYourBrand: jobInput.isYourBrand,
+        isBrandedContent: jobInput.isBrandedContent,
       };
       jobs.set(created.id, created);
       return created;
@@ -463,6 +465,8 @@ describe("retryFailedPublishingJob", () => {
       devSimulationMode: null,
       resolvedAccountId: null,
       isAiGenerated: null,
+      isYourBrand: null,
+      isBrandedContent: null,
     });
     await deps.publishing.markJobFailed(job.id);
 
@@ -486,6 +490,8 @@ describe("retryFailedPublishingJob", () => {
       devSimulationMode: null,
       resolvedAccountId: null,
       isAiGenerated: null,
+      isYourBrand: null,
+      isBrandedContent: null,
     });
     await expect(retryFailedPublishingJob(deps, ORG_ID, job.id)).rejects.toBeInstanceOf(ValidationError);
   });
@@ -504,6 +510,8 @@ describe("retryFailedPublishingJob", () => {
       devSimulationMode: null,
       resolvedAccountId: null,
       isAiGenerated: null,
+      isYourBrand: null,
+      isBrandedContent: null,
     });
     await deps.publishing.markJobFailed(job.id);
     await deps.publishing.requeueJobForRetry(ORG_ID, job.id); // retryCount now 1, equal to maxRetries
@@ -528,6 +536,8 @@ describe("cancelPublishingJob", () => {
       devSimulationMode: null,
       resolvedAccountId: null,
       isAiGenerated: null,
+      isYourBrand: null,
+      isBrandedContent: null,
     });
     const cancelled = await cancelPublishingJob(deps, ORG_ID, job.id);
     expect(cancelled.status).toBe("cancelled");
@@ -548,6 +558,8 @@ describe("cancelPublishingJob", () => {
       devSimulationMode: null,
       resolvedAccountId: null,
       isAiGenerated: null,
+      isYourBrand: null,
+      isBrandedContent: null,
     });
     // Simulate the worker having already claimed it.
     (job as { status: string }).status = "processing";
@@ -570,6 +582,8 @@ describe("attempt lifecycle — immutable history, audit events, notifications",
       devSimulationMode: null,
       resolvedAccountId: null,
       isAiGenerated: null,
+      isYourBrand: null,
+      isBrandedContent: null,
     });
     const attempt = await startPublishingAttempt(deps, job);
     expect(attempt.attemptNumber).toBe(1);
@@ -594,6 +608,8 @@ describe("attempt lifecycle — immutable history, audit events, notifications",
       devSimulationMode: null,
       resolvedAccountId: null,
       isAiGenerated: null,
+      isYourBrand: null,
+      isBrandedContent: null,
     });
     const attempt = await deps.publishing.createAttempt({
       jobId: job.id,
@@ -632,6 +648,8 @@ describe("attempt lifecycle — immutable history, audit events, notifications",
       devSimulationMode: null,
       resolvedAccountId: null,
       isAiGenerated: null,
+      isYourBrand: null,
+      isBrandedContent: null,
     });
     const attempt = await deps.publishing.createAttempt({
       jobId: job.id,
@@ -669,6 +687,8 @@ describe("attempt lifecycle — immutable history, audit events, notifications",
       devSimulationMode: null,
       resolvedAccountId: null,
       isAiGenerated: null,
+      isYourBrand: null,
+      isBrandedContent: null,
     });
     const attempt1 = await deps.publishing.createAttempt({
       jobId: job.id,
@@ -857,6 +877,8 @@ async function seedTimedOutJob(
     devSimulationMode: null,
     resolvedAccountId: null,
     isAiGenerated: null,
+    isYourBrand: null,
+    isBrandedContent: null,
   });
   const attempt = await deps.publishing.createAttempt({
     jobId: job.id,
@@ -1034,6 +1056,8 @@ describe("reconcileBlotatoStatusTimeout", () => {
       devSimulationMode: null,
       resolvedAccountId: null,
       isAiGenerated: null,
+      isYourBrand: null,
+      isBrandedContent: null,
     });
 
     await expect(

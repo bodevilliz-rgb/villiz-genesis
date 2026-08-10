@@ -9,7 +9,7 @@ import {
 } from "@/core/domain/entities/publishing-media";
 import type { ContentDraft } from "@/core/domain/entities/content";
 import type { PublishingPlatform } from "@/core/domain/entities/publishing";
-import type { PlatformPreflightResult } from "@/core/domain/entities/publishing-preflight";
+import type { PlatformPreflightResult, CommercialDisclosure } from "@/core/domain/entities/publishing-preflight";
 
 /**
  * Runs the AI pre-publish review for the given draft.
@@ -61,10 +61,12 @@ export async function getPlatformPreflightAction(
   platform: PublishingPlatform,
   /** The operator's AI-generated-content declaration from the publishing panel, when the destination requires one (TikTok). Omitted/null = not declared, which the preflight reports as a blocker for those platforms. */
   aiGeneratedDisclosure?: boolean | null,
+  /** The operator's commercial-content declarations from the publishing panel, when the destination requires them (TikTok). Omitted, or either field null, = not declared. */
+  commercialDisclosure?: CommercialDisclosure | null,
 ): Promise<PlatformPreflightResult> {
   const context = await requireContext();
   return checkPublishingPreflight(
     { content: context.content, media: context.media },
-    { organisationId, draftId, platform, aiGeneratedDisclosure },
+    { organisationId, draftId, platform, aiGeneratedDisclosure, commercialDisclosure },
   );
 }

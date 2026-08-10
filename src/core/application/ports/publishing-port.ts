@@ -19,6 +19,9 @@ export interface CreatePublishingJobInput {
   resolvedAccountId: string | null;
   /** Operator's per-post AI-generated-content declaration (see PublishingJob.isAiGenerated). Null = never declared. */
   isAiGenerated: boolean | null;
+  /** Operator's per-post commercial-content declarations (see PublishingJob.isYourBrand/isBrandedContent). Null = never declared. */
+  isYourBrand: boolean | null;
+  isBrandedContent: boolean | null;
 }
 
 export interface PublishingQueueFilters {

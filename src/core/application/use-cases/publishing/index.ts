@@ -113,6 +113,9 @@ export async function createImmediatePublishingJob(
     resolvedAccountId?: string | null;
     /** Operator's per-post AI-generated-content declaration (see PublishingJob.isAiGenerated). Persisted verbatim; enforcement is the preflight's job, not this function's. */
     isAiGenerated?: boolean | null;
+    /** Operator's per-post commercial-content declarations (see PublishingJob.isYourBrand/isBrandedContent). Persisted verbatim; enforcement is the preflight's job, not this function's. */
+    isYourBrand?: boolean | null;
+    isBrandedContent?: boolean | null;
   },
 ): Promise<PublishingJob> {
   await requireRole(deps, input.organisationId, canWriteContent);
@@ -146,6 +149,8 @@ export async function createImmediatePublishingJob(
     devSimulationMode: input.devSimulationMode ?? null,
     resolvedAccountId,
     isAiGenerated: input.isAiGenerated ?? null,
+    isYourBrand: input.isYourBrand ?? null,
+    isBrandedContent: input.isBrandedContent ?? null,
   });
 
   if (draft.status !== "publishing") {
@@ -180,6 +185,9 @@ export async function createScheduledPublishingJob(
     resolvedAccountId?: string | null;
     /** Operator's per-post AI-generated-content declaration (see PublishingJob.isAiGenerated). Persisted verbatim; enforcement is the preflight's job, not this function's. */
     isAiGenerated?: boolean | null;
+    /** Operator's per-post commercial-content declarations (see PublishingJob.isYourBrand/isBrandedContent). Persisted verbatim; enforcement is the preflight's job, not this function's. */
+    isYourBrand?: boolean | null;
+    isBrandedContent?: boolean | null;
   },
 ): Promise<PublishingJob> {
   await requireRole(deps, input.organisationId, canWriteContent);
@@ -220,6 +228,8 @@ export async function createScheduledPublishingJob(
     devSimulationMode: input.devSimulationMode ?? null,
     resolvedAccountId,
     isAiGenerated: input.isAiGenerated ?? null,
+    isYourBrand: input.isYourBrand ?? null,
+    isBrandedContent: input.isBrandedContent ?? null,
   });
 
   await deps.content.scheduleDraft(input.organisationId, input.draftId, {

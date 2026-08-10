@@ -7,7 +7,14 @@ import {
   getPlatformPublishingPolicy,
   mediaRequiredViolationMessage,
   aiDisclosureRequiredMessage,
+  commercialDisclosureRequiredMessage,
 } from "./platform-policy";
+
+/** The operator's TikTok commercial-content declaration — null fields mean "not yet declared" (fail-closed), never a default. */
+export interface CommercialDisclosure {
+  isYourBrand: boolean | null;
+  isBrandedContent: boolean | null;
+}
 
 export interface PlatformPreflightResult {
   /** All hard platform requirements met — safe to proceed with live publishing. */
@@ -63,6 +70,15 @@ export interface PlatformPreflightResult {
  *     thread the value through a new code path can only ever block a
  *     publish, never send an undeclared value.
  *
+ *   Commercial-content declaration (per-platform, see platform-policy.ts
+ *   `requiresCommercialDisclosure`)
+ *     TikTok source: developers.tiktok.com/doc/content-sharing-guidelines —
+ *     API clients must let the poster disclose "Your Brand" (own business)
+ *     and "Branded Content" (paid third-party partnership) status, and each
+ *     may independently be true or false. Same fail-closed rule as AI
+ *     disclosure: EITHER field left null/undefined blocks — "no commercial
+ *     content" must be an explicit choice (both false), never a gap.
+ *
  * `hashtags` defaults to `[]` — existing callers that don't yet pass it are
  * unaffected (an empty list can never exceed any platform's limit).
  */
@@ -72,6 +88,7 @@ export function evaluatePlatformPreflight(
   publishableMediaCount: number,
   hashtags: string[] = [],
   aiGeneratedDisclosure?: boolean | null,
+  commercialDisclosure?: CommercialDisclosure | null,
 ): PlatformPreflightResult {
   const blockers: string[] = [];
 
@@ -86,6 +103,13 @@ export function evaluatePlatformPreflight(
 
   if (policy.requiresAiDisclosure && (aiGeneratedDisclosure === null || aiGeneratedDisclosure === undefined)) {
     blockers.push(aiDisclosureRequiredMessage(platform));
+  }
+
+  if (
+    policy.requiresCommercialDisclosure &&
+    (!commercialDisclosure || commercialDisclosure.isYourBrand === null || commercialDisclosure.isBrandedContent === null)
+  ) {
+    blockers.push(commercialDisclosureRequiredMessage(platform));
   }
 
   const hashtagPolicy = evaluateHashtagPolicy(platform, hashtags);

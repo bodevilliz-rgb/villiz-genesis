@@ -10,7 +10,7 @@ import type { BlotatoAccount } from "@/core/domain/entities/blotato";
 import { mapBlotatoPlatform } from "@/core/domain/entities/blotato";
 import { PUBLISHING_PLATFORM_LABELS } from "@/core/domain/entities/publishing";
 import type { PrePublishReport } from "@/core/application/use-cases/generation/pre-publish-review";
-import type { PlatformPreflightResult } from "@/core/domain/entities/publishing-preflight";
+import type { PlatformPreflightResult, CommercialDisclosure } from "@/core/domain/entities/publishing-preflight";
 import type { PublishingIntent } from "@/core/domain/entities/publishing";
 import { toast } from "sonner";
 
@@ -75,12 +75,16 @@ export function PrePublishDialog({ organisationId, draft, open, onOpenChange, on
       ];
 
       if (platform) {
+        const commercialDisclosure: CommercialDisclosure | null =
+          intent && "isYourBrand" in intent
+            ? { isYourBrand: intent.isYourBrand ?? null, isBrandedContent: intent.isBrandedContent ?? null }
+            : null;
         fetches.push(
-          // The intent snapshot's AI declaration rides along so the dialog's
+          // The intent snapshot's declarations ride along so the dialog's
           // deterministic blocker list reflects exactly what will be
-          // submitted — for platforms requiring the disclosure (TikTok), an
+          // submitted — for platforms requiring them (TikTok), an
           // undeclared value surfaces here as a hard blocker.
-          getPlatformPreflightAction(organisationId, draft.id, platform, intent?.isAiGenerated ?? null)
+          getPlatformPreflightAction(organisationId, draft.id, platform, intent?.isAiGenerated ?? null, commercialDisclosure)
             .then(setPreflight)
             .catch(() => {
               // Preflight fetch failure → treat as unknown; don't block the dialog
@@ -123,6 +127,31 @@ export function PrePublishDialog({ organisationId, draft, open, onOpenChange, on
                 <span className={`text-[11px] font-semibold rounded-full px-2.5 py-1 ${isLivePublishing ? "bg-positive/10 text-positive" : "bg-amber-500/10 text-amber-700 dark:text-amber-400"}`}>
                   {isLivePublishing ? "Live" : "Simulation"}
                 </span>
+              </div>
+            );
+          })()}
+
+          {/* TikTok declarations summary — exactly what Genesis will tell TikTok, shown before the operator confirms. Only ever rendered from the intent snapshot, never inferred. */}
+          {intent && intent.platform === "tiktok" && (() => {
+            const commercialLabel =
+              intent.isYourBrand == null || intent.isBrandedContent == null
+                ? "Not declared"
+                : intent.isYourBrand && intent.isBrandedContent
+                  ? "Own brand + branded / paid partnership"
+                  : intent.isYourBrand
+                    ? "Own brand"
+                    : intent.isBrandedContent
+                      ? "Branded / paid partnership"
+                      : "None";
+            return (
+              <div className="rounded border border-border bg-muted/30 px-3 py-2.5 text-sm flex flex-col gap-1">
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">What Genesis will tell TikTok</span>
+                <p className="text-[13px]">
+                  AI-generated content: <span className="font-medium">{intent.isAiGenerated == null ? "Not declared" : intent.isAiGenerated ? "Yes" : "No"}</span>
+                </p>
+                <p className="text-[13px]">
+                  Commercial content: <span className="font-medium">{commercialLabel}</span>
+                </p>
               </div>
             );
           })()}

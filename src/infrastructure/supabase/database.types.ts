@@ -591,6 +591,8 @@ export type PublishingJobRow = {
   dev_simulation_mode: PublishingSimulationModeDb | null;
   resolved_account_id: string | null;
   is_ai_generated: boolean | null;
+  is_your_brand: boolean | null;
+  is_branded_content: boolean | null;
 };
 
 export type ScheduledPostRow = {

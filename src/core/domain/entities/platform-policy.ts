@@ -53,6 +53,17 @@ export interface PlatformPublishingPolicy {
    * they have.
    */
   requiresAiDisclosure?: boolean;
+  /**
+   * True when the provider requires the client to capture, per post,
+   * whether the content promotes the poster's own brand/business
+   * (isYourBrand) and/or a third-party brand under a paid partnership
+   * (isBrandedContent) — TikTok's commercial-content disclosure. Same
+   * class of requirement as requiresAiDisclosure: a per-post truth claim,
+   * never globally defaulted. "No commercial content" is itself a valid
+   * explicit declaration (both false) — what's disallowed is Genesis ever
+   * choosing that answer FOR the operator.
+   */
+  requiresCommercialDisclosure?: boolean;
 }
 
 export const PLATFORM_PUBLISHING_POLICIES: Record<PublishingPlatform, PlatformPublishingPolicy> = {
@@ -72,7 +83,12 @@ export const PLATFORM_PUBLISHING_POLICIES: Record<PublishingPlatform, PlatformPu
   // a REQUIRED field, and TikTok policy requires the declaration to be
   // truthful per post — so Genesis demands an explicit operator choice
   // instead of ever sending a blanket default.
-  tiktok: { platform: "tiktok", mediaRequired: true, textLimit: 2200, requiresAiDisclosure: true },
+  // requiresCommercialDisclosure: TikTok's official Content Posting API
+  // guidelines require the poster's own-brand and third-party-branded-
+  // content status to be disclosed per post (developers.tiktok.com/doc/
+  // content-sharing-guidelines) — a second, independent truth claim from
+  // isAiGenerated, so Genesis demands its own explicit operator choice.
+  tiktok: { platform: "tiktok", mediaRequired: true, textLimit: 2200, requiresAiDisclosure: true, requiresCommercialDisclosure: true },
 };
 
 export function getPlatformPublishingPolicy(platform: PublishingPlatform): PlatformPublishingPolicy {
@@ -138,4 +154,10 @@ export function textLengthPolicyViolationMessage(platform: PublishingPlatform, r
 export function aiDisclosureRequiredMessage(platform: PublishingPlatform): string {
   const label = PUBLISHING_PLATFORM_LABELS[platform];
   return `${label} requires an AI-generated content declaration. Choose Yes or No under "AI-generated content?" before publishing.`;
+}
+
+/** The exact operator-facing message when a platform requires a commercial-content declaration and none has been made for this post. */
+export function commercialDisclosureRequiredMessage(platform: PublishingPlatform): string {
+  const label = PUBLISHING_PLATFORM_LABELS[platform];
+  return `${label} requires a commercial content declaration. Choose an option under "Commercial content" before publishing.`;
 }

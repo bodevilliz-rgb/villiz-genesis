@@ -33,6 +33,16 @@ export interface PublishInput {
    * fabricated value.
    */
   isAiGenerated?: boolean | null;
+  /**
+   * Operator's explicit per-post commercial-content declarations, read from
+   * the job row (PublishingJob.isYourBrand/isBrandedContent). Null/absent =
+   * never declared — TikTok is blocked by preflight before the publisher
+   * runs; the TikTok publisher additionally refuses (defense in depth)
+   * rather than ever sending a fabricated value. Independent of each
+   * other — both may be true.
+   */
+  isYourBrand?: boolean | null;
+  isBrandedContent?: boolean | null;
 }
 
 /**

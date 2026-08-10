@@ -9,6 +9,7 @@ import {
   retryFailedPublishingJob,
 } from "@/core/application/use-cases/publishing";
 import { checkPublishingPreflight } from "@/core/application/use-cases/publishing/preflight";
+import type { CommercialDisclosure } from "@/core/domain/entities/publishing-preflight";
 import { blotatoConfig } from "@/infrastructure/blotato/blotato-config";
 import { ValidationError } from "@/core/domain/errors";
 import { isPublishingPlatform } from "@/core/domain/entities/publishing";
@@ -49,6 +50,31 @@ function parseAiDisclosure(formData: FormData): boolean | null {
   return null;
 }
 
+/**
+ * Parses the publishing panel's Commercial Content declaration — a single
+ * hidden field carrying which of the mutually-considered checkbox states
+ * the operator actively chose ("none" | "own" | "branded" | "both"),
+ * mapped onto TikTok's two independent target booleans. Anything else
+ * (missing field, empty string, tampered value) means "never declared":
+ * both fields come back null, which deterministic preflight blocks for
+ * platforms that require the disclosure. Never defaults.
+ */
+function parseCommercialDisclosure(formData: FormData): CommercialDisclosure {
+  const raw = formData.get("commercialDisclosure")?.toString();
+  switch (raw) {
+    case "none":
+      return { isYourBrand: false, isBrandedContent: false };
+    case "own":
+      return { isYourBrand: true, isBrandedContent: false };
+    case "branded":
+      return { isYourBrand: false, isBrandedContent: true };
+    case "both":
+      return { isYourBrand: true, isBrandedContent: true };
+    default:
+      return { isYourBrand: null, isBrandedContent: null };
+  }
+}
+
 export async function createImmediatePublishingJobAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
   try {
     const context = await requireContext();
@@ -64,6 +90,7 @@ export async function createImmediatePublishingJobAction(_prev: ActionState, for
 
     const resolvedAccountId = formData.get("resolvedAccountId")?.toString() || null;
     const isAiGenerated = parseAiDisclosure(formData);
+    const commercialDisclosure = parseCommercialDisclosure(formData);
 
     if (!isPublishingPlatform(platform)) throw new Error("Choose a destination platform.");
     if (!idempotencyKey) throw new Error("Missing request identifier — reload the page and try again.");
@@ -71,7 +98,7 @@ export async function createImmediatePublishingJobAction(_prev: ActionState, for
     if (blotatoConfig().livePublishingEnabled) {
       const preflight = await checkPublishingPreflight(
         { content: context.content, media: context.media },
-        { organisationId, draftId, platform, aiGeneratedDisclosure: isAiGenerated },
+        { organisationId, draftId, platform, aiGeneratedDisclosure: isAiGenerated, commercialDisclosure },
       );
       if (!preflight.ready) {
         throw new ValidationError(`Cannot publish: ${preflight.blockers.join(" ")}`);
@@ -86,6 +113,8 @@ export async function createImmediatePublishingJobAction(_prev: ActionState, for
       devSimulationMode,
       resolvedAccountId,
       isAiGenerated,
+      isYourBrand: commercialDisclosure.isYourBrand,
+      isBrandedContent: commercialDisclosure.isBrandedContent,
     });
 
     revalidatePublishing(organisationId, draftId);
@@ -115,6 +144,7 @@ export async function createScheduledPublishingJobAction(_prev: ActionState, for
 
     const resolvedAccountId = formData.get("resolvedAccountId")?.toString() || null;
     const isAiGenerated = parseAiDisclosure(formData);
+    const commercialDisclosure = parseCommercialDisclosure(formData);
 
     if (!isPublishingPlatform(platform)) throw new Error("Choose a destination platform.");
     if (!scheduledForUtc) throw new Error("Choose a date and time to publish.");
@@ -125,7 +155,7 @@ export async function createScheduledPublishingJobAction(_prev: ActionState, for
     if (blotatoConfig().livePublishingEnabled) {
       const preflight = await checkPublishingPreflight(
         { content: context.content, media: context.media },
-        { organisationId, draftId, platform, aiGeneratedDisclosure: isAiGenerated },
+        { organisationId, draftId, platform, aiGeneratedDisclosure: isAiGenerated, commercialDisclosure },
       );
       if (!preflight.ready) {
         throw new ValidationError(`Cannot schedule: ${preflight.blockers.join(" ")}`);
@@ -141,6 +171,8 @@ export async function createScheduledPublishingJobAction(_prev: ActionState, for
       idempotencyKey,
       resolvedAccountId,
       isAiGenerated,
+      isYourBrand: commercialDisclosure.isYourBrand,
+      isBrandedContent: commercialDisclosure.isBrandedContent,
     });
 
     revalidatePublishing(organisationId, draftId);
@@ -186,10 +218,10 @@ export async function retryPublishingJobAction(_prev: ActionState, formData: For
       }
 
       if (blotatoConfig().livePublishingEnabled) {
-        // The retry reuses the SAME job row, so the governed AI-disclosure
-        // value for this publication is the one persisted on it at creation
-        // — passed through here so the disclosure check reflects what the
-        // worker will actually send, not an unset form field.
+        // The retry reuses the SAME job row, so the governed disclosure
+        // values for this publication are the ones persisted on it at
+        // creation — passed through here so the checks reflect what the
+        // worker will actually send, not unset form fields.
         const preflight = await checkPublishingPreflight(
           { content: context.content, media: context.media },
           {
@@ -197,6 +229,7 @@ export async function retryPublishingJobAction(_prev: ActionState, formData: For
             draftId: existingJob.draftId,
             platform: existingJob.platform,
             aiGeneratedDisclosure: existingJob.isAiGenerated,
+            commercialDisclosure: { isYourBrand: existingJob.isYourBrand, isBrandedContent: existingJob.isBrandedContent },
           },
         );
         if (!preflight.ready) {
@@ -263,6 +296,8 @@ export async function reschedulePublishingJob(
       // a new declaration — the content is unchanged, so the operator's
       // original declaration carries to the replacement job.
       isAiGenerated: activeJob.isAiGenerated ?? null,
+      isYourBrand: activeJob.isYourBrand ?? null,
+      isBrandedContent: activeJob.isBrandedContent ?? null,
     });
 
     revalidatePublishing(organisationId, draftId);

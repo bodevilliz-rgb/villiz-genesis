@@ -31,6 +31,8 @@ function job(overrides: Partial<PublishingJob> = {}): PublishingJob {
     devSimulationMode: null,
     resolvedAccountId: null,
     isAiGenerated: null,
+    isYourBrand: null,
+    isBrandedContent: null,
     ...overrides,
   };
 }

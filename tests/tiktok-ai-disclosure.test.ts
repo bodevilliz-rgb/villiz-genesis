@@ -196,6 +196,12 @@ function publishInput(isAiGenerated: boolean | null | undefined): PublishInput {
     assetUrls: ["https://cdn.example.com/v.mp4"],
     devSimulationMode: "always_succeed",
     isAiGenerated,
+    // This file exercises only the AI-disclosure axis; commercial disclosure
+    // is a separate, independently-governed pair of fields (see
+    // tests/tiktok-commercial-disclosure.test.ts) and is fixed to an explicit
+    // "no commercial content" declaration here so it never blocks these tests.
+    isYourBrand: false,
+    isBrandedContent: false,
   };
 }
 
@@ -266,7 +272,7 @@ describe("defense in depth — a live publish that reaches the provider layer un
   it("null isAiGenerated on the live path throws instead of fabricating a value; publishPost is never called", async () => {
     const publishPost = vi.fn();
     const publisher = new BlotatoTikTokPublisher(publisherDeps(publishPost));
-    await expect(publisher.publish(publishInput(null))).rejects.toThrow(/without an AI-generated content declaration/);
+    await expect(publisher.publish(publishInput(null))).rejects.toThrow(/without a required declaration \(isAiGenerated\)/);
     expect(publishPost).not.toHaveBeenCalled();
   });
 });
@@ -277,7 +283,10 @@ describe("D5 — the selected value is persisted on the job and survives to exec
   it("the scheduled action passes the declared value through to createScheduledPublishingJob", async () => {
     liveMode(true);
     fakeContext();
-    const result = await createScheduledPublishingJobAction({ status: "idle", message: "" }, scheduledForm({ isAiGenerated: "true" }));
+    const result = await createScheduledPublishingJobAction(
+      { status: "idle", message: "" },
+      scheduledForm({ isAiGenerated: "true", commercialDisclosure: "none" }),
+    );
     expect(result.status).toBe("success");
     expect(createScheduledPublishingJob).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ isAiGenerated: true }));
   });
@@ -285,7 +294,10 @@ describe("D5 — the selected value is persisted on the job and survives to exec
   it("the immediate action passes the declared value through to createImmediatePublishingJob", async () => {
     liveMode(true);
     fakeContext();
-    const result = await createImmediatePublishingJobAction({ status: "idle", message: "" }, immediateForm({ isAiGenerated: "false" }));
+    const result = await createImmediatePublishingJobAction(
+      { status: "idle", message: "" },
+      immediateForm({ isAiGenerated: "false", commercialDisclosure: "none" }),
+    );
     expect(result.status).toBe("success");
     expect(createImmediatePublishingJob).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ isAiGenerated: false }));
   });

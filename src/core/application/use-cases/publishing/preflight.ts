@@ -4,6 +4,7 @@ import type { PublishingPlatform } from "@/core/domain/entities/publishing";
 import {
   evaluatePlatformPreflight,
   type PlatformPreflightResult,
+  type CommercialDisclosure,
 } from "@/core/domain/entities/publishing-preflight";
 import {
   filterAssetsForOrganisation,
@@ -32,6 +33,13 @@ export async function checkPublishingPreflight(
      * declaration (see evaluatePlatformPreflight).
      */
     aiGeneratedDisclosure?: boolean | null;
+    /**
+     * The operator's commercial-content declarations for this publish —
+     * from the form at job creation, or from the persisted job row on
+     * retry. Omitting it (or leaving either field null) is fail-closed for
+     * platforms that require the disclosure (see evaluatePlatformPreflight).
+     */
+    commercialDisclosure?: CommercialDisclosure | null;
   },
 ): Promise<PlatformPreflightResult> {
   const [draft, allAssets] = await Promise.all([
@@ -43,5 +51,12 @@ export async function checkPublishingPreflight(
   const { allowed } = filterAssetsForOrganisation(allAssets, input.organisationId);
   const publishableCount = allowed.filter(isPublishableMediaAsset).length;
 
-  return evaluatePlatformPreflight(input.platform, body, publishableCount, draft?.hashtags ?? [], input.aiGeneratedDisclosure);
+  return evaluatePlatformPreflight(
+    input.platform,
+    body,
+    publishableCount,
+    draft?.hashtags ?? [],
+    input.aiGeneratedDisclosure,
+    input.commercialDisclosure,
+  );
 }

@@ -35,6 +35,8 @@ export function toPublishingJob(row: PublishingJobRowWithRelations): PublishingJ
     devSimulationMode: row.dev_simulation_mode,
     resolvedAccountId: (row as PublishingJobRowWithRelations & { resolved_account_id?: string | null }).resolved_account_id ?? null,
     isAiGenerated: (row as PublishingJobRowWithRelations & { is_ai_generated?: boolean | null }).is_ai_generated ?? null,
+    isYourBrand: (row as PublishingJobRowWithRelations & { is_your_brand?: boolean | null }).is_your_brand ?? null,
+    isBrandedContent: (row as PublishingJobRowWithRelations & { is_branded_content?: boolean | null }).is_branded_content ?? null,
   };
 }
 

@@ -80,6 +80,10 @@ export type PublishingIntent =
       resolvedAccountId: string;
       /** Operator's explicit AI-generated-content declaration for THIS post. Only meaningful for platforms whose policy sets requiresAiDisclosure (TikTok today); null = not declared, which deterministic preflight blocks for those platforms. Never defaulted. */
       isAiGenerated?: boolean | null;
+      /** Operator's explicit "promotes my own brand/business" declaration (TikTok commercial-content disclosure). Independent of isBrandedContent — both may be true. Null = not declared. Never defaulted. */
+      isYourBrand?: boolean | null;
+      /** Operator's explicit "promotes a third-party brand under a paid partnership" declaration (TikTok commercial-content disclosure). Null = not declared. Never defaulted. */
+      isBrandedContent?: boolean | null;
     }
   | {
       mode: "scheduled";
@@ -89,6 +93,10 @@ export type PublishingIntent =
       resolvedAccountId: string;
       /** See the immediate variant — same declaration, captured in the same immutable snapshot. */
       isAiGenerated?: boolean | null;
+      /** See the immediate variant. */
+      isYourBrand?: boolean | null;
+      /** See the immediate variant. */
+      isBrandedContent?: boolean | null;
       /** Canonical instant — always UTC, always DST-correct for displayTimezone at that instant. */
       scheduledForUtc: string;
       /** The IANA zone the operator selected — preserved for display, never used to re-derive scheduledForUtc after this snapshot is taken. */
@@ -161,6 +169,18 @@ export interface PublishingJob {
    * declaration only the operator can truthfully make.
    */
   isAiGenerated: boolean | null;
+  /**
+   * Operator's explicit "promotes my own brand/business" declaration
+   * (TikTok commercial-content disclosure — developers.tiktok.com/doc/
+   * content-sharing-guidelines). Same capture-once, never-defaulted pattern
+   * as isAiGenerated; independent of isBrandedContent — both may be true.
+   */
+  isYourBrand: boolean | null;
+  /**
+   * Operator's explicit "promotes a third-party brand under a paid
+   * partnership" declaration. Same pattern as isYourBrand.
+   */
+  isBrandedContent: boolean | null;
 }
 
 export interface PublishingAttempt {

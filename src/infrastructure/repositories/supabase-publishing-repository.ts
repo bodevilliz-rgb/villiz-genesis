@@ -50,6 +50,8 @@ export class SupabasePublishingRepository implements PublishingRepository {
         dev_simulation_mode: input.devSimulationMode,
         resolved_account_id: input.resolvedAccountId,
         is_ai_generated: input.isAiGenerated,
+        is_your_brand: input.isYourBrand,
+        is_branded_content: input.isBrandedContent,
       })
       .select(JOB_SELECT)
       .single();
