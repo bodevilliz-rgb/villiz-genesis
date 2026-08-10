@@ -15,6 +15,7 @@ import { SupabaseAuditRepository } from "@/infrastructure/repositories/supabase-
 import { SupabaseNotificationRepository } from "@/infrastructure/repositories/supabase-notification-repository";
 import { SupabasePublishingRepository } from "@/infrastructure/repositories/supabase-publishing-repository";
 import { SupabaseBlotatoAccountRepository } from "@/infrastructure/repositories/supabase-blotato-account-repository";
+import { SupabaseEngagementRepository } from "@/infrastructure/repositories/supabase-engagement-repository";
 import { HttpBlotatoClient } from "@/infrastructure/blotato/http-blotato-client";
 import { blotatoConfig } from "@/infrastructure/blotato/blotato-config";
 import type { Actor } from "@/core/domain/entities/identity";
@@ -46,6 +47,7 @@ export interface RequestContext {
   notifications: SupabaseNotificationRepository;
   publishing: SupabasePublishingRepository;
   blotatoAccounts: SupabaseBlotatoAccountRepository;
+  engagement: SupabaseEngagementRepository;
   blotatoClient: HttpBlotatoClient;
 }
 
@@ -76,6 +78,7 @@ export const getRequestContext = cache(async (): Promise<RequestContext | null> 
     notifications: new SupabaseNotificationRepository(client),
     publishing: new SupabasePublishingRepository(client),
     blotatoAccounts: new SupabaseBlotatoAccountRepository(client),
+    engagement: new SupabaseEngagementRepository(client),
     blotatoClient: new HttpBlotatoClient(blotatoConfig().apiKey),
   };
 });
@@ -86,3 +89,4 @@ export async function requireContext(): Promise<RequestContext> {
   if (!context) redirect(routes.login);
   return context;
 }
+
