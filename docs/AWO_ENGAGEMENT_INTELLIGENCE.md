@@ -91,13 +91,14 @@ Set `CRON_SECRET` in Vercel Production to a randomly generated value of at least
 1. Apply `20260810180000_engagement_learning_loop.sql` after the Sprint 10 migration.
 2. Apply `20260810190000_engagement_learning_operations.sql`.
 3. Apply `20260810200000_publish_to_learn.sql`.
-4. Keep the existing production `CRON_SECRET`; verify it contains no leading or trailing whitespace.
-5. Deploy the application code and `vercel.json`.
-6. Generate a recommendation, open the replacement preview, confirm apply, and verify the draft body, hashtags, version history and recorded selection all changed together.
-7. Complete human review and publish through the existing workflow.
-8. Trigger the collector manually and verify checkpoint and exclusion visibility.
-9. Record a commercial outcome only after a real eligible post exists.
-10. Confirm performance confidence remains unavailable until 10 distinct seven-day comparable posts exist for the same organisation, platform, objective and provider account.
+4. Apply `20260810210000_linkedin_personal_profile_audit_guard.sql` before deploying Sprint 15.1.
+5. Keep the existing production `CRON_SECRET`; verify it contains no leading or trailing whitespace.
+6. Deploy the application code and `vercel.json`.
+7. Generate a recommendation, open the replacement preview, confirm apply, and verify the draft body, hashtags, version history and recorded selection all changed together.
+8. Complete human review and publish through the existing workflow.
+9. Trigger the collector manually and verify checkpoint and exclusion visibility.
+10. Record a commercial outcome only after a real eligible post exists.
+11. Confirm performance confidence remains unavailable until 10 distinct seven-day comparable posts exist for the same organisation, platform, objective and provider account.
 
 If Blotato analytics is unavailable, the collector records a failed item and continues; recommendation generation falls back to brand-only behavior. Existing drafting, review and publishing remain unaffected.
 
@@ -115,3 +116,18 @@ Sprint 15 reuses the existing LinkedIn channel and Engagement Intelligence workf
 - Older recommendations remain readable because LinkedIn guidance is optional in the stored JSON structure.
 
 No database migration is required for Sprint 15. Native LinkedIn analytics XLSX import and profile-audit tooling remain separate follow-on work; the initial pilot validates post optimisation with Villiz Pixels and Mervic Signatures first.
+
+## Sprint 15.1 grounding and workflow hardening
+
+- A conservative deterministic classifier blocks explicit content-writing instructions such as “write a LinkedIn post” or “professional introduction of myself”. Draft length alone never blocks a post. The operator is directed to AI Generate, then must review and save the finished caption before Engagement Intelligence runs.
+- The server repeats the same brief check, so bypassing the interface cannot send an instruction-like brief to the optimiser.
+- LinkedIn generation and evaluation are separate model calls with separate schemas and prompts. The audit does not inherit the generator's scores.
+- The audit checks the recommended caption, every applyable alternative, hashtags, rationale, predicted strengths and all displayed guidance against the retrieved MemBrain pack. Personal credentials, roles, statistics, locations, results and performance claims without direct evidence are blocking findings.
+- Credibility scores above zero require at least one exact MemBrain entry ID from the supplied evidence index. Unknown or invented evidence IDs fail validation.
+- If the first candidate fails, Genesis performs one bounded repair using the audit findings and audits the replacement. A second failure stops without persisting a recommendation.
+- Audit-produced improvement actions are restricted to changes that can be completed before publication. Post-publication advice and visibility promises are excluded.
+- The interface shows whether the independent audit passed normally or after the bounded repair. Legacy LinkedIn recommendations display “Audit required” and cannot be applied.
+- The application use case and database transaction both reject unaudited LinkedIn recommendations, preventing a direct RPC call from bypassing the interface guard.
+- A custom LinkedIn edit cannot inherit another caption's audit. Operators must save custom wording as the draft and generate a new audit; the application and database both reject the custom-apply shortcut.
+
+Sprint 15.1 adds no autonomous publishing action. Apply `20260810210000_linkedin_personal_profile_audit_guard.sql` before deploying the application code.
