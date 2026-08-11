@@ -35,7 +35,7 @@ export const LINKEDIN_PERSONAL_PROFILE_RULES = `LinkedIn personal-profile mode:
 - For captions over 80 words, use 3 to 7 short paragraphs separated by blank lines. Keep every paragraph under 60 words.
 - Avoid unnecessary repetition. Include one concrete, MemBrain-supported professional detail when the evidence allows it.
 - End with a natural conversation invitation. Avoid engagement bait, algorithm claims and guaranteed outcomes.
-- Hashtags must be relevant and evidence-supported; never invent a trending tag.
+- Return empty arrays for every hashtag group. Current LinkedIn personal-profile guidance prioritises clean, keyword-rich copy over hashtags; preserve relevant keywords naturally in the caption instead.
 - Set creativeGuidance.linkedinPersonalProfile to a complete personal-profile draft. If provisional dimensions are requested by the output schema, use integer scores from 0 to 5 only.
 - A separate audit will discard and replace every provisional score and validate all claims, so do not describe the generator's score as independently verified.`;
 

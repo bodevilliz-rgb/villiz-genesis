@@ -107,6 +107,14 @@ function uniqueHashtags(groups: EngagementHashtagGroups): EngagementHashtagGroup
   };
 }
 
+function emptyHashtags(): EngagementHashtagGroups {
+  return { brand: [], local: [], service: [], audience: [] };
+}
+
+function hasHashtags(groups: EngagementHashtagGroups): boolean {
+  return groups.brand.length + groups.local.length + groups.service.length + groups.audience.length > 0;
+}
+
 function guidanceWithoutGeneratorScores(output: EngagementRecommendationModelOutput): Record<string, unknown> {
   const linkedin = output.creativeGuidance.linkedinPersonalProfile;
   return {
@@ -133,7 +141,7 @@ function normaliseModelOutput(
   return {
     ...output,
     alternativeCaptions: [...new Set(output.alternativeCaptions)].slice(0, 2),
-    hashtags: uniqueHashtags(output.hashtags),
+    hashtags: platform === "linkedin" ? emptyHashtags() : uniqueHashtags(output.hashtags),
     limitations: isPerformanceInformed
       ? output.limitations.slice(0, 5)
       : [BRAND_ONLY_LIMITATION, ...output.limitations.filter((item) => item !== BRAND_ONLY_LIMITATION)].slice(0, 5),
@@ -291,6 +299,7 @@ export async function generateEngagementRecommendation(
     modelOutput = {
       ...modelOutput,
       recommendedCaption: formatLinkedInCaption(modelOutput.recommendedCaption),
+      hashtags: emptyHashtags(),
     };
     const allowedEvidenceIds = new Set(contextPack.items.map((item) => item.id));
     let auditAttempts: 1 | 2 = 1;
@@ -321,6 +330,7 @@ export async function generateEngagementRecommendation(
         engagementRecommendationModelSchema,
         { systemPrompt, temperature: 0.15 },
       );
+      modelOutput = { ...modelOutput, hashtags: emptyHashtags() };
       guidance = modelOutput.creativeGuidance.linkedinPersonalProfile;
       if (!guidance) throw new ValidationError("LinkedIn personal-profile guidance was incomplete after repair.");
       audit = await deps.ai.generateObject(
@@ -445,6 +455,9 @@ export async function applyEngagementRecommendation(
   }
   if (recommendation.platform === "linkedin" && input.variant === "custom") {
     throw new ValidationError("Save custom LinkedIn wording as the draft, then generate a new recommendation so the exact text can be audited before applying.");
+  }
+  if (recommendation.platform === "linkedin" && hasHashtags(recommendation.hashtags)) {
+    throw new ValidationError("This LinkedIn recommendation predates the no-hashtag personal-profile policy. Generate a new recommendation before applying it.");
   }
   const draft = await deps.content.findDraft(input.organisationId, input.draftId);
   if (!draft) throw new NotFoundError("Draft");

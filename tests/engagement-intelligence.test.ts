@@ -375,11 +375,14 @@ describe("AWO Engagement Intelligence", () => {
       scanability: 4,
       conversationCta: 5,
     });
+    expect(result.hashtags).toEqual({ brand: [], local: [], service: [], audience: [] });
     const options = vi.mocked(fixture.ai.generateObject).mock.calls[0]?.[2];
     expect(options?.systemPrompt).toContain("person's LinkedIn profile, never a company Page");
     expect(options?.systemPrompt).toContain("do not invent it");
+    expect(options?.systemPrompt).toContain("Return empty arrays for every hashtag group");
     expect(vi.mocked(fixture.ai.generateObject).mock.calls[1]?.[0]).toContain("Alternative captions:");
-    expect(vi.mocked(fixture.ai.generateObject).mock.calls[1]?.[0]).toContain("#VillizPixels");
+    expect(vi.mocked(fixture.ai.generateObject).mock.calls[1]?.[0]).toContain('"brand":[]');
+    expect(vi.mocked(fixture.ai.generateObject).mock.calls[1]?.[0]).not.toContain("#VillizPixels");
     expect(vi.mocked(fixture.ai.generateObject).mock.calls[1]?.[0]).not.toContain('"readinessScore":99');
     expect(vi.mocked(fixture.ai.generateObject).mock.calls[1]?.[0]).not.toContain('"dimensions"');
     expect(vi.mocked(fixture.ai.generateObject).mock.calls[1]?.[2]?.systemPrompt).toContain("independent LinkedIn grounding");
@@ -770,6 +773,41 @@ describe("Sprint 14 publish-to-learn contract", () => {
       action: "selected", variant: "custom", captionSnapshot: "An unaudited custom edit",
       hashtagSnapshot: ["#VillizPixels"],
     })).rejects.toThrow("exact text can be audited");
+    expect(applyRecommendation).not.toHaveBeenCalled();
+  });
+
+  it("refuses to apply an audited legacy LinkedIn recommendation containing hashtags", async () => {
+    const fixture = dependencies();
+    const recommendation = await generateEngagementRecommendation(fixture.deps, {
+      organisationId: ORG_ID, draftId: DRAFT_ID, platform: "instagram",
+    });
+    const legacyLinkedIn = {
+      ...recommendation,
+      platform: "linkedin" as const,
+      hashtags: { brand: ["#VillizPixels"], local: [], service: [], audience: [] },
+      creativeGuidance: {
+        ...recommendation.creativeGuidance,
+        linkedinPersonalProfile: {
+          accountType: "personal_profile" as const, postArchetype: "point_of_view" as const,
+          readinessScore: 80, audiencePromise: "Value", credibilityAnchor: "Supported",
+          conversationPrompt: "Question",
+          dimensions: { hook: 4, singleIdea: 4, personalVoice: 4, credibility: 4, scanability: 4, conversationCta: 4 },
+          improvementActions: [], auditStatus: "passed" as const, auditAttempts: 1 as const,
+          credibilityEvidenceIds: [ENTRY_ID],
+        },
+      },
+    };
+    fixture.deps.engagement.findById = vi.fn(async () => legacyLinkedIn);
+    const applyRecommendation = vi.fn();
+    fixture.deps.engagement.applyRecommendation = applyRecommendation;
+    await expect(applyEngagementRecommendation({
+      actor: fixture.deps.actor, organisations: fixture.deps.organisations,
+      engagement: fixture.deps.engagement, content: fixture.deps.content,
+    }, {
+      organisationId: ORG_ID, draftId: DRAFT_ID, recommendationId: legacyLinkedIn.id,
+      action: "selected", variant: "recommended", captionSnapshot: legacyLinkedIn.recommendedCaption,
+      hashtagSnapshot: ["#VillizPixels"],
+    })).rejects.toThrow("no-hashtag personal-profile policy");
     expect(applyRecommendation).not.toHaveBeenCalled();
   });
 

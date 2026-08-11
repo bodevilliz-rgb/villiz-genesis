@@ -150,3 +150,12 @@ Sprint 15.2 requires no database migration and does not alter publishing permiss
 - Alternative captions use the same hashtag set and the same confirmation boundary. Human approval remains mandatory.
 
 Sprint 15.3 requires no database migration and does not change publishing permissions.
+
+## Sprint 15.3.1 LinkedIn no-hashtag hotfix
+
+- LinkedIn personal-profile generation now returns empty brand, local, service and audience hashtag groups. Relevant search terms remain natural language inside the caption.
+- The independent audit receives the sanitised empty groups, so model-generated tags cannot survive through the audit or bounded repair path.
+- Existing LinkedIn recommendations containing hashtags are visibly marked as legacy and blocked at both the interface and application use-case boundary. The operator must generate a new recommendation.
+- Confirming a new LinkedIn recommendation removes any existing draft hashtags and records the exact empty hashtag snapshot with the caption. Other platforms retain their existing hashtag behaviour.
+
+This editorial policy follows LinkedIn's June 2026 personal-post guidance to use clean, keyword-rich opening copy and avoid hashtags in post copy. Sprint 15.3.1 requires no database migration.
