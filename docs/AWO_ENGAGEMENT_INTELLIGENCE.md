@@ -141,3 +141,12 @@ Sprint 15.1 adds no autonomous publishing action. Apply `20260810210000_linkedin
 - A final grounding rejection surfaces up to three bounded findings to the operator so the relevant MemBrain evidence or draft claim can be corrected without exposing internal prompts.
 
 Sprint 15.2 requires no database migration and does not alter publishing permissions or the independent grounding gate.
+
+## Sprint 15.3 caption-and-hashtag apply clarity
+
+- The recommended caption opens by default so the guarded apply action is immediately visible.
+- The action and confirmation explicitly state that the caption and the full suggested hashtag set are applied together.
+- Confirming continues to use the existing atomic database transaction: the suggested hashtags replace the draft hashtag set and the exact caption-and-hashtag snapshot is recorded for later attribution.
+- Alternative captions use the same hashtag set and the same confirmation boundary. Human approval remains mandatory.
+
+Sprint 15.3 requires no database migration and does not change publishing permissions.
