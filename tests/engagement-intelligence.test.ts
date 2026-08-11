@@ -15,6 +15,8 @@ import type { EngagementRecommendationWriteModel } from "@/core/domain/entities/
 import type { Actor } from "@/core/domain/entities/identity";
 import { engagementRecommendationModelSchema } from "@/core/application/dto/engagement-dto";
 import {
+  calibrateLinkedInAudit,
+  linkedInEditorialRepairFindings,
   linkedInReadinessScore,
 } from "@/core/application/use-cases/engagement/linkedin-personal-profile";
 import { assessEngagementDraftInput } from "@/core/application/use-cases/engagement/draft-input";
@@ -185,6 +187,36 @@ describe("AWO Engagement Intelligence", () => {
     })).toBe(87);
   });
 
+  it("never awards 100 readiness while pre-publish improvements remain", () => {
+    const perfectDimensions = {
+      hook: 5, singleIdea: 5, personalVoice: 5, credibility: 5, scanability: 5, conversationCta: 5,
+    };
+    expect(linkedInReadinessScore(perfectDimensions)).toBe(100);
+    expect(linkedInReadinessScore(perfectDimensions, ["Add a stronger example."])).toBe(97);
+    expect(linkedInReadinessScore(perfectDimensions, ["Add an example.", "Improve the CTA."])).toBe(94);
+  });
+
+  it("deterministically downgrades a dense caption and adds pre-publish actions", () => {
+    const denseCaption = Array.from({ length: 100 }, () => "word").join(" ");
+    const audit = calibrateLinkedInAudit({
+      dimensions: { hook: 5, singleIdea: 5, personalVoice: 5, credibility: 5, scanability: 5, conversationCta: 5 },
+      audiencePromise: "Useful insight",
+      credibilityAnchor: "Supported role",
+      credibilityEvidenceIds: [ENTRY_ID],
+      conversationPrompt: "What do you think?",
+      improvementActions: [],
+      blockingFindings: [],
+    }, denseCaption);
+
+    expect(audit.dimensions.scanability).toBe(2);
+    expect(audit.dimensions.credibility).toBe(4);
+    expect(audit.improvementActions).toEqual(expect.arrayContaining([
+      expect.stringContaining("three short paragraphs"),
+      expect.stringContaining("concrete professional example"),
+    ]));
+    expect(linkedInEditorialRepairFindings(denseCaption)).toHaveLength(1);
+  });
+
   it("creates an evidence-linked, immutable recommendation for the saved draft version", async () => {
     const fixture = dependencies();
     const recommendation = await generateEngagementRecommendation(fixture.deps, {
@@ -316,7 +348,7 @@ describe("AWO Engagement Intelligence", () => {
 
     expect(result.creativeGuidance.linkedinPersonalProfile).toEqual(expect.objectContaining({
       accountType: "personal_profile",
-      readinessScore: 87,
+      readinessScore: 84,
       auditStatus: "passed",
       auditAttempts: 1,
       credibilityEvidenceIds: [ENTRY_ID],
@@ -337,6 +369,61 @@ describe("AWO Engagement Intelligence", () => {
     expect(vi.mocked(fixture.ai.generateObject).mock.calls[1]?.[0]).not.toContain('"readinessScore":99');
     expect(vi.mocked(fixture.ai.generateObject).mock.calls[1]?.[0]).not.toContain('"dimensions"');
     expect(vi.mocked(fixture.ai.generateObject).mock.calls[1]?.[2]?.systemPrompt).toContain("independent LinkedIn grounding");
+  });
+
+  it("uses the bounded repair for dense LinkedIn copy and persists only the structured replacement", async () => {
+    const fixture = dependencies();
+    const baseGeneration = await fixture.ai.generateObject("draft", engagementRecommendationModelSchema);
+    const guidance = {
+      accountType: "personal_profile" as const,
+      postArchetype: "point_of_view" as const,
+      readinessScore: 100,
+      audiencePromise: "A useful professional perspective.",
+      credibilityAnchor: "A MemBrain-supported professional role.",
+      conversationPrompt: "How do you approach this?",
+      dimensions: { hook: 5, singleIdea: 5, personalVoice: 5, credibility: 5, scanability: 5, conversationCta: 5 },
+      improvementActions: [],
+    };
+    const denseCandidate = {
+      ...baseGeneration,
+      recommendedCaption: Array.from({ length: 100 }, () => "word").join(" "),
+      creativeGuidance: { ...baseGeneration.creativeGuidance, linkedinPersonalProfile: guidance },
+    };
+    const repairedCaption = [
+      `I built ${Array.from({ length: 27 }, () => "clear").join(" ")}.`,
+      Array.from({ length: 30 }, () => "useful").join(" ") + ".",
+      Array.from({ length: 30 }, () => "focused").join(" ") + ".",
+    ].join("\n\n");
+    const repairedCandidate = {
+      ...denseCandidate,
+      recommendedCaption: repairedCaption,
+    };
+    const passingAudit = {
+      dimensions: { hook: 5, singleIdea: 5, personalVoice: 5, credibility: 5, scanability: 5, conversationCta: 5 },
+      audiencePromise: "A useful professional perspective.",
+      credibilityAnchor: "A MemBrain-supported professional role.",
+      credibilityEvidenceIds: [ENTRY_ID],
+      conversationPrompt: "How do you approach this?",
+      improvementActions: [],
+      blockingFindings: [],
+    };
+    vi.mocked(fixture.ai.generateObject).mockReset()
+      .mockResolvedValueOnce(denseCandidate)
+      .mockResolvedValueOnce(passingAudit)
+      .mockResolvedValueOnce(repairedCandidate)
+      .mockResolvedValueOnce(passingAudit);
+
+    const result = await generateEngagementRecommendation(fixture.deps, {
+      organisationId: ORG_ID, draftId: DRAFT_ID, platform: "linkedin",
+    });
+
+    expect(result.recommendedCaption).toBe(repairedCaption);
+    expect(result.creativeGuidance.linkedinPersonalProfile).toEqual(expect.objectContaining({
+      auditAttempts: 2,
+      readinessScore: 100,
+    }));
+    expect(vi.mocked(fixture.ai.generateObject).mock.calls[2]?.[0]).toContain("three short paragraphs");
+    expect(fixture.getPersisted()?.recommendedCaption).toBe(repairedCaption);
   });
 
   it("repairs one rejected LinkedIn candidate, re-audits it and persists only the grounded replacement", async () => {
@@ -396,7 +483,7 @@ describe("AWO Engagement Intelligence", () => {
     });
     expect(result.recommendedCaption).toBe(repairedCandidate.recommendedCaption);
     expect(result.creativeGuidance.linkedinPersonalProfile).toEqual(expect.objectContaining({
-      auditStatus: "passed", auditAttempts: 2, readinessScore: 83,
+      auditStatus: "passed", auditAttempts: 2, readinessScore: 80,
     }));
     expect(fixture.ai.generateObject).toHaveBeenCalledTimes(4);
     expect(fixture.getPersisted()?.recommendedCaption).toBe(repairedCandidate.recommendedCaption);

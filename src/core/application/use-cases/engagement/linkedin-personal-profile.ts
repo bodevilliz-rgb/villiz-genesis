@@ -32,7 +32,9 @@ export const LINKEDIN_PERSONAL_PROFILE_RULES = `LinkedIn personal-profile mode:
 - Write as a credible human professional, not as a faceless corporate announcement.
 - Use only MemBrain-supported identity, role, experience, results and claims. If the speaker identity or evidence is missing, do not invent it.
 - Centre the post on one professional idea and make the reader value clear in the opening lines.
-- Prefer short, scannable paragraphs and a natural conversation invitation. Avoid engagement bait, algorithm claims and guaranteed outcomes.
+- For captions over 80 words, use 3 to 7 short paragraphs separated by blank lines. Keep every paragraph under 60 words.
+- Avoid unnecessary repetition. Include one concrete, MemBrain-supported professional detail when the evidence allows it.
+- End with a natural conversation invitation. Avoid engagement bait, algorithm claims and guaranteed outcomes.
 - Hashtags must be relevant and evidence-supported; never invent a trending tag.
 - Set creativeGuidance.linkedinPersonalProfile to a complete personal-profile draft. If provisional dimensions are requested by the output schema, use integer scores from 0 to 5 only.
 - A separate audit will discard and replace every provisional score and validate all claims, so do not describe the generator's score as independently verified.`;
@@ -48,6 +50,8 @@ Rules:
 - Flag invented titles or roles as invented_credential.
 - Flag promises or implications of increased visibility, reach, engagement, leads or sales as performance_promise unless MemBrain directly supports the precise historical claim. Never treat a recommendation as proof of future results.
 - Score the six editorial dimensions independently from 0 to 5. Do not inherit or defer to the generator's scores.
+- Award scanability 5 only when a caption over 80 words uses at least three short paragraphs separated by blank lines, with no paragraph over 60 words.
+- Award credibility 5 only when the caption contains a concrete professional detail directly supported by at least one supplied evidence ID.
 - credibilityEvidenceIds may contain only exact IDs from the supplied evidence index. Use an empty array and score credibility 0 when no entry supports a credibility anchor.
 - improvementActions must be concrete edits an operator can make before publishing. Never include replying to future comments, monitoring performance or other post-publication activity.
 - Do not invent a replacement fact. Return structured data only.`;
@@ -81,6 +85,68 @@ export function auditValidationFindings(
   return findings;
 }
 
+const SCANABILITY_ACTION = "Break the caption into at least three short paragraphs separated by blank lines, keeping each paragraph under 60 words.";
+const CREDIBILITY_ACTION = "Add one concrete professional example or experience that is directly supported by MemBrain evidence.";
+
+function words(value: string): string[] {
+  return value.trim().split(/\s+/).filter(Boolean);
+}
+
+function captionParagraphs(caption: string): string[] {
+  return caption.trim().split(/\n\s*\n/).map((paragraph) => paragraph.trim()).filter(Boolean);
+}
+
+function hasConcreteCredibilitySignal(caption: string): boolean {
+  return /\b(?:I|we)\s+(?:built|created|delivered|developed|helped|implemented|launched|learned|photographed|produced|tested|worked)\b/i.test(caption);
+}
+
+/**
+ * Severe deterministic editorial findings receive the same one bounded repair
+ * opportunity as grounding findings. They never become a permanent publishing
+ * blocker; any remaining weakness is reflected in the calibrated score.
+ */
+export function linkedInEditorialRepairFindings(caption: string): string[] {
+  const paragraphs = captionParagraphs(caption);
+  const wordCount = words(caption).length;
+  const longestParagraph = Math.max(0, ...paragraphs.map((paragraph) => words(paragraph).length));
+  if (wordCount > 80 && (paragraphs.length < 3 || longestParagraph > 60)) {
+    return [`scanability: ${SCANABILITY_ACTION}`];
+  }
+  return [];
+}
+
+export function calibrateLinkedInAudit(
+  audit: LinkedInPersonalProfileAudit,
+  caption: string,
+): LinkedInPersonalProfileAudit {
+  const dimensions = { ...audit.dimensions };
+  const improvementActions = new Set(audit.improvementActions);
+  const paragraphs = captionParagraphs(caption);
+  const wordCount = words(caption).length;
+  const longestParagraph = Math.max(0, ...paragraphs.map((paragraph) => words(paragraph).length));
+
+  if (wordCount > 80 && paragraphs.length < 3) {
+    dimensions.scanability = Math.min(dimensions.scanability, 2);
+    improvementActions.add(SCANABILITY_ACTION);
+  } else if (longestParagraph > 60) {
+    dimensions.scanability = Math.min(dimensions.scanability, 3);
+    improvementActions.add(SCANABILITY_ACTION);
+  }
+
+  if (audit.credibilityEvidenceIds.length === 0) {
+    dimensions.credibility = 0;
+  } else if (dimensions.credibility === 5 && !hasConcreteCredibilitySignal(caption)) {
+    dimensions.credibility = 4;
+    improvementActions.add(CREDIBILITY_ACTION);
+  }
+
+  return {
+    ...audit,
+    dimensions,
+    improvementActions: [...improvementActions].slice(0, 5),
+  };
+}
+
 export function applyLinkedInAudit(
   guidance: LinkedInPersonalProfileGuidance,
   audit: LinkedInPersonalProfileAudit,
@@ -99,7 +165,10 @@ export function applyLinkedInAudit(
   });
 }
 
-export function linkedInReadinessScore(dimensions: LinkedInReadinessDimensions): number {
+export function linkedInReadinessScore(
+  dimensions: LinkedInReadinessDimensions,
+  improvementActions: string[] = [],
+): number {
   const values = [
     dimensions.hook,
     dimensions.singleIdea,
@@ -109,16 +178,20 @@ export function linkedInReadinessScore(dimensions: LinkedInReadinessDimensions):
     dimensions.conversationCta,
   ];
   const boundedTotal = values.reduce((total, value) => total + Math.max(0, Math.min(5, value)), 0);
-  return Math.round((boundedTotal / 30) * 100);
+  const rubricScore = Math.round((boundedTotal / 30) * 100);
+  if (improvementActions.length === 0) return rubricScore;
+  const actionDeduction = Math.min(10, improvementActions.length * 3);
+  return Math.min(99, Math.max(0, rubricScore - actionDeduction));
 }
 
 export function normaliseLinkedInPersonalProfileGuidance(
   guidance: LinkedInPersonalProfileGuidance,
 ): LinkedInPersonalProfileGuidance {
+  const improvementActions = [...new Set(guidance.improvementActions)].slice(0, 5);
   return {
     ...guidance,
     accountType: "personal_profile",
-    readinessScore: linkedInReadinessScore(guidance.dimensions),
-    improvementActions: [...new Set(guidance.improvementActions)].slice(0, 5),
+    readinessScore: linkedInReadinessScore(guidance.dimensions, improvementActions),
+    improvementActions,
   };
 }

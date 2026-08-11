@@ -35,8 +35,10 @@ import {
   applyLinkedInAudit,
   auditValidationFindings,
   buildLinkedInAuditPrompt,
+  calibrateLinkedInAudit,
   LINKEDIN_AUDIT_SYSTEM_PROMPT,
   LINKEDIN_PERSONAL_PROFILE_RULES,
+  linkedInEditorialRepairFindings,
   linkedInPersonalProfileAuditSchema,
   normaliseLinkedInPersonalProfileGuidance,
 } from "./linkedin-personal-profile";
@@ -307,11 +309,14 @@ export async function generateEngagementRecommendation(
       linkedInPersonalProfileAuditSchema,
       { systemPrompt: LINKEDIN_AUDIT_SYSTEM_PROMPT, temperature: 0 },
     );
-    let findings = auditValidationFindings(audit, allowedEvidenceIds);
+    let findings = [
+      ...auditValidationFindings(audit, allowedEvidenceIds),
+      ...linkedInEditorialRepairFindings(modelOutput.recommendedCaption),
+    ];
     if (findings.length > 0) {
       auditAttempts = 2;
       modelOutput = await deps.ai.generateObject(
-        `${prompt}\n\nThe independent grounding audit rejected the previous candidate for these reasons:\n- ${findings.join("\n- ")}\nRegenerate the recommendation without unsupported claims, invented credentials or performance promises.`,
+        `${prompt}\n\nThe independent LinkedIn audit rejected the previous candidate for these reasons:\n- ${findings.join("\n- ")}\nRegenerate the recommendation and resolve every finding. Preserve only MemBrain-supported claims, remove invented credentials or performance promises, and use short paragraphs separated by blank lines.`,
         engagementRecommendationModelSchema,
         { systemPrompt, temperature: 0.15 },
       );
@@ -339,6 +344,7 @@ export async function generateEngagementRecommendation(
     if (findings.length > 0) {
       throw new ValidationError("LinkedIn grounding could not verify this recommendation. Strengthen the relevant MemBrain entries or revise the saved draft before trying again.");
     }
+    audit = calibrateLinkedInAudit(audit, modelOutput.recommendedCaption);
     modelOutput = {
       ...modelOutput,
       creativeGuidance: {

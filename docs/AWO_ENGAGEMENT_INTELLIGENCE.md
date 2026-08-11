@@ -131,3 +131,12 @@ No database migration is required for Sprint 15. Native LinkedIn analytics XLSX 
 - A custom LinkedIn edit cannot inherit another caption's audit. Operators must save custom wording as the draft and generate a new audit; the application and database both reject the custom-apply shortcut.
 
 Sprint 15.1 adds no autonomous publishing action. Apply `20260810210000_linkedin_personal_profile_audit_guard.sql` before deploying the application code.
+
+## Sprint 15.2 LinkedIn editorial calibration
+
+- Captions over 80 words are generated as 3 to 7 short paragraphs separated by blank lines, with a maximum of 60 words per paragraph.
+- A dense first candidate receives the existing one bounded repair opportunity. If the repaired caption remains dense, deterministic calibration lowers scanability and adds a specific pre-publish action instead of presenting a misleading perfect score.
+- Credibility is forced to zero without accepted MemBrain evidence. A 5/5 credibility score additionally requires a concrete professional detail in the caption; otherwise it is capped at 4/5 with an evidence-led improvement action.
+- The readiness calculation deducts points for unresolved pre-publish improvement actions. A recommendation cannot display 100/100 while still asking the operator to improve it.
+
+Sprint 15.2 requires no database migration and does not alter publishing permissions or the independent grounding gate.
