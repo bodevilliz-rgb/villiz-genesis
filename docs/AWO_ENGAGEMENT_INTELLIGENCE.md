@@ -135,8 +135,9 @@ Sprint 15.1 adds no autonomous publishing action. Apply `20260810210000_linkedin
 ## Sprint 15.2 LinkedIn editorial calibration
 
 - Captions over 80 words are generated as 3 to 7 short paragraphs separated by blank lines, with a maximum of 60 words per paragraph.
-- A dense first candidate receives the existing one bounded repair opportunity. If the repaired caption remains dense, deterministic calibration lowers scanability and adds a specific pre-publish action instead of presenting a misleading perfect score.
+- Dense copy is reformatted deterministically at existing punctuation without changing its wording. This preserves the one bounded AI repair exclusively for grounding failures. If structure still falls short, deterministic calibration lowers scanability and adds a specific pre-publish action.
 - Credibility is forced to zero without accepted MemBrain evidence. A 5/5 credibility score additionally requires a concrete professional detail in the caption; otherwise it is capped at 4/5 with an evidence-led improvement action.
 - The readiness calculation deducts points for unresolved pre-publish improvement actions. A recommendation cannot display 100/100 while still asking the operator to improve it.
+- A final grounding rejection surfaces up to three bounded findings to the operator so the relevant MemBrain evidence or draft claim can be corrected without exposing internal prompts.
 
 Sprint 15.2 requires no database migration and does not alter publishing permissions or the independent grounding gate.
