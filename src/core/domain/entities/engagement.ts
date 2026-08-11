@@ -40,8 +40,9 @@ export interface LinkedInReadinessDimensions {
 
 /**
  * An editorial check for a LinkedIn personal-profile post. The score is a
- * deterministic normalisation of six model-assessed rubric dimensions; it is
- * not a reach prediction and must never be presented as one.
+ * deterministic normalisation of six audited rubric dimensions, structural
+ * calibration and unresolved pre-publish actions; it is not a reach prediction
+ * and must never be presented as one.
  */
 export interface LinkedInPersonalProfileGuidance {
   accountType: "personal_profile";
