@@ -34,7 +34,8 @@ export const LINKEDIN_PERSONAL_PROFILE_RULES = `LinkedIn personal-profile mode:
 - Centre the post on one professional idea and make the reader value clear in the opening lines.
 - Prefer short, scannable paragraphs and a natural conversation invitation. Avoid engagement bait, algorithm claims and guaranteed outcomes.
 - Hashtags must be relevant and evidence-supported; never invent a trending tag.
-- Set creativeGuidance.linkedinPersonalProfile to a complete personal-profile draft. A separate audit will replace its scores and validate its claims, so do not describe the score as independently verified.`;
+- Set creativeGuidance.linkedinPersonalProfile to a complete personal-profile draft. If provisional dimensions are requested by the output schema, use integer scores from 0 to 5 only.
+- A separate audit will discard and replace every provisional score and validate all claims, so do not describe the generator's score as independently verified.`;
 
 export const LINKEDIN_AUDIT_SYSTEM_PROMPT = `You are the independent LinkedIn grounding and editorial audit pass for Project Genesis.
 

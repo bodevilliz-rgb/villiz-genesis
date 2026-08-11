@@ -290,7 +290,9 @@ describe("AWO Engagement Intelligence", () => {
           audiencePromise: "A practical lesson about portrait confidence.",
           credibilityAnchor: "The existing draft and MemBrain-supported studio guidance.",
           conversationPrompt: "What has helped you feel prepared?",
-          dimensions: { hook: 4, singleIdea: 5, personalVoice: 5, credibility: 3, scanability: 4, conversationCta: 5 },
+          // Regression: production returned percentage-style provisional
+          // values. They must not prevent the independent 0-5 audit running.
+          dimensions: { hook: 90, singleIdea: 95, personalVoice: 92, credibility: 90, scanability: 94, conversationCta: 91 },
           improvementActions: ["Add one MemBrain-supported concrete example."],
         },
       },
@@ -319,6 +321,14 @@ describe("AWO Engagement Intelligence", () => {
       auditAttempts: 1,
       credibilityEvidenceIds: [ENTRY_ID],
     }));
+    expect(result.creativeGuidance.linkedinPersonalProfile?.dimensions).toEqual({
+      hook: 4,
+      singleIdea: 5,
+      personalVoice: 5,
+      credibility: 3,
+      scanability: 4,
+      conversationCta: 5,
+    });
     const options = vi.mocked(fixture.ai.generateObject).mock.calls[0]?.[2];
     expect(options?.systemPrompt).toContain("person's LinkedIn profile, never a company Page");
     expect(options?.systemPrompt).toContain("do not invent it");

@@ -25,3 +25,4 @@ supabase/.branches
 .env.local
 reports/reliability/latest.json
 reports/reliability/latest.md
+.env*
