@@ -151,6 +151,7 @@ describe("EngagementIntelligencePanel", () => {
     const linkedinRecommendation: EngagementRecommendation = {
       ...recommendation,
       platform: "linkedin",
+      hashtags: { brand: [], local: [], service: [], audience: [] },
       creativeGuidance: {
         ...recommendation.creativeGuidance,
         linkedinPersonalProfile: {
@@ -182,6 +183,8 @@ describe("EngagementIntelligencePanel", () => {
     expect(screen.getByText(/Editorial readiness only—not predicted reach or engagement/)).toBeInTheDocument();
     expect(screen.getByText("Add one supported concrete example.")).toBeInTheDocument();
     expect(screen.getByText("Independent grounding audit passed.")).toBeInTheDocument();
+    expect(screen.getByText(/clean, keyword-rich copy without hashtags/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review caption without hashtags" })).toBeEnabled();
     expect(screen.getByText(/edit and save the draft first/)).toBeInTheDocument();
     expect(screen.queryByText("Edit before applying")).not.toBeInTheDocument();
   });
@@ -227,7 +230,35 @@ describe("EngagementIntelligencePanel", () => {
     expect(screen.getByText("LinkedIn personal-profile check · Audit required")).toBeInTheDocument();
     expect(screen.getByText(/predates independent grounding/)).toBeInTheDocument();
     expect(screen.queryByText("90/100")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Review caption + hashtags" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Review caption without hashtags" })).toBeDisabled();
+  });
+
+  it("blocks an audited legacy LinkedIn recommendation that still contains hashtags", () => {
+    const legacyHashtagRecommendation: EngagementRecommendation = {
+      ...recommendation,
+      platform: "linkedin",
+      creativeGuidance: {
+        ...recommendation.creativeGuidance,
+        linkedinPersonalProfile: {
+          accountType: "personal_profile", postArchetype: "point_of_view", readinessScore: 90,
+          audiencePromise: "Value", credibilityAnchor: "Supported", conversationPrompt: "Question",
+          dimensions: { hook: 5, singleIdea: 5, personalVoice: 4, credibility: 4, scanability: 5, conversationCta: 4 },
+          improvementActions: [], auditStatus: "passed", auditAttempts: 1,
+          credibilityEvidenceIds: ["entry-1"],
+        },
+      },
+    };
+    render(
+      <EngagementIntelligencePanel
+        organisationId="org-1" draftId="draft-1" currentDraftVersion={3}
+        initialPlatform="linkedin" initialRecommendation={legacyHashtagRecommendation}
+        initialLearningOverview={{ ...learningOverview, platform: "linkedin" }}
+        initialDraftBody="Existing caption" initialDraftHashtags={[]}
+        draftLocked={false} canWrite={true}
+      />,
+    );
+    expect(screen.getByText(/contains legacy hashtags/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review caption without hashtags" })).toBeDisabled();
   });
 
   it("shows a before-and-after confirmation before replacing the saved draft", () => {
