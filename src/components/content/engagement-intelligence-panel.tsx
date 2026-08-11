@@ -22,6 +22,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { EngagementCollectionResult } from "@/core/application/use-cases/engagement/collector";
 import { assessEngagementDraftInput } from "@/core/application/use-cases/engagement/draft-input";
+import { PostPerformanceDashboard } from "@/components/content/post-performance-dashboard";
 
 const PLATFORMS = Object.keys(CAMPAIGN_PLATFORM_LABELS) as CampaignPlatform[];
 
@@ -208,6 +209,8 @@ export function EngagementIntelligencePanel({
           {lastCollectionResult?.failed ? <p className="text-[11px] text-danger">Latest refresh could not collect {lastCollectionResult.failed} published post{lastCollectionResult.failed === 1 ? "" : "s"}. Retry once; if it persists, check the Blotato connection.</p> : null}
           {learningOverview.exclusions.length > 0 ? <details className="text-[11px] text-warning"><summary className="cursor-pointer">Why posts are not comparable</summary><ul className="mt-2 grid gap-1 pl-4">{learningOverview.exclusions.map((item) => <li className="list-disc" key={item.code}>{item.count} · {item.label}</li>)}</ul></details> : null}
         </section>
+
+        <PostPerformanceDashboard snapshots={learningOverview.latestPostMetrics} />
 
         <div className="grid gap-2">
           {draftInputAssessment.kind === "content_brief" ? <div className="rounded-md border border-warning/30 bg-warning-soft p-3 text-[12px] text-warning" role="alert">

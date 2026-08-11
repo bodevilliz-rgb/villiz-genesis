@@ -230,6 +230,12 @@ export interface EngagementLearningOverview {
   providerAccountId: string | null;
   latestFeedback: EngagementFeedbackEvent | null;
   latestDraftMetric: EngagementMetricSnapshot | null;
+  /**
+   * Immutable snapshots for the latest published post on this draft, scoped
+   * to the selected platform and destination account. This deliberately
+   * excludes older publishing attempts so the UI cannot blend two posts.
+   */
+  latestPostMetrics: EngagementMetricSnapshot[];
   latestCommercialOutcome: EngagementCommercialOutcome | null;
   lastAnalyticsSyncAt: string | null;
   nextScheduledCollectionAt: string;

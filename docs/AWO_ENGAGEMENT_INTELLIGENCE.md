@@ -159,3 +159,15 @@ Sprint 15.3 requires no database migration and does not change publishing permis
 - Confirming a new LinkedIn recommendation removes any existing draft hashtags and records the exact empty hashtag snapshot with the caption. Other platforms retain their existing hashtag behaviour.
 
 This editorial policy follows LinkedIn's June 2026 personal-post guidance to use clean, keyword-rich opening copy and avoid hashtags in post copy. Sprint 15.3.1 requires no database migration.
+
+## Sprint 16 per-post performance dashboard
+
+- The draft's Engagement Intelligence panel now displays factual metrics for the latest published attempt on the selected platform and destination account: reach, views, impressions, likes, comments, saves, shares and clicks.
+- Repeated publishes of one draft are never blended. The dashboard is scoped to the publishing attempt belonging to the latest eligible provider snapshot.
+- Immutable observations are reduced to the latest capture for each fixed 24-hour, 72-hour and 7-day checkpoint. Missing checkpoints remain visibly pending.
+- Engagement per 1,000 uses likes, comments, shares and saves divided by reach, with views used only when reach is unavailable. It is an observational normalisation, not a prediction or causal score.
+- Exact recommendation and feedback linkage is shown explicitly. Unattributed metrics remain visible for operations but are labelled as excluded from recommendation learning.
+- Freshness, provider source and collection state are visible alongside the existing manual refresh, next scheduled collection and exclusion reasons.
+- LinkedIn personal-profile posts with no hashtags now display `Not required` in Pre-Publish Review, and generic AI hashtag suggestions are removed for that mode.
+
+Sprint 16 reuses the existing immutable metric snapshots and requires no database migration. It does not add predictive claims, competitor benchmarks, automated publishing or a new analytics provider.

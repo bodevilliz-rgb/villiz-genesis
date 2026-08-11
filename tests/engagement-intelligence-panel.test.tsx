@@ -74,6 +74,7 @@ const learningOverview = {
     appliedDraftVersion: null,
   },
   latestDraftMetric: null,
+  latestPostMetrics: [],
   latestCommercialOutcome: null,
   lastAnalyticsSyncAt: null,
   nextScheduledCollectionAt: "2026-08-11T04:15:00Z",
@@ -276,5 +277,31 @@ describe("EngagementIntelligencePanel", () => {
     expect(screen.getByText("Existing caption")).toBeInTheDocument();
     expect(screen.getByText("Current hashtags: 1 · Replacement hashtags: 3. This creates a new draft version; approval remains mandatory.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Apply caption + hashtags" })).toBeInTheDocument();
+  });
+
+  it("shows factual metrics and attribution for the latest published post", () => {
+    const metric = {
+      id: "metric-1", organisationId: "org-1", draftId: "draft-1", publishingAttemptId: "attempt-1",
+      recommendationId: "rec-1", feedbackEventId: "feedback-1", selectedVariant: "recommended" as const,
+      platform: "instagram" as const, objectiveType: "engagement" as const, providerAccountId: "account-1",
+      externalPostId: "post-1", providerSnapshotKey: "snapshot-1", observedAt: "2026-08-11T12:00:00Z",
+      providerCapturedAt: "2026-08-11T12:00:00Z", measurementWindow: "24h" as const,
+      metrics: { reach: 800, views: 1000, impressions: 1200, likes: 40, comments: 5, shares: 8, saves: 7, clicks: 3 },
+      rawMetrics: {}, createdAt: "2026-08-11T12:00:00Z",
+    };
+    render(
+      <EngagementIntelligencePanel
+        organisationId="org-1" draftId="draft-1" currentDraftVersion={3}
+        initialPlatform="instagram" initialRecommendation={recommendation}
+        initialLearningOverview={{ ...learningOverview, latestDraftMetric: metric, latestPostMetrics: [metric] }}
+        initialDraftBody="Existing caption" initialDraftHashtags={[]}
+        draftLocked={false} canWrite={true}
+      />,
+    );
+    expect(screen.getByRole("heading", { name: "Post performance" })).toBeInTheDocument();
+    expect(screen.getByText("1,200")).toBeInTheDocument();
+    expect(screen.getByText(/Exact applied recommendation match/)).toBeInTheDocument();
+    expect(screen.getByText("24h")).toBeInTheDocument();
+    expect(screen.getByText("7 days")).toBeInTheDocument();
   });
 });
