@@ -52,6 +52,12 @@ export interface LinkedInPersonalProfileGuidance {
   conversationPrompt: string;
   dimensions: LinkedInReadinessDimensions;
   improvementActions: string[];
+  /** MemBrain entries explicitly accepted by the independent audit as support. */
+  credibilityEvidenceIds?: string[];
+  /** Present only after the separate post-generation grounding pass succeeds. */
+  auditStatus?: "passed";
+  /** One normal audit, or two when one bounded repair was required. */
+  auditAttempts?: 1 | 2;
 }
 
 export interface EngagementCreativeGuidance {

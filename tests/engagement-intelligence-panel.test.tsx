@@ -162,6 +162,9 @@ describe("EngagementIntelligencePanel", () => {
           conversationPrompt: "What helps you feel prepared?",
           dimensions: { hook: 4, singleIdea: 5, personalVoice: 5, credibility: 3, scanability: 4, conversationCta: 5 },
           improvementActions: ["Add one supported concrete example."],
+          credibilityEvidenceIds: ["entry-1"],
+          auditStatus: "passed",
+          auditAttempts: 1,
         },
       },
     };
@@ -178,6 +181,53 @@ describe("EngagementIntelligencePanel", () => {
     expect(screen.getByText("Personal profile")).toBeInTheDocument();
     expect(screen.getByText(/Editorial readiness only—not predicted reach or engagement/)).toBeInTheDocument();
     expect(screen.getByText("Add one supported concrete example.")).toBeInTheDocument();
+    expect(screen.getByText("Independent grounding audit passed.")).toBeInTheDocument();
+    expect(screen.getByText(/edit and save the draft first/)).toBeInTheDocument();
+    expect(screen.queryByText("Edit before applying")).not.toBeInTheDocument();
+  });
+
+  it("blocks optimisation for an explicit writing brief and directs the operator to AI Generate", () => {
+    render(
+      <EngagementIntelligencePanel
+        organisationId="org-1" draftId="draft-1" currentDraftVersion={3}
+        initialPlatform="linkedin" initialRecommendation={null}
+        initialLearningOverview={{ ...learningOverview, platform: "linkedin", latestFeedback: null }}
+        initialDraftBody="professional introduction of myself as a professional photography and AI solution provider."
+        initialDraftHashtags={[]} draftLocked={false} canWrite={true}
+      />,
+    );
+    expect(screen.getByText("Generate the full draft first")).toBeInTheDocument();
+    expect(screen.getByText(/Use AI Generate first/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Generate recommendation" })).toBeDisabled();
+  });
+
+  it("marks a legacy LinkedIn score unaudited and prevents it being applied", () => {
+    const legacyRecommendation: EngagementRecommendation = {
+      ...recommendation,
+      platform: "linkedin",
+      creativeGuidance: {
+        ...recommendation.creativeGuidance,
+        linkedinPersonalProfile: {
+          accountType: "personal_profile", postArchetype: "point_of_view", readinessScore: 90,
+          audiencePromise: "Value", credibilityAnchor: "Legacy claim", conversationPrompt: "Question",
+          dimensions: { hook: 5, singleIdea: 5, personalVoice: 4, credibility: 4, scanability: 5, conversationCta: 4 },
+          improvementActions: ["Legacy advice"],
+        },
+      },
+    };
+    render(
+      <EngagementIntelligencePanel
+        organisationId="org-1" draftId="draft-1" currentDraftVersion={3}
+        initialPlatform="linkedin" initialRecommendation={legacyRecommendation}
+        initialLearningOverview={{ ...learningOverview, platform: "linkedin" }}
+        initialDraftBody="Existing caption" initialDraftHashtags={[]}
+        draftLocked={false} canWrite={true}
+      />,
+    );
+    expect(screen.getByText("LinkedIn personal-profile check · Audit required")).toBeInTheDocument();
+    expect(screen.getByText(/predates independent grounding/)).toBeInTheDocument();
+    expect(screen.queryByText("90/100")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Apply to draft" })).toBeDisabled();
   });
 
   it("shows a before-and-after confirmation before replacing the saved draft", () => {

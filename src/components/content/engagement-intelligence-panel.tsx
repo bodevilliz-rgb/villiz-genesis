@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { EngagementCollectionResult } from "@/core/application/use-cases/engagement/collector";
+import { assessEngagementDraftInput } from "@/core/application/use-cases/engagement/draft-input";
 
 const PLATFORMS = Object.keys(CAMPAIGN_PLATFORM_LABELS) as CampaignPlatform[];
 
@@ -92,6 +93,7 @@ export function EngagementIntelligencePanel({
   const [outcomeNote, setOutcomeNote] = useState(initialLearningOverview.latestCommercialOutcome?.note ?? "");
   const [lastCollectionResult, setLastCollectionResult] = useState<EngagementCollectionResult | null>(null);
   const [pending, startTransition] = useTransition();
+  const draftInputAssessment = assessEngagementDraftInput(initialDraftBody);
 
   function requestRecommendation() {
     startTransition(async () => {
@@ -167,6 +169,8 @@ export function EngagementIntelligencePanel({
   const linkedInGuidance = recommendation?.platform === "linkedin"
     ? recommendation.creativeGuidance.linkedinPersonalProfile ?? null
     : null;
+  const linkedInAuditRequired = recommendation?.platform === "linkedin"
+    && linkedInGuidance?.auditStatus !== "passed";
   const appliedToCurrentVersion = Boolean(
     recommendation && learningOverview.latestFeedback?.recommendationId === recommendation.id
       && learningOverview.latestFeedback.appliedDraftVersion === effectiveDraftVersion,
@@ -204,6 +208,10 @@ export function EngagementIntelligencePanel({
         </section>
 
         <div className="grid gap-2">
+          {draftInputAssessment.kind === "content_brief" ? <div className="rounded-md border border-warning/30 bg-warning-soft p-3 text-[12px] text-warning" role="alert">
+            <p className="font-semibold">Generate the full draft first</p>
+            <p className="mt-1">{draftInputAssessment.reason}</p>
+          </div> : null}
           <Select aria-label="Primary engagement objective" value={objectiveType} onChange={(event) => setObjectiveType(event.target.value as EngagementObjectiveType)} disabled={!canWrite || pending}>
             <option value="awareness">Awareness</option><option value="engagement">Engagement</option><option value="enquiries">Enquiries</option><option value="bookings">Bookings</option>
           </Select>
@@ -211,7 +219,7 @@ export function EngagementIntelligencePanel({
             {PLATFORMS.map((value) => <option key={value} value={value}>{CAMPAIGN_PLATFORM_LABELS[value]}</option>)}
           </Select>
           <Input aria-label="Engagement objective" value={objective} onChange={(event) => setObjective(event.target.value)} maxLength={300} placeholder="Optional objective, e.g. increase booking enquiries" disabled={!canWrite || pending} />
-          <Button type="button" variant="secondary" onClick={requestRecommendation} disabled={!canWrite || pending}>
+          <Button type="button" variant="secondary" onClick={requestRecommendation} disabled={!canWrite || pending || draftInputAssessment.kind === "content_brief"}>
             {pending ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Sparkles className="size-4" aria-hidden />}{recommendation ? "Generate a new recommendation" : "Generate recommendation"}
           </Button>
           {!canWrite ? <p className="text-[12px] text-muted-foreground">Contributor or Lead access is required to generate a recommendation.</p> : null}
@@ -230,8 +238,8 @@ export function EngagementIntelligencePanel({
           <div className="flex items-center justify-between gap-3"><span className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">{CAMPAIGN_PLATFORM_LABELS[recommendation.platform]} · Draft v{recommendation.draftVersion}</span><div className="text-right text-[12px]"><div className="font-medium">Brand fit {recommendation.confidence}%</div><div className="text-muted-foreground">Performance confidence {learningOverview.performanceSummary.performanceConfidence === null ? "— not enough data" : `${learningOverview.performanceSummary.performanceConfidence}%`}</div></div></div>
 
           {linkedInGuidance ? <details className="rounded-md border border-border px-3 py-2 text-[12px]" open>
-            <summary className="cursor-pointer font-semibold">LinkedIn personal-profile check · {linkedInGuidance.readinessScore}/100</summary>
-            <div className="mt-3 grid gap-3 text-muted-foreground">
+            <summary className="cursor-pointer font-semibold">LinkedIn personal-profile check · {linkedInAuditRequired ? "Audit required" : `${linkedInGuidance.readinessScore}/100`}</summary>
+            {linkedInAuditRequired ? <div className="mt-3 rounded-md border border-warning/30 bg-warning-soft p-3 text-warning">This recommendation predates independent grounding. Generate a new recommendation before applying it.</div> : <div className="mt-3 grid gap-3 text-muted-foreground">
               <div className="flex flex-wrap items-center gap-2"><Badge tone="muted">Personal profile</Badge><Badge tone="muted">{LINKEDIN_ARCHETYPE_LABELS[linkedInGuidance.postArchetype]}</Badge></div>
               <p className="text-[11px]">Editorial readiness only—not predicted reach or engagement.</p>
               <div className="grid grid-cols-2 gap-2">
@@ -240,18 +248,19 @@ export function EngagementIntelligencePanel({
               <div><p className="font-medium text-foreground">Reader value</p><p>{linkedInGuidance.audiencePromise}</p></div>
               <div><p className="font-medium text-foreground">Credibility anchor</p><p>{linkedInGuidance.credibilityAnchor}</p></div>
               <div><p className="font-medium text-foreground">Conversation prompt</p><p>{linkedInGuidance.conversationPrompt}</p></div>
-              <div><p className="font-medium text-foreground">Improve before publishing</p><ul className="mt-1 grid gap-1 pl-4">{linkedInGuidance.improvementActions.map((action) => <li className="list-disc" key={action}>{action}</li>)}</ul></div>
-            </div>
+              <div><p className="font-medium text-foreground">Improve before publishing</p>{linkedInGuidance.improvementActions.length > 0 ? <ul className="mt-1 grid gap-1 pl-4">{linkedInGuidance.improvementActions.map((action) => <li className="list-disc" key={action}>{action}</li>)}</ul> : <p>No blocking editorial changes identified.</p>}</div>
+              {linkedInGuidance.auditStatus === "passed" ? <p className="text-[11px] text-positive">Independent grounding audit passed{linkedInGuidance.auditAttempts === 2 ? " after one automatic repair" : ""}.</p> : null}
+            </div>}
           </details> : null}
 
           <details className="rounded-md border border-border px-3 py-2 text-[12px]">
             <summary className="cursor-pointer font-semibold">Recommended caption</summary>
-            <div className="mt-3 grid gap-2"><p className="whitespace-pre-wrap text-muted-foreground">{recommendation.recommendedCaption}</p><div className="flex flex-wrap gap-2"><Button type="button" variant="ghost" size="sm" onClick={() => copyText(recommendation.recommendedCaption, "Caption")}><Copy className="size-3.5" aria-hidden />Copy</Button><Button type="button" size="sm" onClick={() => setPendingApplication({ variant: "recommended", caption: recommendation.recommendedCaption })} disabled={!canWrite || pending || isStale || draftLocked}><Check className="size-3.5" aria-hidden />Apply to draft</Button></div></div>
+            <div className="mt-3 grid gap-2"><p className="whitespace-pre-wrap text-muted-foreground">{recommendation.recommendedCaption}</p><div className="flex flex-wrap gap-2"><Button type="button" variant="ghost" size="sm" onClick={() => copyText(recommendation.recommendedCaption, "Caption")}><Copy className="size-3.5" aria-hidden />Copy</Button><Button type="button" size="sm" onClick={() => setPendingApplication({ variant: "recommended", caption: recommendation.recommendedCaption })} disabled={!canWrite || pending || isStale || draftLocked || linkedInAuditRequired}><Check className="size-3.5" aria-hidden />Apply to draft</Button></div></div>
           </details>
 
-          {recommendation.alternativeCaptions.length > 0 ? <details className="rounded-md border border-border px-3 py-2 text-[12px]"><summary className="cursor-pointer font-semibold">Alternative captions</summary><div className="mt-3 grid gap-3">{recommendation.alternativeCaptions.map((caption, index) => <div key={`${index}-${caption.slice(0, 20)}`} className="grid gap-2"><p className="whitespace-pre-wrap text-muted-foreground">{caption}</p><Button type="button" size="sm" className="justify-self-start" onClick={() => setPendingApplication({ variant: index === 0 ? "alternative_1" : "alternative_2", caption })} disabled={!canWrite || pending || isStale || draftLocked}>Apply alternative {index + 1}</Button></div>)}</div></details> : null}
+          {recommendation.alternativeCaptions.length > 0 ? <details className="rounded-md border border-border px-3 py-2 text-[12px]"><summary className="cursor-pointer font-semibold">Alternative captions</summary><div className="mt-3 grid gap-3">{recommendation.alternativeCaptions.map((caption, index) => <div key={`${index}-${caption.slice(0, 20)}`} className="grid gap-2"><p className="whitespace-pre-wrap text-muted-foreground">{caption}</p><Button type="button" size="sm" className="justify-self-start" onClick={() => setPendingApplication({ variant: index === 0 ? "alternative_1" : "alternative_2", caption })} disabled={!canWrite || pending || isStale || draftLocked || linkedInAuditRequired}>Apply alternative {index + 1}</Button></div>)}</div></details> : null}
 
-          <details className="rounded-md border border-border px-3 py-2 text-[12px]"><summary className="cursor-pointer font-semibold">Edit before applying</summary><div className="mt-3 grid gap-2"><Textarea value={editedCaption} onChange={(event) => setEditedCaption(event.target.value)} maxLength={5000} placeholder="Edit the recommendation before applying it" disabled={!canWrite || pending || isStale || draftLocked} /><Button type="button" size="sm" onClick={() => setPendingApplication({ variant: "custom", caption: editedCaption })} disabled={!editedCaption.trim() || !canWrite || pending || isStale || draftLocked}>Preview custom caption</Button></div></details>
+          {recommendation.platform === "linkedin" ? <div className="rounded-md border border-border p-3 text-[11px] text-muted-foreground">To use different LinkedIn wording, edit and save the draft first, then generate a new recommendation so the exact caption receives an independent audit.</div> : <details className="rounded-md border border-border px-3 py-2 text-[12px]"><summary className="cursor-pointer font-semibold">Edit before applying</summary><div className="mt-3 grid gap-2"><Textarea value={editedCaption} onChange={(event) => setEditedCaption(event.target.value)} maxLength={5000} placeholder="Edit the recommendation before applying it" disabled={!canWrite || pending || isStale || draftLocked} /><Button type="button" size="sm" onClick={() => setPendingApplication({ variant: "custom", caption: editedCaption })} disabled={!editedCaption.trim() || !canWrite || pending || isStale || draftLocked}>Preview custom caption</Button></div></details>}
 
           <details className="rounded-md border border-border px-3 py-2 text-[12px]"><summary className="cursor-pointer font-semibold">Creative guidance, hashtags and reasoning</summary><div className="mt-3 grid gap-4 text-muted-foreground"><div><p className="font-medium text-foreground">Hook</p><p>{recommendation.hook}</p></div><div><p className="font-medium text-foreground">CTA</p><p>{recommendation.cta}</p></div><div><p className="font-medium text-foreground">Creative direction</p><p>{recommendation.creativeGuidance.visualHook} {recommendation.creativeGuidance.formatRecommendation}</p></div><div><p className="font-medium text-foreground">Suggested hashtags</p><div className="mt-1 flex flex-wrap gap-1.5">{hashtags.map((hashtag) => <Badge key={hashtag.toLowerCase()} tone="muted">{hashtag}</Badge>)}</div></div><div><p className="font-medium text-foreground">Why AWO recommends this</p><p>{recommendation.rationale}</p></div><p className="text-warning">{recommendation.limitations[0]}</p></div></details>
 

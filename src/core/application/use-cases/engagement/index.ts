@@ -32,9 +32,18 @@ import { toBlotatoPlatform } from "@/core/domain/entities/blotato";
 import { retrieveContext } from "@/core/application/use-cases/membrain";
 import { performanceSummary } from "./performance";
 import {
+  applyLinkedInAudit,
+  auditValidationFindings,
+  buildLinkedInAuditPrompt,
+  LINKEDIN_AUDIT_SYSTEM_PROMPT,
   LINKEDIN_PERSONAL_PROFILE_RULES,
+  linkedInPersonalProfileAuditSchema,
   normaliseLinkedInPersonalProfileGuidance,
 } from "./linkedin-personal-profile";
+import {
+  assessEngagementDraftInput,
+  ENGAGEMENT_CONTENT_BRIEF_MESSAGE,
+} from "./draft-input";
 
 interface EngagementDeps {
   actor: Actor;
@@ -93,6 +102,21 @@ function uniqueHashtags(groups: EngagementHashtagGroups): EngagementHashtagGroup
     local: clean(groups.local),
     service: clean(groups.service),
     audience: clean(groups.audience),
+  };
+}
+
+function guidanceWithoutGeneratorScores(output: EngagementRecommendationModelOutput): Record<string, unknown> {
+  const linkedin = output.creativeGuidance.linkedinPersonalProfile;
+  return {
+    ...output.creativeGuidance,
+    linkedinPersonalProfile: linkedin ? {
+      accountType: linkedin.accountType,
+      postArchetype: linkedin.postArchetype,
+      audiencePromise: linkedin.audiencePromise,
+      credibilityAnchor: linkedin.credibilityAnchor,
+      conversationPrompt: linkedin.conversationPrompt,
+      improvementActions: linkedin.improvementActions,
+    } : null,
   };
 }
 
@@ -185,6 +209,9 @@ export async function generateEngagementRecommendation(
   if (!draft.body.trim()) {
     throw new ValidationError("Write and save some draft content before requesting engagement intelligence.");
   }
+  if (assessEngagementDraftInput(draft.body).kind === "content_brief") {
+    throw new ValidationError(ENGAGEMENT_CONTENT_BRIEF_MESSAGE);
+  }
 
   const campaign = draft.campaign
     ? await deps.campaigns.findCampaign(input.organisationId, draft.campaign.id)
@@ -243,22 +270,82 @@ export async function generateEngagementRecommendation(
     : `${performance.sampleSize}/${performance.minimumSampleSize} comparable posts. Insufficient data for performance-informed claims.`;
 
   const prompt = `Draft title: ${draft.title}\nDraft version: ${draft.version}\nCurrent draft:\n${draft.body}`;
-  const modelOutput = await deps.ai.generateObject(prompt, engagementRecommendationModelSchema, {
-    systemPrompt: buildSystemPrompt({
-      organisationName: organisation.name,
-      platform: input.platform,
-      objective,
-      contextPrompt: contextPack.prompt,
-      performancePrompt,
-      mediaPrompt,
-      platformRules: input.platform === "linkedin"
-        ? LINKEDIN_PERSONAL_PROFILE_RULES
-        : "This is not LinkedIn. Set creativeGuidance.linkedinPersonalProfile to null.",
-    }),
+  const systemPrompt = buildSystemPrompt({
+    organisationName: organisation.name,
+    platform: input.platform,
+    objective,
+    contextPrompt: contextPack.prompt,
+    performancePrompt,
+    mediaPrompt,
+    platformRules: input.platform === "linkedin"
+      ? LINKEDIN_PERSONAL_PROFILE_RULES
+      : "This is not LinkedIn. Set creativeGuidance.linkedinPersonalProfile to null.",
+  });
+  let modelOutput = await deps.ai.generateObject(prompt, engagementRecommendationModelSchema, {
+    systemPrompt,
     temperature: 0.25,
   });
-  if (input.platform === "linkedin" && !modelOutput.creativeGuidance.linkedinPersonalProfile) {
-    throw new ValidationError("LinkedIn personal-profile guidance was incomplete. Generate the recommendation again.");
+  if (input.platform === "linkedin") {
+    const allowedEvidenceIds = new Set(contextPack.items.map((item) => item.id));
+    let auditAttempts: 1 | 2 = 1;
+    let guidance = modelOutput.creativeGuidance.linkedinPersonalProfile;
+    if (!guidance) throw new ValidationError("LinkedIn personal-profile guidance was incomplete. Generate the recommendation again.");
+    let audit = await deps.ai.generateObject(
+      buildLinkedInAuditPrompt({
+        caption: modelOutput.recommendedCaption,
+        alternativeCaptions: modelOutput.alternativeCaptions,
+        hashtags: modelOutput.hashtags,
+        hook: modelOutput.hook,
+        cta: modelOutput.cta,
+        displayedGuidance: guidanceWithoutGeneratorScores(modelOutput),
+        rationale: modelOutput.rationale,
+        predictedStrengths: modelOutput.predictedStrengths,
+        limitations: modelOutput.limitations,
+        contextPrompt: contextPack.prompt,
+        evidenceIndex: contextPack.items.map((item) => ({ id: item.id, title: item.title })),
+      }),
+      linkedInPersonalProfileAuditSchema,
+      { systemPrompt: LINKEDIN_AUDIT_SYSTEM_PROMPT, temperature: 0 },
+    );
+    let findings = auditValidationFindings(audit, allowedEvidenceIds);
+    if (findings.length > 0) {
+      auditAttempts = 2;
+      modelOutput = await deps.ai.generateObject(
+        `${prompt}\n\nThe independent grounding audit rejected the previous candidate for these reasons:\n- ${findings.join("\n- ")}\nRegenerate the recommendation without unsupported claims, invented credentials or performance promises.`,
+        engagementRecommendationModelSchema,
+        { systemPrompt, temperature: 0.15 },
+      );
+      guidance = modelOutput.creativeGuidance.linkedinPersonalProfile;
+      if (!guidance) throw new ValidationError("LinkedIn personal-profile guidance was incomplete after repair.");
+      audit = await deps.ai.generateObject(
+        buildLinkedInAuditPrompt({
+          caption: modelOutput.recommendedCaption,
+          alternativeCaptions: modelOutput.alternativeCaptions,
+          hashtags: modelOutput.hashtags,
+          hook: modelOutput.hook,
+          cta: modelOutput.cta,
+          displayedGuidance: guidanceWithoutGeneratorScores(modelOutput),
+          rationale: modelOutput.rationale,
+          predictedStrengths: modelOutput.predictedStrengths,
+          limitations: modelOutput.limitations,
+          contextPrompt: contextPack.prompt,
+          evidenceIndex: contextPack.items.map((item) => ({ id: item.id, title: item.title })),
+        }),
+        linkedInPersonalProfileAuditSchema,
+        { systemPrompt: LINKEDIN_AUDIT_SYSTEM_PROMPT, temperature: 0 },
+      );
+      findings = auditValidationFindings(audit, allowedEvidenceIds);
+    }
+    if (findings.length > 0) {
+      throw new ValidationError("LinkedIn grounding could not verify this recommendation. Strengthen the relevant MemBrain entries or revise the saved draft before trying again.");
+    }
+    modelOutput = {
+      ...modelOutput,
+      creativeGuidance: {
+        ...modelOutput.creativeGuidance,
+        linkedinPersonalProfile: applyLinkedInAudit(guidance, audit, auditAttempts),
+      },
+    };
   }
   const recommendation = normaliseModelOutput(modelOutput, isPerformanceInformed, input.platform);
 
@@ -344,6 +431,13 @@ export async function applyEngagementRecommendation(
   if (!deps.engagement.applyRecommendation) throw new ValidationError("Atomic recommendation application is not available.");
   const recommendation = await deps.engagement.findById?.(input.organisationId, input.recommendationId);
   if (!recommendation || recommendation.draftId !== input.draftId) throw new NotFoundError("Engagement recommendation");
+  if (recommendation.platform === "linkedin"
+    && recommendation.creativeGuidance.linkedinPersonalProfile?.auditStatus !== "passed") {
+    throw new ValidationError("This LinkedIn recommendation predates independent grounding. Generate a new recommendation before applying it.");
+  }
+  if (recommendation.platform === "linkedin" && input.variant === "custom") {
+    throw new ValidationError("Save custom LinkedIn wording as the draft, then generate a new recommendation so the exact text can be audited before applying.");
+  }
   const draft = await deps.content.findDraft(input.organisationId, input.draftId);
   if (!draft) throw new NotFoundError("Draft");
   if (recommendation.draftVersion !== draft.version) {

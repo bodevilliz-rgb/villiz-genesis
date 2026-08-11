@@ -14,6 +14,10 @@ import type { ContentDraft } from "@/core/domain/entities/content";
 import type { EngagementRecommendationWriteModel } from "@/core/domain/entities/engagement";
 import type { Actor } from "@/core/domain/entities/identity";
 import { engagementRecommendationModelSchema } from "@/core/application/dto/engagement-dto";
+import {
+  linkedInReadinessScore,
+} from "@/core/application/use-cases/engagement/linkedin-personal-profile";
+import { assessEngagementDraftInput } from "@/core/application/use-cases/engagement/draft-input";
 
 const ORG_ID = "00000000-0000-4000-8000-000000000001";
 const DRAFT_ID = "00000000-0000-4000-8000-000000000002";
@@ -61,7 +65,7 @@ const draft: ContentDraft = {
   updatedBy: null,
 };
 
-function dependencies(options: { role?: "lead" | "contributor" | "reviewer"; withContext?: boolean } = {}) {
+function dependencies(options: { role?: "lead" | "contributor" | "reviewer"; withContext?: boolean; draftBody?: string } = {}) {
   const role = options.role ?? "contributor";
   const withContext = options.withContext ?? true;
   let persisted: EngagementRecommendationWriteModel | null = null;
@@ -77,7 +81,7 @@ function dependencies(options: { role?: "lead" | "contributor" | "reviewer"; wit
   } as unknown as OrganisationRepository;
 
   const content = {
-    findDraft: vi.fn(async () => draft),
+    findDraft: vi.fn(async () => ({ ...draft, body: options.draftBody ?? draft.body })),
   } as unknown as ContentRepository;
 
   const campaigns = {
@@ -159,6 +163,28 @@ function dependencies(options: { role?: "lead" | "contributor" | "reviewer"; wit
 }
 
 describe("AWO Engagement Intelligence", () => {
+  it("blocks an explicit writing brief before retrieval or AI generation", async () => {
+    const fixture = dependencies({
+      draftBody: "professional introduction of myself as a professional photography and AI solution provider.",
+    });
+    await expect(generateEngagementRecommendation(fixture.deps, {
+      organisationId: ORG_ID, draftId: DRAFT_ID, platform: "linkedin",
+    })).rejects.toThrow("content brief rather than a finished post");
+    expect(fixture.ai.generateObject).not.toHaveBeenCalled();
+    expect(fixture.deps.membrain.retrieveContext).not.toHaveBeenCalled();
+  });
+
+  it("does not mistake a concise genuine post for a writing brief", () => {
+    expect(assessEngagementDraftInput("Your story matters. What are you building next?").kind).toBe("finished_post");
+    expect(assessEngagementDraftInput("Write a LinkedIn post about my photography business.").kind).toBe("content_brief");
+  });
+
+  it("calculates the readiness score from audited dimensions rather than a supplied total", () => {
+    expect(linkedInReadinessScore({
+      hook: 4, singleIdea: 5, personalVoice: 5, credibility: 3, scanability: 4, conversationCta: 5,
+    })).toBe(87);
+  });
+
   it("creates an evidence-linked, immutable recommendation for the saved draft version", async () => {
     const fixture = dependencies();
     const recommendation = await generateEngagementRecommendation(fixture.deps, {
@@ -269,6 +295,14 @@ describe("AWO Engagement Intelligence", () => {
         },
       },
       confidence: 82,
+    }).mockResolvedValueOnce({
+      dimensions: { hook: 4, singleIdea: 5, personalVoice: 5, credibility: 3, scanability: 4, conversationCta: 5 },
+      audiencePromise: "A practical lesson about portrait confidence.",
+      credibilityAnchor: "Studio guidance supported by the Brand voice entry.",
+      credibilityEvidenceIds: [ENTRY_ID],
+      conversationPrompt: "What has helped you feel prepared?",
+      improvementActions: ["Add one MemBrain-supported concrete example."],
+      blockingFindings: [],
     });
 
     const result = await generateEngagementRecommendation(fixture.deps, {
@@ -281,10 +315,111 @@ describe("AWO Engagement Intelligence", () => {
     expect(result.creativeGuidance.linkedinPersonalProfile).toEqual(expect.objectContaining({
       accountType: "personal_profile",
       readinessScore: 87,
+      auditStatus: "passed",
+      auditAttempts: 1,
+      credibilityEvidenceIds: [ENTRY_ID],
     }));
     const options = vi.mocked(fixture.ai.generateObject).mock.calls[0]?.[2];
     expect(options?.systemPrompt).toContain("person's LinkedIn profile, never a company Page");
     expect(options?.systemPrompt).toContain("do not invent it");
+    expect(vi.mocked(fixture.ai.generateObject).mock.calls[1]?.[0]).toContain("Alternative captions:");
+    expect(vi.mocked(fixture.ai.generateObject).mock.calls[1]?.[0]).toContain("#VillizPixels");
+    expect(vi.mocked(fixture.ai.generateObject).mock.calls[1]?.[0]).not.toContain('"readinessScore":99');
+    expect(vi.mocked(fixture.ai.generateObject).mock.calls[1]?.[0]).not.toContain('"dimensions"');
+    expect(vi.mocked(fixture.ai.generateObject).mock.calls[1]?.[2]?.systemPrompt).toContain("independent LinkedIn grounding");
+  });
+
+  it("repairs one rejected LinkedIn candidate, re-audits it and persists only the grounded replacement", async () => {
+    const fixture = dependencies();
+    const baseGeneration = await fixture.ai.generateObject("draft", engagementRecommendationModelSchema);
+    const firstCandidate = {
+      ...baseGeneration,
+      recommendedCaption: "As Villiz Pixels' award-winning creative director, I guarantee more visibility.",
+      creativeGuidance: {
+        ...baseGeneration.creativeGuidance,
+        linkedinPersonalProfile: {
+          accountType: "personal_profile" as const,
+          postArchetype: "point_of_view" as const,
+          readinessScore: 100,
+          audiencePromise: "A professional perspective.",
+          credibilityAnchor: "Award-winning creative director.",
+          conversationPrompt: "What do you think?",
+          dimensions: { hook: 5, singleIdea: 5, personalVoice: 5, credibility: 5, scanability: 5, conversationCta: 5 },
+          improvementActions: ["Reply promptly to comments to boost visibility."],
+        },
+      },
+    };
+    const repairedCandidate = {
+      ...firstCandidate,
+      recommendedCaption: "At Villiz Pixels, I guide clients through the portrait process.\n\nWhat should your next portrait communicate?",
+      creativeGuidance: {
+        ...firstCandidate.creativeGuidance,
+        linkedinPersonalProfile: {
+          ...firstCandidate.creativeGuidance.linkedinPersonalProfile!,
+          credibilityAnchor: "Client guidance described in Brand voice.",
+          improvementActions: ["Clarify the reader takeaway before publishing."],
+        },
+      },
+    };
+    vi.mocked(fixture.ai.generateObject).mockReset()
+      .mockResolvedValueOnce(firstCandidate)
+      .mockResolvedValueOnce({
+        dimensions: { hook: 2, singleIdea: 3, personalVoice: 4, credibility: 0, scanability: 4, conversationCta: 3 },
+        audiencePromise: "A professional perspective.", credibilityAnchor: "Unsupported credential.",
+        credibilityEvidenceIds: [], conversationPrompt: "What do you think?", improvementActions: [],
+        blockingFindings: [
+          { type: "invented_credential", excerpt: "award-winning creative director", reason: "No MemBrain entry supports this title." },
+          { type: "performance_promise", excerpt: "guarantee more visibility", reason: "Future visibility cannot be guaranteed." },
+        ],
+      })
+      .mockResolvedValueOnce(repairedCandidate)
+      .mockResolvedValueOnce({
+        dimensions: { hook: 4, singleIdea: 5, personalVoice: 4, credibility: 3, scanability: 5, conversationCta: 4 },
+        audiencePromise: "How guided portrait preparation supports a professional image.",
+        credibilityAnchor: "Client guidance described in Brand voice.", credibilityEvidenceIds: [ENTRY_ID],
+        conversationPrompt: "What should your next portrait communicate?",
+        improvementActions: ["Clarify the reader takeaway before publishing."], blockingFindings: [],
+      });
+
+    const result = await generateEngagementRecommendation(fixture.deps, {
+      organisationId: ORG_ID, draftId: DRAFT_ID, platform: "linkedin",
+    });
+    expect(result.recommendedCaption).toBe(repairedCandidate.recommendedCaption);
+    expect(result.creativeGuidance.linkedinPersonalProfile).toEqual(expect.objectContaining({
+      auditStatus: "passed", auditAttempts: 2, readinessScore: 83,
+    }));
+    expect(fixture.ai.generateObject).toHaveBeenCalledTimes(4);
+    expect(fixture.getPersisted()?.recommendedCaption).toBe(repairedCandidate.recommendedCaption);
+  });
+
+  it("fails closed without persisting when the bounded LinkedIn repair still has unsupported claims", async () => {
+    const fixture = dependencies();
+    const candidate = await fixture.ai.generateObject("draft", engagementRecommendationModelSchema);
+    const linkedinCandidate = {
+      ...candidate,
+      creativeGuidance: {
+        ...candidate.creativeGuidance,
+        linkedinPersonalProfile: {
+          accountType: "personal_profile" as const, postArchetype: "point_of_view" as const, readinessScore: 100,
+          audiencePromise: "Value", credibilityAnchor: "Invented title", conversationPrompt: "Question",
+          dimensions: { hook: 5, singleIdea: 5, personalVoice: 5, credibility: 5, scanability: 5, conversationCta: 5 },
+          improvementActions: ["Edit before publishing."],
+        },
+      },
+    };
+    const rejectedAudit = {
+      dimensions: { hook: 3, singleIdea: 3, personalVoice: 3, credibility: 0, scanability: 3, conversationCta: 3 },
+      audiencePromise: "Value", credibilityAnchor: "Unsupported", credibilityEvidenceIds: [],
+      conversationPrompt: "Question", improvementActions: ["Remove the unsupported title."],
+      blockingFindings: [{ type: "invented_credential" as const, excerpt: "Invented title", reason: "Not in MemBrain." }],
+    };
+    vi.mocked(fixture.ai.generateObject).mockReset()
+      .mockResolvedValueOnce(linkedinCandidate).mockResolvedValueOnce(rejectedAudit)
+      .mockResolvedValueOnce(linkedinCandidate).mockResolvedValueOnce(rejectedAudit);
+    await expect(generateEngagementRecommendation(fixture.deps, {
+      organisationId: ORG_ID, draftId: DRAFT_ID, platform: "linkedin",
+    })).rejects.toThrow("could not verify");
+    expect(fixture.getPersisted()).toBeNull();
   });
 
   it("removes LinkedIn guidance from recommendations for other platforms", async () => {
@@ -462,6 +597,73 @@ describe("Sprint 14 publish-to-learn contract", () => {
     expect(applyRecommendation).toHaveBeenCalledOnce();
   });
 
+  it("refuses to apply a legacy LinkedIn recommendation without an independent audit", async () => {
+    const fixture = dependencies();
+    const recommendation = await generateEngagementRecommendation(fixture.deps, {
+      organisationId: ORG_ID, draftId: DRAFT_ID, platform: "instagram",
+    });
+    const legacyLinkedIn = {
+      ...recommendation,
+      platform: "linkedin" as const,
+      creativeGuidance: {
+        ...recommendation.creativeGuidance,
+        linkedinPersonalProfile: {
+          accountType: "personal_profile" as const, postArchetype: "point_of_view" as const,
+          readinessScore: 90, audiencePromise: "Value", credibilityAnchor: "Legacy claim",
+          conversationPrompt: "Question",
+          dimensions: { hook: 5, singleIdea: 5, personalVoice: 4, credibility: 4, scanability: 5, conversationCta: 4 },
+          improvementActions: ["Legacy advice"],
+        },
+      },
+    };
+    fixture.deps.engagement.findById = vi.fn(async () => legacyLinkedIn);
+    const applyRecommendation = vi.fn();
+    fixture.deps.engagement.applyRecommendation = applyRecommendation;
+    await expect(applyEngagementRecommendation({
+      actor: fixture.deps.actor, organisations: fixture.deps.organisations,
+      engagement: fixture.deps.engagement, content: fixture.deps.content,
+    }, {
+      organisationId: ORG_ID, draftId: DRAFT_ID, recommendationId: legacyLinkedIn.id,
+      action: "selected", variant: "recommended", captionSnapshot: legacyLinkedIn.recommendedCaption,
+      hashtagSnapshot: ["#VillizPixels"],
+    })).rejects.toThrow("predates independent grounding");
+    expect(applyRecommendation).not.toHaveBeenCalled();
+  });
+
+  it("refuses to apply custom LinkedIn text that did not receive the recommendation audit", async () => {
+    const fixture = dependencies();
+    const recommendation = await generateEngagementRecommendation(fixture.deps, {
+      organisationId: ORG_ID, draftId: DRAFT_ID, platform: "instagram",
+    });
+    const auditedLinkedIn = {
+      ...recommendation,
+      platform: "linkedin" as const,
+      creativeGuidance: {
+        ...recommendation.creativeGuidance,
+        linkedinPersonalProfile: {
+          accountType: "personal_profile" as const, postArchetype: "point_of_view" as const,
+          readinessScore: 80, audiencePromise: "Value", credibilityAnchor: "Supported",
+          conversationPrompt: "Question",
+          dimensions: { hook: 4, singleIdea: 4, personalVoice: 4, credibility: 4, scanability: 4, conversationCta: 4 },
+          improvementActions: [], auditStatus: "passed" as const, auditAttempts: 1 as const,
+          credibilityEvidenceIds: [ENTRY_ID],
+        },
+      },
+    };
+    fixture.deps.engagement.findById = vi.fn(async () => auditedLinkedIn);
+    const applyRecommendation = vi.fn();
+    fixture.deps.engagement.applyRecommendation = applyRecommendation;
+    await expect(applyEngagementRecommendation({
+      actor: fixture.deps.actor, organisations: fixture.deps.organisations,
+      engagement: fixture.deps.engagement, content: fixture.deps.content,
+    }, {
+      organisationId: ORG_ID, draftId: DRAFT_ID, recommendationId: auditedLinkedIn.id,
+      action: "selected", variant: "custom", captionSnapshot: "An unaudited custom edit",
+      hashtagSnapshot: ["#VillizPixels"],
+    })).rejects.toThrow("exact text can be audited");
+    expect(applyRecommendation).not.toHaveBeenCalled();
+  });
+
   it("records revenue outcomes only against the exact real destination attempt", async () => {
     const fixture = dependencies();
     const createCommercialOutcome = vi.fn(async (input) => ({ id: "outcome-1", createdAt: "2026-08-10T20:00:00Z", ...input }));
@@ -489,5 +691,21 @@ describe("Sprint 14 publish-to-learn contract", () => {
     expect(createCommercialOutcome).toHaveBeenCalledWith(expect.objectContaining({
       providerAccountId: "account-1", revenueMinor: 25000, createdBy: ACTOR_ID,
     }));
+  });
+});
+
+describe("Sprint 15.1 LinkedIn audit database guard", () => {
+  const migration = fs.readFileSync(
+    path.resolve(import.meta.dirname, "../supabase/migrations/20260810210000_linkedin_personal_profile_audit_guard.sql"),
+    "utf8",
+  );
+
+  it("rejects a direct RPC apply for unaudited LinkedIn guidance", () => {
+    expect(migration).toContain("v_recommendation.platform = 'linkedin'");
+    expect(migration).toContain("{linkedinPersonalProfile,auditStatus}");
+    expect(migration).toContain("<> 'passed'");
+    expect(migration).toContain("requires independent grounding");
+    expect(migration).toContain("p_variant = 'custom'");
+    expect(migration).toContain("Save custom LinkedIn wording as the draft");
   });
 });
