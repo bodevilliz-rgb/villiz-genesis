@@ -16,7 +16,7 @@ import type { Actor } from "@/core/domain/entities/identity";
 import { engagementRecommendationModelSchema } from "@/core/application/dto/engagement-dto";
 import {
   calibrateLinkedInAudit,
-  linkedInEditorialRepairFindings,
+  formatLinkedInCaption,
   linkedInReadinessScore,
 } from "@/core/application/use-cases/engagement/linkedin-personal-profile";
 import { assessEngagementDraftInput } from "@/core/application/use-cases/engagement/draft-input";
@@ -214,7 +214,21 @@ describe("AWO Engagement Intelligence", () => {
       expect.stringContaining("three short paragraphs"),
       expect.stringContaining("concrete professional example"),
     ]));
-    expect(linkedInEditorialRepairFindings(denseCaption)).toHaveLength(1);
+  });
+
+  it("formats dense LinkedIn copy without changing its wording", () => {
+    const denseCaption = [
+      "Photography and AI can work together to improve communication.",
+      "I use creative direction to make visual ideas clearer for the people they need to reach.",
+      "I also build practical content workflows that reduce unnecessary manual steps and make delivery easier to manage.",
+      "The goal is not technology for its own sake but a better way to create and communicate.",
+      "That connection between creative work and practical systems shapes how I approach every project.",
+      "How are you balancing creativity and efficiency in your work?",
+    ].join(" ");
+    const formatted = formatLinkedInCaption(denseCaption);
+
+    expect(formatted.split(/\n\s*\n/)).toHaveLength(4);
+    expect(formatted.replace(/\s+/g, " ")).toBe(denseCaption.replace(/\s+/g, " "));
   });
 
   it("creates an evidence-linked, immutable recommendation for the saved draft version", async () => {
@@ -371,7 +385,7 @@ describe("AWO Engagement Intelligence", () => {
     expect(vi.mocked(fixture.ai.generateObject).mock.calls[1]?.[2]?.systemPrompt).toContain("independent LinkedIn grounding");
   });
 
-  it("uses the bounded repair for dense LinkedIn copy and persists only the structured replacement", async () => {
+  it("formats dense LinkedIn copy without consuming the bounded grounding repair", async () => {
     const fixture = dependencies();
     const baseGeneration = await fixture.ai.generateObject("draft", engagementRecommendationModelSchema);
     const guidance = {
@@ -384,19 +398,18 @@ describe("AWO Engagement Intelligence", () => {
       dimensions: { hook: 5, singleIdea: 5, personalVoice: 5, credibility: 5, scanability: 5, conversationCta: 5 },
       improvementActions: [],
     };
+    const denseCaption = [
+      "Photography and AI can work together to improve communication.",
+      "I built a creative workflow that makes visual ideas clearer for the people they need to reach.",
+      "I also use practical systems that reduce unnecessary manual steps and make content delivery easier to manage.",
+      "The goal is not technology for its own sake but a better way to create and communicate.",
+      "That connection between creative work and practical systems shapes how I approach every project.",
+      "How are you balancing creativity and efficiency in your work?",
+    ].join(" ");
     const denseCandidate = {
       ...baseGeneration,
-      recommendedCaption: Array.from({ length: 100 }, () => "word").join(" "),
+      recommendedCaption: denseCaption,
       creativeGuidance: { ...baseGeneration.creativeGuidance, linkedinPersonalProfile: guidance },
-    };
-    const repairedCaption = [
-      `I built ${Array.from({ length: 27 }, () => "clear").join(" ")}.`,
-      Array.from({ length: 30 }, () => "useful").join(" ") + ".",
-      Array.from({ length: 30 }, () => "focused").join(" ") + ".",
-    ].join("\n\n");
-    const repairedCandidate = {
-      ...denseCandidate,
-      recommendedCaption: repairedCaption,
     };
     const passingAudit = {
       dimensions: { hook: 5, singleIdea: 5, personalVoice: 5, credibility: 5, scanability: 5, conversationCta: 5 },
@@ -409,21 +422,20 @@ describe("AWO Engagement Intelligence", () => {
     };
     vi.mocked(fixture.ai.generateObject).mockReset()
       .mockResolvedValueOnce(denseCandidate)
-      .mockResolvedValueOnce(passingAudit)
-      .mockResolvedValueOnce(repairedCandidate)
       .mockResolvedValueOnce(passingAudit);
 
     const result = await generateEngagementRecommendation(fixture.deps, {
       organisationId: ORG_ID, draftId: DRAFT_ID, platform: "linkedin",
     });
 
-    expect(result.recommendedCaption).toBe(repairedCaption);
+    expect(result.recommendedCaption.split(/\n\s*\n/).length).toBeGreaterThanOrEqual(3);
+    expect(result.recommendedCaption.replace(/\s+/g, " ")).toBe(denseCaption);
     expect(result.creativeGuidance.linkedinPersonalProfile).toEqual(expect.objectContaining({
-      auditAttempts: 2,
+      auditAttempts: 1,
       readinessScore: 100,
     }));
-    expect(vi.mocked(fixture.ai.generateObject).mock.calls[2]?.[0]).toContain("three short paragraphs");
-    expect(fixture.getPersisted()?.recommendedCaption).toBe(repairedCaption);
+    expect(fixture.ai.generateObject).toHaveBeenCalledTimes(2);
+    expect(fixture.getPersisted()?.recommendedCaption).toBe(result.recommendedCaption);
   });
 
   it("repairs one rejected LinkedIn candidate, re-audits it and persists only the grounded replacement", async () => {
@@ -515,7 +527,7 @@ describe("AWO Engagement Intelligence", () => {
       .mockResolvedValueOnce(linkedinCandidate).mockResolvedValueOnce(rejectedAudit);
     await expect(generateEngagementRecommendation(fixture.deps, {
       organisationId: ORG_ID, draftId: DRAFT_ID, platform: "linkedin",
-    })).rejects.toThrow("could not verify");
+    })).rejects.toThrow("invented_credential: Invented title");
     expect(fixture.getPersisted()).toBeNull();
   });
 

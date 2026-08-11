@@ -36,9 +36,9 @@ import {
   auditValidationFindings,
   buildLinkedInAuditPrompt,
   calibrateLinkedInAudit,
+  formatLinkedInCaption,
   LINKEDIN_AUDIT_SYSTEM_PROMPT,
   LINKEDIN_PERSONAL_PROFILE_RULES,
-  linkedInEditorialRepairFindings,
   linkedInPersonalProfileAuditSchema,
   normaliseLinkedInPersonalProfileGuidance,
 } from "./linkedin-personal-profile";
@@ -288,6 +288,10 @@ export async function generateEngagementRecommendation(
     temperature: 0.25,
   });
   if (input.platform === "linkedin") {
+    modelOutput = {
+      ...modelOutput,
+      recommendedCaption: formatLinkedInCaption(modelOutput.recommendedCaption),
+    };
     const allowedEvidenceIds = new Set(contextPack.items.map((item) => item.id));
     let auditAttempts: 1 | 2 = 1;
     let guidance = modelOutput.creativeGuidance.linkedinPersonalProfile;
@@ -309,10 +313,7 @@ export async function generateEngagementRecommendation(
       linkedInPersonalProfileAuditSchema,
       { systemPrompt: LINKEDIN_AUDIT_SYSTEM_PROMPT, temperature: 0 },
     );
-    let findings = [
-      ...auditValidationFindings(audit, allowedEvidenceIds),
-      ...linkedInEditorialRepairFindings(modelOutput.recommendedCaption),
-    ];
+    let findings = auditValidationFindings(audit, allowedEvidenceIds);
     if (findings.length > 0) {
       auditAttempts = 2;
       modelOutput = await deps.ai.generateObject(
@@ -342,7 +343,8 @@ export async function generateEngagementRecommendation(
       findings = auditValidationFindings(audit, allowedEvidenceIds);
     }
     if (findings.length > 0) {
-      throw new ValidationError("LinkedIn grounding could not verify this recommendation. Strengthen the relevant MemBrain entries or revise the saved draft before trying again.");
+      const safeSummary = findings.slice(0, 3).map((finding) => finding.slice(0, 300)).join(" | ");
+      throw new ValidationError(`LinkedIn grounding could not verify this recommendation. Review: ${safeSummary}`);
     }
     audit = calibrateLinkedInAudit(audit, modelOutput.recommendedCaption);
     modelOutput = {

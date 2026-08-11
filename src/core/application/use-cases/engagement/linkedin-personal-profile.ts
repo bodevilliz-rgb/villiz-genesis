@@ -100,19 +100,38 @@ function hasConcreteCredibilitySignal(caption: string): boolean {
   return /\b(?:I|we)\s+(?:built|created|delivered|developed|helped|implemented|launched|learned|photographed|produced|tested|worked)\b/i.test(caption);
 }
 
-/**
- * Severe deterministic editorial findings receive the same one bounded repair
- * opportunity as grounding findings. They never become a permanent publishing
- * blocker; any remaining weakness is reflected in the calibrated score.
- */
-export function linkedInEditorialRepairFindings(caption: string): string[] {
+/** Inserts paragraph breaks at existing punctuation without changing wording. */
+export function formatLinkedInCaption(caption: string): string {
+  const trimmed = caption.trim();
   const paragraphs = captionParagraphs(caption);
   const wordCount = words(caption).length;
   const longestParagraph = Math.max(0, ...paragraphs.map((paragraph) => words(paragraph).length));
-  if (wordCount > 80 && (paragraphs.length < 3 || longestParagraph > 60)) {
-    return [`scanability: ${SCANABILITY_ACTION}`];
+  if (wordCount <= 80 || (paragraphs.length >= 3 && longestParagraph <= 60)) {
+    return trimmed;
   }
-  return [];
+
+  const clauses = trimmed.split(/(?<=[.!?;:])\s+/).map((clause) => clause.trim()).filter(Boolean);
+  if (clauses.length < 3) return trimmed;
+
+  const desiredParagraphs = Math.max(3, Math.ceil(wordCount / 45));
+  const targetWords = Math.ceil(wordCount / desiredParagraphs);
+  const formatted: string[] = [];
+  let current: string[] = [];
+  let currentWords = 0;
+
+  for (const clause of clauses) {
+    const clauseWords = words(clause).length;
+    if (current.length > 0 && currentWords + clauseWords > targetWords) {
+      formatted.push(current.join(" "));
+      current = [];
+      currentWords = 0;
+    }
+    current.push(clause);
+    currentWords += clauseWords;
+  }
+  if (current.length > 0) formatted.push(current.join(" "));
+
+  return formatted.length >= 3 ? formatted.join("\n\n") : trimmed;
 }
 
 export function calibrateLinkedInAudit(
