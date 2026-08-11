@@ -517,10 +517,17 @@ export async function getEngagementLearningOverview(
         })
       : Promise.resolve([]),
   ]);
-  const latestDraftMetric = draftSnapshots.find((snapshot) =>
+  const eligibleDraftSnapshots = draftSnapshots.filter((snapshot) =>
     snapshot.platform === input.platform
       && (!account.providerAccountId || snapshot.providerAccountId === account.providerAccountId),
-  ) ?? null;
+  ).sort((a, b) => (b.providerCapturedAt ?? b.observedAt).localeCompare(a.providerCapturedAt ?? a.observedAt));
+  const latestDraftMetric = eligibleDraftSnapshots[0] ?? null;
+  // A draft can be published more than once. Keep the dashboard strictly on
+  // the latest attempt so metrics from separate external posts are never
+  // combined into one apparent performance history.
+  const latestPostMetrics = latestDraftMetric
+    ? eligibleDraftSnapshots.filter((snapshot) => snapshot.publishingAttemptId === latestDraftMetric.publishingAttemptId)
+    : [];
   const eligibleAttempts = attempts.filter((attempt) =>
     attempt.platform === input.platform && !isSimulatedPublishingAttempt(attempt)
       && attemptAccountId(attempt.providerMetadata) === account.providerAccountId,
@@ -546,6 +553,7 @@ export async function getEngagementLearningOverview(
     ...account,
     latestFeedback,
     latestDraftMetric,
+    latestPostMetrics,
     latestCommercialOutcome,
     lastAnalyticsSyncAt,
     nextScheduledCollectionAt: nextScheduledCollectionAt(),

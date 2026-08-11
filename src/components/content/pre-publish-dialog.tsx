@@ -244,7 +244,7 @@ export function PrePublishDialog({ organisationId, draft, open, onOpenChange, on
                     </div>
                     <div className="flex items-center gap-2">
                       {report.hashtagQuality === 'optimal' ? <CheckCircle2 className="size-4 text-positive" /> : report.hashtagQuality === 'spammy' ? <XCircle className="size-4 text-negative" /> : <AlertTriangle className="size-4 text-amber-500" />}
-                      <span>Hashtags: <span className="font-medium">{report.hashtagQuality === 'spammy' ? 'Too many' : report.hashtagQuality === 'missing' ? 'Missing' : 'Optimal'}</span></span>
+                      <span>Hashtags: <span className="font-medium">{report.hashtagQuality === 'spammy' ? 'Too many' : report.hashtagQuality === 'missing' ? 'Missing' : report.hashtagQuality === 'not_applicable' ? 'Not required' : 'Optimal'}</span></span>
                     </div>
                     <div className="flex items-center gap-2">
                       {report.missingMedia ? <AlertTriangle className="size-4 text-amber-500" /> : <CheckCircle2 className="size-4 text-positive" />}

@@ -11,7 +11,7 @@ export interface PrePublishReport {
   ctaQuality: "strong" | "weak" | "missing";
   platformOptimisation: "high" | "medium" | "low";
   /** "spammy" is repurposed here to mean "exceeds the destination platform's hashtag limit" once a platform is known — see hashtagPolicyMessage for the exact operator-facing reason. */
-  hashtagQuality: "optimal" | "spammy" | "missing";
+  hashtagQuality: "optimal" | "spammy" | "missing" | "not_applicable";
   /** Set only when hashtagQuality === "spammy" for a known platform — the exact deterministic reason, word-for-word identical to the preflight blocker (see platform-policy.ts). Never present when the platform isn't yet known — the review can't enforce a limit it hasn't been told. */
   hashtagPolicyMessage: string | null;
   accessibility: "good" | "poor";
@@ -27,7 +27,7 @@ export const prePublishSchema = z.object({
   readability: z.enum(["easy", "moderate", "difficult"]),
   ctaQuality: z.enum(["strong", "weak", "missing"]),
   platformOptimisation: z.enum(["high", "medium", "low"]),
-  hashtagQuality: z.enum(["optimal", "spammy", "missing"]),
+  hashtagQuality: z.enum(["optimal", "spammy", "missing", "not_applicable"]),
   accessibility: z.enum(["good", "poor"]),
   compliance: z.enum(["pass", "flagged"]),
   recommendations: z.array(z.string()),
@@ -82,7 +82,12 @@ export async function analyzeDraftForPublishing(
   const hashtags = draft.hashtags ?? [];
   let hashtagQuality: PrePublishReport["hashtagQuality"];
   let hashtagPolicyMessage: string | null = null;
-  if (hashtags.length === 0) {
+  if (platform === "linkedin" && hashtags.length === 0) {
+    // Genesis' audited LinkedIn personal-profile mode deliberately generates
+    // clean keyword-rich copy without hashtags. Do not let the older generic
+    // social checker penalise that approved platform-specific policy.
+    hashtagQuality = "not_applicable";
+  } else if (hashtags.length === 0) {
     hashtagQuality = "missing";
   } else if (platform) {
     const policy = evaluateHashtagPolicy(platform, hashtags);
@@ -122,6 +127,10 @@ Provide your analysis matching the JSON schema. 'recommendations' should be spec
 
     const analysis = await ai.generateObject(draft.body, prePublishSchema, { systemPrompt });
 
+    const recommendations = platform === "linkedin" && hashtags.length === 0
+      ? analysis.recommendations.filter((recommendation) => !/hashtags?/i.test(recommendation))
+      : analysis.recommendations;
+
     return {
       ...analysis,
       // Deterministic override — the AI's hashtagQuality output is discarded
@@ -130,6 +139,7 @@ Provide your analysis matching the JSON schema. 'recommendations' should be spec
       hashtagPolicyMessage,
       missingMedia,
       brokenLinks,
+      recommendations,
     };
   } catch (error) {
     const reason = error instanceof Error ? error.message : "The AI review provider is unavailable.";

@@ -453,3 +453,12 @@ describe("T40/T15 (mandate) — a different platform does not inherit Instagram'
     expect(report.hashtagPolicyMessage).toBeNull();
   });
 });
+
+describe("Sprint 16 — LinkedIn personal-profile hashtag policy", () => {
+  it("does not penalise an audited LinkedIn personal-profile post for having no hashtags", async () => {
+    const draft = baseDraft({ hashtags: [] });
+    const report = await analyzeDraftForPublishing(draft, "Professional", "LinkedIn personal profile", 1, "linkedin");
+    expect(report.hashtagQuality).toBe("not_applicable");
+    expect(report.recommendations.some((recommendation) => /hashtags?/i.test(recommendation))).toBe(false);
+  });
+});
