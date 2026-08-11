@@ -62,12 +62,16 @@ export const engagementRecommendationModelSchema = z.object({
       credibilityAnchor: z.string().trim().min(1).max(500),
       conversationPrompt: z.string().trim().min(1).max(500),
       dimensions: z.object({
-        hook: z.number().int().min(0).max(5),
-        singleIdea: z.number().int().min(0).max(5),
-        personalVoice: z.number().int().min(0).max(5),
-        credibility: z.number().int().min(0).max(5),
-        scanability: z.number().int().min(0).max(5),
-        conversationCta: z.number().int().min(0).max(5),
+        // These are untrusted provisional generator values. Models sometimes
+        // return percentages here even when asked for a 0-5 rubric. The
+        // independent LinkedIn audit replaces every value with a strict 0-5
+        // score before a recommendation can be persisted or applied.
+        hook: z.number().int().min(0).max(100),
+        singleIdea: z.number().int().min(0).max(100),
+        personalVoice: z.number().int().min(0).max(100),
+        credibility: z.number().int().min(0).max(100),
+        scanability: z.number().int().min(0).max(100),
+        conversationCta: z.number().int().min(0).max(100),
       }),
       improvementActions: z.array(z.string().trim().min(1).max(500)).min(1).max(5),
     }).nullable(),
