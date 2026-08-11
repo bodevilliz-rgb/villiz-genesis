@@ -227,7 +227,7 @@ describe("EngagementIntelligencePanel", () => {
     expect(screen.getByText("LinkedIn personal-profile check · Audit required")).toBeInTheDocument();
     expect(screen.getByText(/predates independent grounding/)).toBeInTheDocument();
     expect(screen.queryByText("90/100")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Apply to draft" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Review caption + hashtags" })).toBeDisabled();
   });
 
   it("shows a before-and-after confirmation before replacing the saved draft", () => {
@@ -239,9 +239,11 @@ describe("EngagementIntelligencePanel", () => {
         initialDraftHashtags={["ExistingTag"]} draftLocked={false} canWrite={true}
       />,
     );
-    fireEvent.click(screen.getByRole("button", { name: "Apply to draft" }));
+    expect(screen.getByText(/also replaces the draft hashtags with the 3 suggested hashtags/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Review caption + hashtags" }));
     expect(screen.getByText("Confirm draft replacement")).toBeInTheDocument();
     expect(screen.getByText("Existing caption")).toBeInTheDocument();
+    expect(screen.getByText("Current hashtags: 1 · Replacement hashtags: 3. This creates a new draft version; approval remains mandatory.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Apply caption + hashtags" })).toBeInTheDocument();
   });
 });
