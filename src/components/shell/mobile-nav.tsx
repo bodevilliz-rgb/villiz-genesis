@@ -80,9 +80,11 @@ export function MobileNav({
           <OrganisationSwitcher organisations={organisations} canCreate={canCreateOrganisation} />
 
           <div className="mt-3 flex-1 space-y-4">
-            {navGroups.map((group, index) => (
-              <SidebarNav key={group.label ?? index} items={group.items} label={group.label} />
-            ))}
+            {navGroups
+              .filter((group) => group.items.some((item) => item.showInPrimaryNavigation !== false))
+              .map((group, index) => (
+                <SidebarNav key={group.label ?? index} items={group.items} label={group.label} />
+              ))}
           </div>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>

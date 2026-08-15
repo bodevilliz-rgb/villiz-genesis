@@ -1,15 +1,33 @@
 import React from "react";
+import Link from "next/link";
 import { ArrowUpRight, Sparkles } from "lucide-react";
+import { CommandCentreGreeting } from "@/components/dashboard/command-centre-greeting";
 
 // 1. CommandCentreHeader
-export function CommandCentreHeader({ fullName, totalReviews, atRisk }: { fullName: string; totalReviews: number; atRisk: number }) {
-  const firstName = fullName ? fullName.split(" ")[0] : "Operator";
+export function CommandCentreHeader({
+  fullName,
+  initialGreetingHour,
+  totalReviews,
+  atRisk,
+}: {
+  fullName: string | null;
+  initialGreetingHour: number;
+  totalReviews: number;
+  atRisk: number | null;
+}) {
   return (
     <div className="flex flex-col gap-1 border-b border-border pb-6">
       <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-primary font-semibold">Operational Command Centre</span>
-      <h1 className="font-sans font-extrabold text-3xl tracking-tight text-white">Good Morning, {firstName}.</h1>
+      <h1 className="font-sans font-extrabold text-3xl tracking-tight text-white">
+        <CommandCentreGreeting fullName={fullName} initialHour={initialGreetingHour} />
+      </h1>
       <p className="text-[13px] text-muted-foreground mt-1 leading-relaxed">
-        The team is delivering active client campaigns. <span className="text-white font-medium">{totalReviews} reviews</span> require approval. <span className="text-primary font-medium">{atRisk} campaign</span> is at risk.
+        <span className="text-white font-medium">{totalReviews} reviews</span> require approval.{" "}
+        {atRisk === null ? (
+          <span className="text-subtle-foreground">Campaign risk is not currently tracked.</span>
+        ) : (
+          <span className="text-primary font-medium">{atRisk} {atRisk === 1 ? "campaign is" : "campaigns are"} at risk.</span>
+        )}
       </p>
     </div>
   );
@@ -18,10 +36,10 @@ export function CommandCentreHeader({ fullName, totalReviews, atRisk }: { fullNa
 // 2. RevenueSummary
 export function RevenueSummary() {
   return (
-    <div className="flex flex-col items-end text-right">
+    <div className="flex flex-col items-start text-left sm:items-end sm:text-right">
       <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-subtle-foreground">REVENUE METRIC YTD</span>
-      <span className="font-mono text-xl font-bold text-[#10B981] mt-0.5">$842,500.00</span>
-      {/* TODO: Replace with live billing integration data source */}
+      <span className="font-mono text-xl font-bold text-white mt-0.5">—</span>
+      <span className="text-[11px] text-subtle-foreground">Not configured in Genesis</span>
     </div>
   );
 }
@@ -33,38 +51,46 @@ export interface AwoInsight {
   detail: string;
   score?: number;
   type?: string;
+  href: string;
+  actionLabel: string;
 }
 
-export function AwoRecommendationCard({ insight, onAction }: { insight?: AwoInsight; onAction?: () => void }) {
+export function AwoRecommendationCard({ insight }: { insight?: AwoInsight }) {
   if (!insight) {
     return (
       <div className="border border-border bg-card rounded-lg p-5 flex flex-col gap-3">
         <span className="font-mono text-[10px] uppercase tracking-wider text-subtle-foreground">Awo Advisory</span>
-        <p className="text-[13px] text-muted-foreground">All operational pipelines are stable. No alerts today.</p>
+        <p className="text-[13px] text-muted-foreground">No operational recommendations available.</p>
       </div>
     );
   }
 
   return (
-    <div className="border-l-4 border-primary bg-card border border-y-border border-r-border rounded-r-lg p-6 flex flex-col gap-3 transition-transform hover:-translate-y-0.5 duration-200">
+    <section aria-labelledby="awo-recommendation-title" className="border-l-4 border-primary bg-card border border-y-border border-r-border rounded-r-lg p-6 flex flex-col gap-4">
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-1.5">
           <Sparkles className="size-4 text-primary animate-pulse" />
           <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-primary font-bold">Awo Chief of Staff Recommendation</span>
         </div>
-        <span className="bg-primary/10 text-primary font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 rounded font-semibold">High Risk</span>
+        <span className="bg-primary/10 text-primary font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 rounded font-semibold">
+          {insight.type === "attention" ? "Attention" : "Information"}
+        </span>
       </div>
-      <h3 className="font-sans font-bold text-lg text-white tracking-tight">{insight.title}</h3>
-      <p className="text-[13px] text-muted-foreground leading-relaxed">{insight.detail}</p>
-      <div className="flex gap-3 mt-1">
-        <button 
-          onClick={onAction}
-          className="bg-primary hover:bg-primary-hover text-white text-[12px] font-semibold px-4 py-2 rounded-md transition-colors flex items-center gap-1 cursor-pointer"
-        >
-          Launch Reviews Desk <ArrowUpRight className="size-3.5" />
-        </button>
+      <div>
+        <span className="font-mono text-[10px] uppercase tracking-wider text-subtle-foreground">What needs attention</span>
+        <h3 id="awo-recommendation-title" className="mt-1 font-sans font-bold text-lg text-white tracking-tight">{insight.title}</h3>
       </div>
-    </div>
+      <div>
+        <span className="font-mono text-[10px] uppercase tracking-wider text-subtle-foreground">Why it matters</span>
+        <p className="mt-1 text-[13px] text-muted-foreground leading-relaxed">{insight.detail}</p>
+      </div>
+      <Link
+        href={insight.href}
+        className="mt-1 inline-flex w-fit items-center gap-1 rounded-md bg-primary px-4 py-2 text-[12px] font-semibold text-white transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      >
+        {insight.actionLabel} <ArrowUpRight aria-hidden className="size-3.5" />
+      </Link>
+    </section>
   );
 }
 
@@ -96,7 +122,7 @@ export interface ClientProject {
   id: string;
   name: string;
   clientName: string;
-  progress: number;
+  progress: number | null;
   status: string;
 }
 
@@ -106,17 +132,19 @@ export function ClientDeliveryStatus({ projects }: { projects: ClientProject[] }
       <h3 className="font-sans font-bold text-[13px] text-white uppercase tracking-wider border-b border-border pb-2.5">Client Delivery Status</h3>
       <div className="flex flex-col gap-3">
         {projects.length === 0 ? (
-          <p className="text-[12px] text-subtle-foreground">No active delivery metrics found.</p>
+          <p className="text-[12px] text-subtle-foreground">No active campaigns with delivery metrics.</p>
         ) : (
           projects.map((p) => (
             <div key={p.id} className="flex flex-col gap-1.5 border-b border-border/40 pb-2.5 last:border-0 last:pb-0">
               <div className="flex justify-between items-center text-[13px]">
                 <span className="text-white font-medium">{p.clientName} <span className="text-subtle-foreground font-normal">· {p.name}</span></span>
-                <span className="text-primary font-mono font-semibold">{p.progress}%</span>
+                <span className="text-primary font-mono font-semibold">{p.progress === null ? "—" : `${p.progress}%`}</span>
               </div>
-              <div className="w-full bg-[#1b1b1b] h-1.5 rounded-full overflow-hidden">
-                <div className="bg-primary h-full rounded-full transition-all duration-500" style={{ width: `${p.progress}%` }} />
-              </div>
+              {p.progress !== null ? (
+                <div className="w-full bg-[#1b1b1b] h-1.5 rounded-full overflow-hidden">
+                  <div className="bg-primary h-full rounded-full transition-all duration-500" style={{ width: `${p.progress}%` }} />
+                </div>
+              ) : <span className="text-[10px] text-subtle-foreground">Campaign dates unavailable</span>}
             </div>
           ))
         )}
@@ -168,7 +196,7 @@ export function LiveActivityFeed({ items }: { items: ActivityItem[] }) {
       <h3 className="font-sans font-bold text-[13px] text-white uppercase tracking-wider border-b border-border pb-2.5">Live Activity Feed</h3>
       <div className="flex flex-col gap-3 max-h-[240px] overflow-y-auto pr-1">
         {items.length === 0 ? (
-          <p className="text-[12px] text-subtle-foreground">No recent activities log.</p>
+          <p className="text-[12px] text-subtle-foreground">No recent persisted activity.</p>
         ) : (
           items.map((item) => (
             <div key={item.id} className="text-[12px] border-b border-border/40 pb-2.5 last:border-0 last:pb-0">
@@ -196,7 +224,9 @@ export function TeamWorkload({ staff }: { staff: StaffWorkload[] }) {
     <div className="bg-card border border-border rounded-lg p-5 flex flex-col gap-4">
       <h3 className="font-sans font-bold text-[13px] text-white uppercase tracking-wider border-b border-border pb-2.5">Team Workload Status</h3>
       <div className="flex flex-col gap-3.5">
-        {staff.map((s) => (
+        {staff.length === 0 ? (
+          <p className="text-[12px] text-subtle-foreground">Work assignment data is not configured in Genesis.</p>
+        ) : staff.map((s) => (
           <div key={s.id} className="flex justify-between items-center text-[13px] border-b border-border/40 pb-2.5 last:border-0 last:pb-0">
             <div>
               <strong className="text-white block font-medium">{s.name}</strong>

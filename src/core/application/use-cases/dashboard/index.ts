@@ -168,13 +168,14 @@ export function buildMyWork(input: {
 export function buildAwoInsights(input: {
   organisationNames: Map<string, string>;
   knowledgeCoverage: Map<string, number>;
-  activeCampaignReadiness: Array<{ organisationId: string; name: string; readiness: CampaignReadiness | null }>;
+  activeCampaignReadiness: ActiveCampaignReadinessInput[];
 }): AwoInsight[] {
   const insights: AwoInsight[] = [];
 
   for (const [organisationId, percentage] of input.knowledgeCoverage) {
     if (percentage >= KNOWLEDGE_COVERAGE_ATTENTION_THRESHOLD) continue;
     insights.push({
+      kind: "knowledge",
       severity: percentage < 50 ? "attention" : "info",
       organisationId,
       organisationName: input.organisationNames.get(organisationId) ?? "Unknown account",
@@ -186,9 +187,11 @@ export function buildAwoInsights(input: {
     if (!campaign.readiness || campaign.readiness.score >= CAMPAIGN_READINESS_ATTENTION_THRESHOLD) continue;
     const topWarning = campaign.readiness.warnings[0] ?? "some campaign planning fields are incomplete";
     insights.push({
+      kind: "campaign_readiness",
       severity: campaign.readiness.score < 50 ? "attention" : "info",
       organisationId: campaign.organisationId,
       organisationName: input.organisationNames.get(campaign.organisationId) ?? "Unknown account",
+      campaignId: campaign.campaignId,
       message: `"${campaign.name}" is ${campaign.readiness.score}% ready — ${topWarning}`,
     });
   }
@@ -197,6 +200,7 @@ export function buildAwoInsights(input: {
 }
 
 interface ActiveCampaignReadinessInput {
+  campaignId: string;
   organisationId: string;
   name: string;
   readiness: CampaignReadiness | null;
@@ -297,6 +301,7 @@ export async function getDashboardHome(deps: DashboardDeps): Promise<DashboardHo
 
   const activeCampaigns = campaigns.filter((c) => c.status === "active");
   const activeCampaignReadiness: ActiveCampaignReadinessInput[] = activeCampaigns.map((campaign) => ({
+    campaignId: campaign.id,
     organisationId: campaign.organisationId,
     name: campaign.name,
     readiness: resolveCampaignReadiness(toCampaignContext(campaign)),
@@ -328,6 +333,14 @@ export async function getDashboardHome(deps: DashboardDeps): Promise<DashboardHo
     averageTurnaroundMinutes: computeAverageTurnaroundMinutes(reviewMetricsBase.approvedTodayDrafts, submittedAtByDraftId),
   };
 
+  const knowledgeCoverage = new Map(readinessByOrg);
+  const clientSocialIntelligence = organisations.map((organisation) => ({
+    organisationId: organisation.id,
+    organisationName: organisation.name,
+    membrainReadinessPercent: knowledgeCoverage.get(organisation.id) ?? 0,
+    activeCampaigns: activeCampaignHealth.filter((campaign) => campaign.organisationId === organisation.id),
+  }));
+
   return {
     myWork: buildMyWork({
       actor: deps.actor,
@@ -342,10 +355,11 @@ export async function getDashboardHome(deps: DashboardDeps): Promise<DashboardHo
     teamActivity,
     awoInsights: buildAwoInsights({
       organisationNames,
-      knowledgeCoverage: new Map(readinessByOrg),
+      knowledgeCoverage,
       activeCampaignReadiness,
     }),
     reviewMetrics,
+    clientSocialIntelligence,
     defaultOrganisationId,
   };
 }

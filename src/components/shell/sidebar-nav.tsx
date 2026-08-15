@@ -70,6 +70,8 @@ export interface NavItem {
   prefix?: boolean;
   disabled?: boolean;
   note?: string;
+  /** Keep roadmap configuration without exposing the destination in production navigation. */
+  showInPrimaryNavigation?: boolean;
 }
 
 /**
@@ -93,6 +95,9 @@ export function SidebarNav({
 }) {
   const pathname = usePathname();
   const horizontal = orientation === "horizontal";
+  const visibleItems = items.filter((item) => item.showInPrimaryNavigation !== false);
+
+  if (visibleItems.length === 0) return null;
 
   return (
     <nav aria-label={label ?? "Primary"} className={cn("flex gap-0.5", horizontal ? "flex-row items-center" : "flex-col")}>
@@ -102,7 +107,7 @@ export function SidebarNav({
         </p>
       ) : null}
 
-      {items.map((item) => {
+      {visibleItems.map((item) => {
         const active = item.prefix ? pathname.startsWith(item.href) : pathname === item.href;
         const Icon = iconMap[item.icon];
 

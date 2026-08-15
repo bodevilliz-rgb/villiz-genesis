@@ -27,7 +27,13 @@ vi.mock("next/navigation", () => ({
 
 const NAV_GROUPS = [
   { label: "Mission", items: [{ href: "/dashboard", label: "Mission Control", icon: "dashboard" as const }] },
-  { label: "Operations", items: [{ href: "/review", label: "Reviews", icon: "check-circle" as const }] },
+  { label: "Operations", items: [
+    { href: "/review", label: "Reviews", icon: "check-circle" as const },
+    { href: "#projects", label: "Projects", icon: "folders" as const, showInPrimaryNavigation: false },
+  ] },
+  { label: "Business", items: [
+    { href: "#reports", label: "Reports", icon: "bar-chart" as const, showInPrimaryNavigation: false },
+  ] },
 ];
 
 function organisations(): OrganisationSummary[] {
@@ -92,5 +98,8 @@ describe("MobileNav", () => {
 
     expect(screen.getByText("Mission")).toBeTruthy();
     expect(screen.getByText("Operations")).toBeTruthy();
+    expect(screen.queryByText("Projects")).toBeNull();
+    expect(screen.queryByText("Reports")).toBeNull();
+    expect(screen.queryByText("Business")).toBeNull();
   });
 });

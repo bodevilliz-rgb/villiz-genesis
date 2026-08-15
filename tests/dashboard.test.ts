@@ -262,7 +262,7 @@ describe("buildAwoInsights", () => {
     const insights = buildAwoInsights({
       organisationNames: new Map([["org-1", "Acme"]]),
       knowledgeCoverage: new Map([["org-1", 100]]),
-      activeCampaignReadiness: [{ organisationId: "org-1", name: "Spring", readiness: READY }],
+      activeCampaignReadiness: [{ campaignId: "campaign-1", organisationId: "org-1", name: "Spring", readiness: READY }],
     });
 
     expect(insights).toHaveLength(0);
@@ -283,7 +283,7 @@ describe("buildAwoInsights", () => {
     const insights = buildAwoInsights({
       organisationNames: new Map([["org-1", "Acme"]]),
       knowledgeCoverage: new Map(),
-      activeCampaignReadiness: [{ organisationId: "org-1", name: "Spring", readiness: NOT_READY }],
+      activeCampaignReadiness: [{ campaignId: "campaign-1", organisationId: "org-1", name: "Spring", readiness: NOT_READY }],
     });
 
     expect(insights[0]?.message).toContain("No objective set.");
@@ -293,7 +293,7 @@ describe("buildAwoInsights", () => {
     const insights = buildAwoInsights({
       organisationNames: new Map(),
       knowledgeCoverage: new Map(),
-      activeCampaignReadiness: [{ organisationId: "org-1", name: "Spring", readiness: null }],
+      activeCampaignReadiness: [{ campaignId: "campaign-1", organisationId: "org-1", name: "Spring", readiness: null }],
     });
 
     expect(insights).toHaveLength(0);

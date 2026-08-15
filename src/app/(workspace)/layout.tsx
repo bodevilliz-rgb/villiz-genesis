@@ -10,9 +10,8 @@ import { routes } from "@/lib/routes";
 /**
  * Application shell.
  *
- * Sprint 2+ destinations are shown as disabled rather than hidden. Operators
- * can see the shape of the product they are being given, and nobody has to
- * guess whether a feature is missing or simply not built yet.
+ * Roadmap destinations remain represented in configuration but are excluded
+ * from the production navigation until they have a legitimate workspace.
  *
  * `icon` is a serializable string key (not a component reference) — this is
  * a Server Component, and `NavItem[]` crosses into the Client Component
@@ -21,25 +20,25 @@ import { routes } from "@/lib/routes";
  */
 const MISSION_NAV: NavItem[] = [
   { href: routes.dashboard, label: "Mission Control", icon: "dashboard" },
-  { href: "#inbox", label: "Inbox", icon: "inbox", disabled: true, note: "Soon" },
-  { href: "#notifications", label: "Notifications", icon: "bell", disabled: true, note: "Soon" },
+  { href: "#inbox", label: "Inbox", icon: "inbox", disabled: true, note: "Soon", showInPrimaryNavigation: false },
+  { href: "#notifications", label: "Notifications", icon: "bell", disabled: true, note: "Soon", showInPrimaryNavigation: false },
 ];
 
 const OPERATIONS_NAV: NavItem[] = [
   { href: routes.organisations.index, label: "Clients", icon: "building", prefix: true },
-  { href: "#projects", label: "Projects", icon: "folders", disabled: true, note: "Soon" },
-  { href: "#creative", label: "Creative", icon: "pen-line", disabled: true, note: "Soon" },
+  { href: "#projects", label: "Projects", icon: "folders", disabled: true, note: "Soon", showInPrimaryNavigation: false },
+  { href: "#creative", label: "Creative", icon: "pen-line", disabled: true, note: "Soon", showInPrimaryNavigation: false },
   { href: routes.review, label: "Reviews", icon: "check-circle" },
   { href: routes.publishing, label: "Publishing", icon: "calendar-clock" },
 ];
 
 const BUSINESS_NAV: NavItem[] = [
-  { href: "#reports", label: "Reports", icon: "bar-chart", disabled: true, note: "Soon" },
-  { href: "#finance", label: "Finance", icon: "wallet", disabled: true, note: "Soon" },
+  { href: "#reports", label: "Reports", icon: "bar-chart", disabled: true, note: "Soon", showInPrimaryNavigation: false },
+  { href: "#finance", label: "Finance", icon: "wallet", disabled: true, note: "Soon", showInPrimaryNavigation: false },
 ];
 
 const INTELLIGENCE_NAV: NavItem[] = [
-  { href: "#awo", label: "Awo", icon: "sparkles", disabled: true, note: "Soon" },
+  { href: routes.awo, label: "Awo", icon: "sparkles" },
 ];
 
 export default async function WorkspaceLayout({ children }: { children: React.ReactNode }) {

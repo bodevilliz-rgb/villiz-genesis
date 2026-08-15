@@ -6,6 +6,7 @@ export const routes = {
   login: "/login",
   authCallback: "/auth/callback",
   dashboard: "/dashboard",
+  awo: "/awo",
   publishing: "/publishing",
   review: "/review",
   reviewWorkspace: (id: string) => `/review/${id}`,
