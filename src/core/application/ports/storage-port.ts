@@ -16,6 +16,9 @@ export interface StoragePort {
    */
   getSignedUrl(storagePath: string, expiresInSeconds?: number): Promise<string>;
 
+  /** Downloads an authorised private asset for request-scoped server processing. */
+  downloadMedia?(storagePath: string): Promise<Uint8Array>;
+
   /**
    * Issues a short-lived, single-path signed upload authorisation so the
    * browser can PUT the file bytes straight into the private bucket without

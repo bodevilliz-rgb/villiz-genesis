@@ -311,6 +311,34 @@ describe("AWO Engagement Intelligence", () => {
     expect(membrain.retrieveContext.mock.calls[0]?.[0].query.length).toBeLessThanOrEqual(500);
   });
 
+  it("puts platform safety and MemBrain above growth guidance and persists comparison metadata", async () => {
+    const fixture = dependencies();
+    const result = await generateEngagementRecommendation(fixture.deps, {
+      organisationId: ORG_ID,
+      draftId: DRAFT_ID,
+      platform: "instagram",
+      objectiveType: "engagement",
+      commercialIntent: "build_trust",
+    });
+    const prompt = vi.mocked(fixture.ai.generateObject).mock.calls[0]?.[2]?.systemPrompt ?? "";
+    expect(prompt).toContain("platform safety and policy; MemBrain facts and restrictions");
+    expect(prompt).toContain("Never promise or guarantee reach, visibility, virality, engagement, enquiries, bookings or sales");
+    expect(prompt).toContain("commercial outcomes only from explicit outcome records");
+    expect(prompt).toContain("Never recommend engagement pods");
+    expect(result.strategyMetadata).toEqual(expect.objectContaining({
+      commercialIntent: "build_trust",
+      contentFormat: expect.any(String),
+      hookFamily: expect.any(String),
+      ctaType: "trust_step",
+      contentPillar: null,
+      marketPatternIds: expect.any(Array),
+      hashtagRoleMix: expect.any(Array),
+      culturalVoiceLevel: "neutral",
+      visibilityStrategyVersion: "visibility-v1",
+      visibilityEvidenceLevel: expect.any(String),
+    }));
+  });
+
   it("enforces personal-profile LinkedIn guidance and recalculates editorial readiness", async () => {
     const fixture = dependencies();
     vi.mocked(fixture.ai.generateObject).mockResolvedValueOnce({
@@ -375,7 +403,7 @@ describe("AWO Engagement Intelligence", () => {
       scanability: 4,
       conversationCta: 5,
     });
-    expect(result.hashtags).toEqual({ brand: [], local: [], service: [], audience: [] });
+    expect(result.hashtags).toEqual({ brand: [], local: [], service: [], audience: [], audienceCultural: [], occasionTopic: [], campaign: [] });
     const options = vi.mocked(fixture.ai.generateObject).mock.calls[0]?.[2];
     expect(options?.systemPrompt).toContain("person's LinkedIn profile, never a company Page");
     expect(options?.systemPrompt).toContain("do not invent it");

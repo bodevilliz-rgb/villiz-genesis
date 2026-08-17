@@ -26,8 +26,13 @@ import {
   extractAwoMembrainContext,
   buildCaptionSystemPrompt,
   buildRewriteSystemPrompt,
+  buildGuidedContextBlock,
   type AwoMembrainContext,
 } from "@/server/actions/awo-grounding";
+
+it("renders an operator-selected existing MemBrain content pillar as structured guidance", () => {
+  expect(buildGuidedContextBlock({ contentPillar: "Creatively directed portraiture" })).toContain("Selected MemBrain content pillar: Creatively directed portraiture");
+});
 import {
   extractProhibitedTerms,
   detectComplianceViolations,

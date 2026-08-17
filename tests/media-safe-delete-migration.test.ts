@@ -95,6 +95,9 @@ describe("Media Safe Delete v1 migration contract", () => {
 
   it("allows only the service role to attest Storage cleanup completion", () => {
     expect(migration).toContain("if (select auth.role()) <> 'service_role'");
+    expect(migration).toContain(
+      "revoke all on function public.record_media_cleanup_result(uuid, uuid, boolean, text) from anon, authenticated",
+    );
     expect(migration).toContain("grant execute on function public.record_media_cleanup_result");
     expect(migration).toContain("to service_role");
     expect(migration).not.toMatch(/grant execute on function public\.record_media_cleanup_result[\s\S]{0,120}to authenticated/);

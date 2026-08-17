@@ -39,6 +39,8 @@ export type EngagementObjectiveTypeDb = "awareness" | "engagement" | "enquiries"
 export type EngagementFeedbackActionDb = "selected" | "dismissed";
 export type EngagementVariantDb = "recommended" | "alternative_1" | "alternative_2" | "custom";
 export type EngagementMeasurementWindowDb = "under_24h" | "24h" | "72h" | "7d";
+export type MarketCulturalVoiceDb = "neutral" | "conversational" | "light_naija";
+export type MarketPatternCategoryDb = "hook" | "format" | "emotional_angle" | "educational_angle" | "transformation" | "proof" | "offer_positioning" | "cta" | "audience_question" | "discovery_language" | "local_language" | "occasion_language" | "caption_length";
 export type MembrainSourceDb = "manual" | "client_brief" | "discovery_call" | "performance_insight" | "competitor_research" | "published_asset";
 export type MembrainStatusDb = "draft" | "active" | "archived";
 export type OrganisationRoleDb = "lead" | "contributor" | "reviewer";
@@ -261,6 +263,7 @@ export type EngagementRecommendationRow = {
   performance_confidence: number | null;
   performance_summary: Json;
   evidence: Json;
+  strategy_metadata: Json;
   created_by: string | null;
   created_at: string;
 };
@@ -524,6 +527,23 @@ export type MembrainCategoryRow = {
   position: number;
   is_system: boolean;
   created_at: string;
+};
+
+export type MarketIntelligenceProfileRow = {
+  organisation_id: string; business_objectives: string[]; target_geographies: string[]; service_areas: string[];
+  audience_context: string | null; cultural_context: string | null; promotional_focus: string | null;
+  cultural_voice_level: MarketCulturalVoiceDb; conversion_actions: string[]; platform_strategy: Json; hashtag_strategy: Json;
+  created_by: string | null; created_at: string; updated_at: string;
+};
+export type MarketIntelligenceReferenceRow = {
+  id: string; organisation_id: string; identifier: string; platform: string; market: string | null; vertical: string | null;
+  relevance_note: string; source_url: string | null; is_active: boolean; reviewed_at: string | null;
+  created_by: string | null; created_at: string; updated_at: string;
+};
+export type MarketIntelligencePatternRow = {
+  id: string; organisation_id: string; observation: string; category: MarketPatternCategoryDb; platform: string | null;
+  market: string | null; vertical: string | null; provenance: string; source_url: string | null; confidence: number;
+  observed_at: string | null; reviewed_at: string | null; is_active: boolean; created_by: string | null; created_at: string; updated_at: string;
 };
 
 export type MembrainEntryRow = {
@@ -1013,6 +1033,9 @@ export type Database = {
       engagement_feedback_events: Table<EngagementFeedbackEventRow, Partial<EngagementFeedbackEventRow>, Partial<EngagementFeedbackEventRow>>;
       engagement_metric_snapshots: Table<EngagementMetricSnapshotRow, Partial<EngagementMetricSnapshotRow>, Partial<EngagementMetricSnapshotRow>>;
       engagement_commercial_outcomes: Table<EngagementCommercialOutcomeRow, Partial<EngagementCommercialOutcomeRow>, Partial<EngagementCommercialOutcomeRow>>;
+      market_intelligence_profiles: Table<MarketIntelligenceProfileRow, Partial<MarketIntelligenceProfileRow>, Partial<MarketIntelligenceProfileRow>, [Fk<"market_intelligence_profiles_organisation_id_fkey", "organisation_id", "organisations">]>;
+      market_intelligence_references: Table<MarketIntelligenceReferenceRow, Partial<MarketIntelligenceReferenceRow>, Partial<MarketIntelligenceReferenceRow>, [Fk<"market_intelligence_references_organisation_id_fkey", "organisation_id", "organisations">]>;
+      market_intelligence_patterns: Table<MarketIntelligencePatternRow, Partial<MarketIntelligencePatternRow>, Partial<MarketIntelligencePatternRow>, [Fk<"market_intelligence_patterns_organisation_id_fkey", "organisation_id", "organisations">]>;
       conversation_summaries: Table<ConversationSummaryRow>;
       daily_briefs: Table<DailyBriefRow>;
       decision_reviews: Table<DecisionReviewRow>;

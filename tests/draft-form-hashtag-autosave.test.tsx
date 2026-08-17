@@ -217,7 +217,7 @@ describe("H6/T14 (mandate) — Awo requests only the REMAINING allowance for a k
     );
 
     fireEvent.click(screen.getByText("Suggest hashtags"));
-    await waitFor(() => expect(generateHashtags).toHaveBeenCalledWith(ORG_ID, expect.any(String), 3));
+    await waitFor(() => expect(generateHashtags).toHaveBeenCalledWith(ORG_ID, expect.any(String), 3, "instagram"));
   });
 });
 
@@ -275,7 +275,7 @@ describe("H9 — without a known platform, existing generic behaviour (request 5
     );
 
     fireEvent.click(screen.getByText("Suggest hashtags"));
-    await waitFor(() => expect(generateHashtags).toHaveBeenCalledWith(ORG_ID, expect.any(String), 5));
+    await waitFor(() => expect(generateHashtags).toHaveBeenCalledWith(ORG_ID, expect.any(String), 5, "instagram"));
   });
 });
 

@@ -26,6 +26,7 @@ function publishingDeps(context: Awaited<ReturnType<typeof requireContext>>) {
     organisations: context.organisations,
     audits: context.audits,
     notifications: context.notifications,
+    engagement: context.engagement,
   };
 }
 

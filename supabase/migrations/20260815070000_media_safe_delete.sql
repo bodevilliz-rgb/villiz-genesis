@@ -424,6 +424,7 @@ create policy media_assets_delete on public.media_assets
 revoke all on function public.get_media_deletion_status(uuid, uuid) from public;
 revoke all on function public.request_media_safe_delete(uuid, uuid, uuid) from public;
 revoke all on function public.record_media_cleanup_result(uuid, uuid, boolean, text) from public;
+revoke all on function public.record_media_cleanup_result(uuid, uuid, boolean, text) from anon, authenticated;
 grant execute on function public.get_media_deletion_status(uuid, uuid) to authenticated;
 grant execute on function public.request_media_safe_delete(uuid, uuid, uuid) to authenticated;
 grant execute on function public.record_media_cleanup_result(uuid, uuid, boolean, text) to service_role;
