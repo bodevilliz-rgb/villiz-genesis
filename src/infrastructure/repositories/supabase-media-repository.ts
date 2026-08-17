@@ -2,7 +2,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../supabase/database.types";
 import type { MediaRepository, MediaAssetWriteModel, MediaLibraryPageFilters } from "../../core/application/ports/media-port";
-import type { MediaAsset, MediaCollection, MediaAssetVersion, MediaAssetListItem, PaginatedMediaAssets, MediaLibraryStats } from "../../core/domain/entities/media";
+import type { MediaAsset, MediaCollection, MediaAssetVersion, MediaAssetListItem, PaginatedMediaAssets, MediaLibraryStats, MediaDeletionBlockCode, MediaDeletionResult, MediaDeletionStatus } from "../../core/domain/entities/media";
 import type { BrandKit } from "../../core/domain/entities/brand";
 
 export class SupabaseMediaRepository implements MediaRepository {
@@ -226,14 +226,83 @@ export class SupabaseMediaRepository implements MediaRepository {
     if (result.error) throw result.error;
   }
 
-  async deleteAsset(organisationId: string, assetId: string): Promise<void> {
-    const result = await this.client
-      .from("media_assets")
-      .delete()
-      .eq("id", assetId)
-      .eq("organisation_id", organisationId);
-
+  async getDeletionStatus(organisationId: string, assetId: string): Promise<MediaDeletionStatus> {
+    const result = await this.client.rpc("get_media_deletion_status", {
+      p_organisation_id: organisationId,
+      p_asset_id: assetId,
+    });
     if (result.error) throw result.error;
+    return this.parseDeletionStatus(result.data);
+  }
+
+  async requestSafeDeletion(organisationId: string, assetId: string, idempotencyId: string): Promise<MediaDeletionResult> {
+    const result = await this.client.rpc("request_media_safe_delete", {
+      p_organisation_id: organisationId,
+      p_asset_id: assetId,
+      p_idempotency_id: idempotencyId,
+    });
+    if (result.error) throw result.error;
+    const value = result.data as any;
+    if (value?.outcome === "ACCEPTED" && typeof value.requestId === "string") {
+      return {
+        outcome: "ACCEPTED",
+        requestId: value.requestId,
+        cleanupState: value.cleanupState === "complete" ? "complete" : "pending",
+        totalBytes: Number(value.totalBytes) || 0,
+      };
+    }
+    return { outcome: "BLOCKED", reasons: this.parseReasons(value?.reasons) };
+  }
+
+  async getDeletionRequest(organisationId: string, requestId: string): Promise<import("../../core/domain/entities/media").MediaDeletionRequest | null> {
+    const result = await this.client.from("media_deletion_requests").select("*")
+      .eq("organisation_id", organisationId).eq("id", requestId).maybeSingle();
+    if (result.error) throw result.error;
+    if (!result.data) return null;
+    return {
+      requestId: result.data.id,
+      organisationId: result.data.organisation_id,
+      formerAssetId: result.data.former_asset_id,
+      objectPaths: result.data.object_paths,
+      cleanupState: result.data.cleanup_state,
+      totalBytes: result.data.total_bytes,
+    };
+  }
+
+  async recordCleanupResult(organisationId: string, requestId: string, succeeded: boolean, error?: string): Promise<void> {
+    const result = await this.client.rpc("record_media_cleanup_result", {
+      p_organisation_id: organisationId,
+      p_request_id: requestId,
+      p_succeeded: succeeded,
+      p_error: error ?? null,
+    });
+    if (result.error) throw result.error;
+  }
+
+  private parseDeletionStatus(value: any): MediaDeletionStatus {
+    if (value?.eligibility !== "ELIGIBLE" && value?.eligibility !== "BLOCKED") {
+      return { eligibility: "BLOCKED", reasons: [{ code: "UNKNOWN_DEPENDENCY", count: 1 }] };
+    }
+    return {
+      eligibility: value.eligibility,
+      reasons: this.parseReasons(value.reasons),
+      fileName: typeof value.fileName === "string" ? value.fileName : undefined,
+      totalBytes: Number.isFinite(Number(value.totalBytes)) ? Number(value.totalBytes) : undefined,
+      objectCount: Number.isFinite(Number(value.objectCount)) ? Number(value.objectCount) : undefined,
+    };
+  }
+
+  private parseReasons(value: any): Array<{ code: MediaDeletionBlockCode; count: number }> {
+    const allowed = new Set<MediaDeletionBlockCode>([
+      "USED_BY_CONTENT", "USED_BY_CAMPAIGN", "USED_BY_COLLECTION", "USED_BY_BRAND_KIT",
+      "PUBLISHING_DEPENDENCY", "HISTORICAL_INTELLIGENCE_REFERENCE", "HISTORICAL_USE", "INSUFFICIENT_PERMISSION",
+      "INVALID_STORAGE_OWNERSHIP", "INCOMPLETE_PATH_INVENTORY", "UNKNOWN_DEPENDENCY",
+    ]);
+    if (!Array.isArray(value)) return [{ code: "UNKNOWN_DEPENDENCY", count: 1 }];
+    const reasons = value.flatMap((reason: any) => allowed.has(reason?.code)
+      ? [{ code: reason.code as MediaDeletionBlockCode, count: Math.max(1, Number(reason.count) || 1) }]
+      : []);
+    return reasons.length > 0 ? reasons : [];
   }
 
   async attachToCampaign(campaignId: string, assetId: string, attachedBy: string): Promise<void> {

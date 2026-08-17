@@ -2,7 +2,7 @@
 import { useTransition, useState } from "react";
 import { useRouter } from "next/navigation";
 import { FileText, Image as ImageIcon, Video, Music, Loader2, Archive, Trash2, FileUp, Download } from "lucide-react";
-import type { MediaAsset, MediaAssetVersion } from "@/core/domain/entities/media";
+import type { MediaAsset, MediaAssetVersion, MediaDeletionBlockCode, MediaDeletionStatus } from "@/core/domain/entities/media";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -20,6 +20,7 @@ interface AssetDetailFormProps {
   versions: MediaAssetVersion[];
   signedUrl: string;
   versionUrls: Record<string, string>;
+  deletionStatus: MediaDeletionStatus;
 }
 
 export function AssetDetailForm({
@@ -28,10 +29,12 @@ export function AssetDetailForm({
   versions,
   signedUrl,
   versionUrls,
+  deletionStatus,
 }: AssetDetailFormProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [replaceFile, setReplaceFile] = useState<File | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
 
   // Form states
   const [title, setTitle] = useState(asset.title || "");
@@ -142,13 +145,17 @@ export function AssetDetailForm({
   };
 
   const handleDelete = () => {
-    if (!confirm("Are you sure you want to delete this asset permanently? This will fail if it is attached to campaigns or drafts.")) return;
+    if (deleteConfirmation !== asset.fileName || deletionStatus.eligibility !== "ELIGIBLE") return;
+    if (!confirm("This permanently removes the media from Genesis and cannot be undone. Continue?")) return;
 
     startTransition(async () => {
       const result = await deleteMediaAction(organisationId, asset.id);
       if (result.status === "success") {
         toast.success(result.message);
-        router.push(routes.organisations.media.index(organisationId));
+        const destination = result.resourceId
+          ? `${routes.organisations.media.index(organisationId)}?cleanupRequest=${encodeURIComponent(result.resourceId)}`
+          : routes.organisations.media.index(organisationId);
+        router.push(destination);
       } else {
         toast.error(result.message);
       }
@@ -166,6 +173,20 @@ export function AssetDetailForm({
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  };
+
+  const deletionReasonLabels: Record<MediaDeletionBlockCode, (count: number) => string> = {
+    USED_BY_CONTENT: (count) => `Used by ${count} content item${count === 1 ? "" : "s"}`,
+    USED_BY_CAMPAIGN: (count) => `Used by ${count} campaign${count === 1 ? "" : "s"}`,
+    USED_BY_COLLECTION: (count) => `Used by ${count} collection${count === 1 ? "" : "s"}`,
+    USED_BY_BRAND_KIT: (count) => `Used by ${count} brand kit${count === 1 ? "" : "s"}`,
+    PUBLISHING_DEPENDENCY: (count) => `${count} publishing workflow${count === 1 ? "" : "s"} still depend on this media`,
+    HISTORICAL_INTELLIGENCE_REFERENCE: () => "Historical Genesis use or intelligence reference",
+    HISTORICAL_USE: () => "This media has been used by Genesis before",
+    INSUFFICIENT_PERMISSION: () => "Permanent deletion requires an account lead or platform administrator",
+    INVALID_STORAGE_OWNERSHIP: () => "Storage ownership could not be verified",
+    INCOMPLETE_PATH_INVENTORY: () => "The complete file inventory could not be verified",
+    UNKNOWN_DEPENDENCY: () => "Genesis cannot prove this media has never been used",
   };
 
   return (
@@ -236,18 +257,46 @@ export function AssetDetailForm({
           </form>
         </div>
 
-        {/* Danger Zone */}
+        {/* Safe permanent deletion */}
         <div className="rounded-lg border border-border bg-card p-5 shadow-sm flex flex-col gap-3">
-          <h4 className="text-[14px] font-medium text-foreground">Danger Zone</h4>
+          <h4 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Permanent deletion</h4>
           <div className="flex flex-col gap-2">
             {!isArchived && (
               <Button onClick={handleArchive} variant="ghost" disabled={isPending} className="w-full justify-start text-[12px] h-9">
                 <Archive className="size-4 mr-2" /> Archive asset
               </Button>
             )}
-            <Button onClick={handleDelete} variant="ghost" disabled={isPending} className="w-full justify-start text-negative text-[12px] h-9">
-              <Trash2 className="size-4 mr-2" /> Delete permanently
-            </Button>
+            <p className="text-[11px] text-muted-foreground">Archive is reversible and does not free Storage.</p>
+            {deletionStatus.eligibility === "ELIGIBLE" ? (
+              <div className="mt-2 flex flex-col gap-3 border-t border-border pt-3">
+                <div>
+                  <p className="text-[13px] font-medium text-foreground">Unused media</p>
+                  <p className="break-all text-[11px] text-muted-foreground">{asset.fileName}</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Total known size: {getFormattedSize(deletionStatus.totalBytes ?? asset.sizeBytes)}
+                  </p>
+                </div>
+                <p className="text-[11px] text-muted-foreground">This file has no known Genesis dependencies.</p>
+                <label className="text-[11px] text-muted-foreground" htmlFor="delete-confirmation">
+                  Type <span className="font-medium text-foreground">{asset.fileName}</span> to confirm.
+                </label>
+                <Input id="delete-confirmation" value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} />
+                <p className="text-[11px] text-negative">This permanently removes the media from Genesis and cannot be undone.</p>
+                <Button onClick={handleDelete} variant="ghost" disabled={isPending || deleteConfirmation !== asset.fileName} className="w-full justify-start text-negative text-[12px] h-9">
+                  <Trash2 className="size-4 mr-2" /> Delete permanently
+                </Button>
+              </div>
+            ) : (
+              <div className="mt-2 border-t border-border pt-3">
+                <p className="text-[13px] font-medium text-foreground">Protected media</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">Cannot delete — this media is currently or historically used by Genesis.</p>
+                <ul className="mt-2 list-disc space-y-1 pl-4 text-[11px] text-muted-foreground">
+                  {deletionStatus.reasons.map((reason, index) => (
+                    <li key={`${reason.code}-${index}`}>{deletionReasonLabels[reason.code](reason.count)}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         </div>
       </div>

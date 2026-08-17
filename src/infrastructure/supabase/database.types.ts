@@ -461,6 +461,26 @@ export type MediaAssetRow = {
   is_ai_generated: boolean;
   is_archived: boolean;
   updated_at: string;
+  usage_tracking_started_at: string | null;
+  first_used_at: string | null;
+};
+
+export type MediaDeletionRequestRow = {
+  id: string;
+  organisation_id: string;
+  former_asset_id: string;
+  file_name: string;
+  object_paths: string[];
+  object_count: number;
+  total_bytes: number;
+  requested_by: string | null;
+  requested_at: string;
+  cleanup_state: "pending" | "complete";
+  cleanup_attempt_count: number;
+  last_error: string | null;
+  completed_at: string | null;
+  deletion_source: "single";
+  reference_check_outcome: "eligible";
 };
 
 export type MediaCollectionAssetRow = {
@@ -1019,6 +1039,15 @@ export type Database = {
           Fk<"media_assets_uploaded_by_fkey", "uploaded_by", "profiles">,
         ]
       >;
+      media_deletion_requests: Table<
+        MediaDeletionRequestRow,
+        Partial<MediaDeletionRequestRow>,
+        Partial<MediaDeletionRequestRow>,
+        [
+          Fk<"media_deletion_requests_organisation_id_fkey", "organisation_id", "organisations">,
+          Fk<"media_deletion_requests_requested_by_fkey", "requested_by", "profiles">,
+        ]
+      >;
       media_collection_assets: Table<
         MediaCollectionAssetRow,
         Partial<MediaCollectionAssetRow>,
@@ -1182,6 +1211,18 @@ export type Database = {
       organisation_usage_snapshot: View<UsageSnapshotRow>;
     };
     Functions: {
+      get_media_deletion_status: {
+        Args: { p_organisation_id: string; p_asset_id: string };
+        Returns: Json;
+      };
+      request_media_safe_delete: {
+        Args: { p_organisation_id: string; p_asset_id: string; p_idempotency_id: string };
+        Returns: Json;
+      };
+      record_media_cleanup_result: {
+        Args: { p_organisation_id: string; p_request_id: string; p_succeeded: boolean; p_error?: string | null };
+        Returns: Json;
+      };
       apply_engagement_recommendation: {
         Args: {
           p_organisation_id: string;

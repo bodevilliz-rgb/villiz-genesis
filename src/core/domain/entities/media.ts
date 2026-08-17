@@ -79,6 +79,45 @@ export interface MediaLibraryStats {
   totalStorageBytes: number;
 }
 
+export type MediaDeletionBlockCode =
+  | "USED_BY_CONTENT"
+  | "USED_BY_CAMPAIGN"
+  | "USED_BY_COLLECTION"
+  | "USED_BY_BRAND_KIT"
+  | "PUBLISHING_DEPENDENCY"
+  | "HISTORICAL_INTELLIGENCE_REFERENCE"
+  | "HISTORICAL_USE"
+  | "INSUFFICIENT_PERMISSION"
+  | "INVALID_STORAGE_OWNERSHIP"
+  | "INCOMPLETE_PATH_INVENTORY"
+  | "UNKNOWN_DEPENDENCY";
+
+export interface MediaDeletionBlockReason {
+  code: MediaDeletionBlockCode;
+  count: number;
+}
+
+export interface MediaDeletionStatus {
+  eligibility: "ELIGIBLE" | "BLOCKED";
+  reasons: MediaDeletionBlockReason[];
+  fileName?: string;
+  totalBytes?: number;
+  objectCount?: number;
+}
+
+export interface MediaDeletionRequest {
+  requestId: string;
+  organisationId: string;
+  formerAssetId: string;
+  objectPaths: string[];
+  cleanupState: "pending" | "complete";
+  totalBytes: number;
+}
+
+export type MediaDeletionResult =
+  | { outcome: "BLOCKED"; reasons: MediaDeletionBlockReason[] }
+  | { outcome: "ACCEPTED"; requestId: string; cleanupState: "pending" | "complete"; totalBytes: number };
+
 export interface MediaCollection {
   id: string;
   organisationId: string;
