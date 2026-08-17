@@ -48,6 +48,12 @@ export class SupabaseStoragePort implements StoragePort {
     return data.signedUrl;
   }
 
+  async downloadMedia(storagePath: string): Promise<Uint8Array> {
+    const { data, error } = await this.client.storage.from(this.BUCKET).download(storagePath);
+    if (error || !data) throw new Error(`Failed to download media for analysis: ${error?.message ?? "no data returned"}`);
+    return new Uint8Array(await data.arrayBuffer());
+  }
+
   async deleteMedia(storagePath: string): Promise<void> {
     const { error } = await this.client.storage
       .from(this.BUCKET)

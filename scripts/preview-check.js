@@ -12,6 +12,7 @@ const { execSync } = require('child_process');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { EXPECTED_SEEDED_ORGANISATION, verifySeededOrganisation } = require('./local-seed-verification');
 
 const green = (text) => `\x1b[32m${text}\x1b[0m`;
 const red = (text) => `\x1b[31m${text}\x1b[0m`;
@@ -19,7 +20,7 @@ const blue = (text) => `\x1b[34m${text}\x1b[0m`;
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 const BASE = 'http://localhost:3001';
-const ORG_ID = '00000000-0000-4000-b000-000000000001';
+const ORG_ID = EXPECTED_SEEDED_ORGANISATION.id;
 const STAFF_PROFILE_ID = '0eea9074-18f3-4934-9e20-b2bfde1fef05';
 const DEV_LOGIN_EMAIL = 'Bodevilliz@gmail.com';
 
@@ -176,9 +177,11 @@ async function main() {
   // unflagged `supabase db query`, which would silently ask the linked remote
   // project instead of this machine's Docker containers.
   try {
-    const org = queryLocalDb(`select name from public.organisations where id = '${ORG_ID}'`);
-    if (org === 'Villiz Pixels') ok('Seed data: organisation "Villiz Pixels" exists.');
-    else bad(`Seed data: expected organisation "Villiz Pixels", got "${org || '(none)'}".`);
+    const row = queryLocalDb(`select id || '|' || name from public.organisations where id = '${ORG_ID}'`);
+    const [id = '', name = ''] = row.split('|');
+    const verification = verifySeededOrganisation({ id, name });
+    if (verification.ok) ok(`Seed data: organisation "${EXPECTED_SEEDED_ORGANISATION.name}" (${ORG_ID}) exists.`);
+    else bad(`Seed data: ${verification.error}.`);
   } catch (err) {
     bad(`Seed data: organisation query failed: ${err.message}`);
   }

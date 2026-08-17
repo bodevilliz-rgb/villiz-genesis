@@ -21,6 +21,10 @@ import { render, screen, fireEvent, act } from "@testing-library/react";
 const { mockGenerateCaption, mockRewriteContent } = vi.hoisted(() => ({
   mockGenerateCaption: vi.fn().mockResolvedValue({
     text: "Luxury Wig Installation — where natural beauty meets expert care.",
+    commercialIntent: "engage",
+    culturalVoiceLevel: "conversational",
+    visibilityPlan: { targetAudience: "Configured audience", contentFormat: "carousel", hookStrategy: "question", discoveryStrategy: "Use verified discovery terms.", ctaStrategy: "Invite conversation.", measurementPlan: "Measure comments and saves.", supportingDistributionActions: ["Publish through Genesis."], publishingWindow: "Not enough evidence.", publishingWindowEvidenceState: "INSUFFICIENT_ACCOUNT_EVIDENCE", visibilityEvidenceLevel: "MARKET_PATTERN", verticalIntelligenceAvailable: true, rationale: "Approved market pattern, not proven performance." },
+    attribution: { caption: "Luxury Wig Installation — where natural beauty meets expert care.", platform: "instagram", destinationAccountId: null, mediaAssetIds: [], commercialIntent: "engage", commercialIntentSource: "recommended", culturalVoiceLevel: "conversational", visibilityPlan: { targetAudience: "Configured audience", contentFormat: "carousel", hookStrategy: "question", discoveryStrategy: "Use verified discovery terms.", ctaStrategy: "Invite conversation.", measurementPlan: "Measure comments and saves.", supportingDistributionActions: ["Publish through Genesis."], publishingWindow: "Not enough evidence.", publishingWindowEvidenceState: "INSUFFICIENT_ACCOUNT_EVIDENCE", visibilityEvidenceLevel: "MARKET_PATTERN", verticalIntelligenceAvailable: true, rationale: "Approved market pattern, not proven performance." }, suggestedHashtags: [] },
   }),
   mockRewriteContent: vi.fn().mockResolvedValue({ text: "Rewritten: polished and professional." }),
 }));
@@ -66,6 +70,7 @@ vi.mock("@/lib/routes", () => ({
 
 vi.mock("@/server/actions/awo", () => ({
   generateCaption: mockGenerateCaption,
+  generateHashtags: vi.fn().mockResolvedValue({ hashtags: ["VerifiedTag"] }),
   rewriteContent: mockRewriteContent,
 }));
 
@@ -245,7 +250,36 @@ describe("AWO AI Assist — 12 component interaction tests", () => {
 
     await clickApplyAI();
 
-    expect(mockGenerateCaption).toHaveBeenCalledWith(ORG_ID, expect.any(String), expect.any(String), expect.anything(), undefined);
+    expect(mockGenerateCaption).toHaveBeenCalledWith(ORG_ID, expect.any(String), expect.any(String), expect.anything(), undefined, undefined, undefined, [], undefined);
+  });
+
+  it("13 — Growth Brief selections reach the existing generation action and expose its Visibility Plan", async () => {
+    render(<DraftForm organisationId={ORG_ID} categories={[]} campaigns={[]} contentPillars={[{ id: "pillar-1", title: "Creative portraiture" }]} growthDestinations={[{ id: "account-1", platform: "instagram", label: "@villizpixelsuk" }]} />);
+    fireEvent.change(screen.getByRole("combobox", { name: "Growth goal" }), { target: { value: "convert" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Growth voice" }), { target: { value: "conversational" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Growth content pillar" }), { target: { value: "Creative portraiture" } });
+    await clickApplyAI();
+    expect(mockGenerateCaption).toHaveBeenCalledWith(ORG_ID, expect.any(String), "instagram", expect.objectContaining({ contentPillar: "Creative portraiture" }), expect.objectContaining({ contentPillar: "Creative portraiture" }), "convert", "conversational", [], "account-1");
+    expect(screen.getByText(/Awo Growth Decision · MARKET PATTERN/i)).toBeInTheDocument();
+    expect(screen.getByText("Use verified discovery terms.")).toBeInTheDocument();
+    expect(screen.getAllByText("#VerifiedTag")).toHaveLength(2);
+  });
+
+  it("persists accepted AGIE attribution in the draft submission contract", async () => {
+    render(<DraftForm organisationId={ORG_ID} categories={[]} campaigns={[]} growthDestinations={[{ id: "account-1", platform: "instagram", label: "@northstar" }]} />);
+    await clickApplyAI();
+    fireEvent.click(screen.getByRole("button", { name: /accept suggestion/i }));
+    const payload = JSON.parse((document.querySelector('input[name="awoAttribution"]') as HTMLInputElement).value);
+    expect(payload.caption).toBe(SUGGESTION);
+    expect(payload.suggestedHashtags).toEqual(["VerifiedTag"]);
+  });
+
+  it("14 — visibly reports the backend safe fallback when Light Naija is not authorised", async () => {
+    mockGenerateCaption.mockResolvedValueOnce({ ...await mockGenerateCaption(), culturalVoiceLevel: "conversational" });
+    render(<DraftForm organisationId={ORG_ID} categories={[]} campaigns={[]} />);
+    fireEvent.change(screen.getByRole("combobox", { name: "Growth voice" }), { target: { value: "light_naija" } });
+    await clickApplyAI();
+    expect(screen.getByRole("status")).toHaveTextContent(/not authorised.*safe brand voice/i);
   });
 
   // 12 ────────────────────────────────────────────────────────────────────────

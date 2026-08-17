@@ -19,6 +19,7 @@ export const routes = {
     detail: (id: string) => `/organisations/${id}`,
     settings: (id: string) => `/organisations/${id}/settings`,
     team: (id: string) => `/organisations/${id}/team`,
+    marketIntelligence: (id: string) => `/organisations/${id}/market-intelligence`,
     membrain: {
       index: (id: string) => `/organisations/${id}/membrain`,
       new: (id: string) => `/organisations/${id}/membrain/new`,

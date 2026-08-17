@@ -16,6 +16,7 @@ import { SupabaseNotificationRepository } from "@/infrastructure/repositories/su
 import { SupabasePublishingRepository } from "@/infrastructure/repositories/supabase-publishing-repository";
 import { SupabaseBlotatoAccountRepository } from "@/infrastructure/repositories/supabase-blotato-account-repository";
 import { SupabaseEngagementRepository } from "@/infrastructure/repositories/supabase-engagement-repository";
+import { SupabaseMarketIntelligenceRepository } from "@/infrastructure/repositories/supabase-market-intelligence-repository";
 import { HttpBlotatoClient } from "@/infrastructure/blotato/http-blotato-client";
 import { blotatoConfig } from "@/infrastructure/blotato/blotato-config";
 import type { Actor } from "@/core/domain/entities/identity";
@@ -48,6 +49,7 @@ export interface RequestContext {
   publishing: SupabasePublishingRepository;
   blotatoAccounts: SupabaseBlotatoAccountRepository;
   engagement: SupabaseEngagementRepository;
+  marketIntelligence: SupabaseMarketIntelligenceRepository;
   blotatoClient: HttpBlotatoClient;
 }
 
@@ -79,6 +81,7 @@ export const getRequestContext = cache(async (): Promise<RequestContext | null> 
     publishing: new SupabasePublishingRepository(client),
     blotatoAccounts: new SupabaseBlotatoAccountRepository(client),
     engagement: new SupabaseEngagementRepository(client),
+    marketIntelligence: new SupabaseMarketIntelligenceRepository(client),
     blotatoClient: new HttpBlotatoClient(blotatoConfig().apiKey),
   };
 });
@@ -89,4 +92,3 @@ export async function requireContext(): Promise<RequestContext> {
   if (!context) redirect(routes.login);
   return context;
 }
-

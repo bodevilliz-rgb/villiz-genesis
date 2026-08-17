@@ -20,6 +20,7 @@ import type { ContentRepository } from "@/core/application/ports/content-port";
 import type { OrganisationRepository } from "@/core/application/ports/organisation-port";
 import type { AuditRepository } from "@/core/application/ports/audit-port";
 import type { NotificationRepository } from "@/core/application/ports/notification-port";
+import type { EngagementRepository } from "@/core/application/ports/engagement-port";
 import { computePublishingAnalytics } from "./analytics";
 
 interface PublishingDeps {
@@ -30,6 +31,8 @@ interface PublishingDeps {
   organisations: OrganisationRepository;
   audits: AuditRepository;
   notifications: NotificationRepository;
+  /** Optional for backward-compatible workers/tests; request paths provide it to protect AGIE destination attribution. */
+  engagement?: Pick<EngagementRepository, "findLatest">;
 }
 
 async function requireRole(
@@ -101,6 +104,24 @@ async function resolveAndLockAccountId(
   return active[0]!.id;
 }
 
+async function requireMatchingAgieDestination(
+  deps: Pick<PublishingDeps, "engagement">,
+  organisationId: string,
+  draftId: string,
+  platform: PublishingPlatform,
+  resolvedAccountId: string,
+) {
+  const recommendation = await deps.engagement?.findLatest(organisationId, draftId);
+  const strategy = recommendation?.strategyMetadata;
+  if (!strategy) return;
+  if (strategy.destinationPlatform && strategy.destinationPlatform !== platform) {
+    throw new ValidationError("This draft's Awo Growth Decision was created for another platform. Regenerate it for the selected destination before publishing.");
+  }
+  if (strategy.destinationAccountId && strategy.destinationAccountId !== resolvedAccountId) {
+    throw new ValidationError("This draft's Awo Growth Decision was created for another destination account. Regenerate it for the selected destination before publishing.");
+  }
+}
+
 /** Immediate publish — "Publish Now". Queues a due-now job; the worker (never the operator) drives it to Published/Failed. */
 export async function createImmediatePublishingJob(
   deps: PublishingDeps,
@@ -145,6 +166,7 @@ export async function createImmediatePublishingJob(
   }
 
   const resolvedAccountId = await resolveAndLockAccountId(deps, input.organisationId, input.platform, input.resolvedAccountId);
+  await requireMatchingAgieDestination(deps, input.organisationId, input.draftId, input.platform, resolvedAccountId);
 
   const job = await deps.publishing.createJob({
     organisationId: input.organisationId,
@@ -227,6 +249,7 @@ export async function createScheduledPublishingJob(
   }
 
   const resolvedAccountId = await resolveAndLockAccountId(deps, input.organisationId, input.platform, input.resolvedAccountId);
+  await requireMatchingAgieDestination(deps, input.organisationId, input.draftId, input.platform, resolvedAccountId);
 
   const job = await deps.publishing.createJob({
     organisationId: input.organisationId,

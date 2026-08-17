@@ -66,6 +66,8 @@ export type CtaMode = "auto" | "soft_enquiry" | "book" | "custom" | "none";
  * existing prompt-only generation with no regression.
  */
 export interface GenerationGuidedContext {
+  /** Existing active MemBrain content-pillar entry selected by the operator. */
+  contentPillar?: string;
   topic?: string;
   goal?: string;
   serviceTreatment?: ServiceTreatment;
@@ -232,6 +234,7 @@ const CTA_INSTRUCTIONS: Record<CtaMode, string> = {
 export function buildGuidedContextBlock(ctx: GenerationGuidedContext): string | null {
   const lines: string[] = [];
 
+  if (ctx.contentPillar) lines.push(`Selected MemBrain content pillar: ${ctx.contentPillar}`);
   if (ctx.topic) lines.push(`Topic: ${ctx.topic}`);
   if (ctx.goal) lines.push(`Goal: ${ctx.goal}`);
 

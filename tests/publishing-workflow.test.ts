@@ -793,6 +793,20 @@ describe("destination lock — account pre-check at scheduling time", () => {
     expect(getJobs()[0]?.resolvedAccountId).toBe("fake-blotato-facebook-0");
   });
 
+  it("scheduled publish preserves the AGIE-selected destination attribution", async () => {
+    const { deps } = createHarness({ draft: baseDraft({ status: "approved" }), viewerRole: "contributor", activeAccountCount: 1 });
+    Object.assign(deps, { engagement: { findLatest: async () => ({ platform: "instagram", strategyMetadata: { destinationPlatform: "instagram", destinationAccountId: "fake-blotato-instagram-0" } }) } });
+    const job = await createScheduledPublishingJob(deps, { organisationId: ORG_ID, draftId: DRAFT_ID, platform: "instagram", scheduledFor: future, timezone: "UTC", idempotencyKey: "agie-destination-match", executionMode: "simulation" });
+    expect(job.resolvedAccountId).toBe("fake-blotato-instagram-0");
+  });
+
+  it("scheduled publish refuses to silently move an AGIE decision to another account", async () => {
+    const { deps, getJobs } = createHarness({ draft: baseDraft({ status: "approved" }), viewerRole: "contributor", activeAccountCount: 2 });
+    Object.assign(deps, { engagement: { findLatest: async () => ({ platform: "instagram", strategyMetadata: { destinationPlatform: "instagram", destinationAccountId: "fake-blotato-instagram-0" } }) } });
+    await expect(createScheduledPublishingJob(deps, { organisationId: ORG_ID, draftId: DRAFT_ID, platform: "instagram", scheduledFor: future, timezone: "UTC", idempotencyKey: "agie-destination-mismatch", resolvedAccountId: "fake-blotato-instagram-1", executionMode: "simulation" })).rejects.toThrow(/another destination account/i);
+    expect(getJobs()).toHaveLength(0);
+  });
+
   it("immediate publish: fails closed (ValidationError) before createJob when 0 accounts are mapped", async () => {
     const { deps, getJobs } = createHarness({
       draft: baseDraft({ status: "approved" }),

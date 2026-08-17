@@ -14,6 +14,7 @@
 const { execSync, spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { EXPECTED_SEEDED_ORGANISATION, verifySeededOrganisation } = require('./local-seed-verification');
 
 const green = (text) => `\x1b[32m${text}\x1b[0m`;
 const red = (text) => `\x1b[31m${text}\x1b[0m`;
@@ -21,7 +22,30 @@ const yellow = (text) => `\x1b[33m${text}\x1b[0m`;
 const blue = (text) => `\x1b[34m${text}\x1b[0m`;
 
 const REPO_ROOT = path.resolve(__dirname, '..');
-const ORG_ID = '00000000-0000-4000-b000-000000000001';
+const ORG_ID = EXPECTED_SEEDED_ORGANISATION.id;
+
+/**
+ * Git does not copy ignored .env.local files into linked worktrees. Resolve the
+ * primary checkout through Git's common directory and load its local-only env
+ * into this process when the current worktree has no file of its own. Next's
+ * child process inherits these values; no secret is copied or committed.
+ */
+function resolveLocalEnv() {
+  const worktreeEnv = path.join(REPO_ROOT, '.env.local');
+  if (fs.existsSync(worktreeEnv)) return { envPath: worktreeEnv, source: 'worktree' };
+
+  const commonDir = execSync('git rev-parse --path-format=absolute --git-common-dir', {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
+  const primaryEnv = path.join(path.dirname(commonDir), '.env.local');
+  if (!fs.existsSync(primaryEnv)) return { envPath: worktreeEnv, source: 'missing' };
+
+  // @next/env uses Next's own dotenv semantics and never prints values.
+  require('@next/env').loadEnvConfig(path.dirname(commonDir), true, console, true);
+  return { envPath: primaryEnv, source: 'primary-worktree' };
+}
 
 function runCmd(command, options = {}) {
   try {
@@ -58,9 +82,9 @@ try {
 
 // 2. Environment sanity check — refuse to run against a remote project by accident.
 console.log(blue('\nStep 2/6: Verifying .env.local points at LOCAL Supabase...'));
-const envPath = path.join(REPO_ROOT, '.env.local');
+const { envPath, source: envSource } = resolveLocalEnv();
 if (!fs.existsSync(envPath)) {
-  fail('.env.local is missing. Copy .env.example to .env.local (values are printed by `npx supabase status` once started).');
+  fail('.env.local is missing from this worktree and the primary checkout. Copy .env.example to .env.local (values are printed by `npx supabase status` once started).');
 }
 const envContents = fs.readFileSync(envPath, 'utf8');
 const urlLine = envContents.split('\n').find((l) => l.startsWith('NEXT_PUBLIC_SUPABASE_URL='));
@@ -72,6 +96,9 @@ if (!urlLine || !localUrlPattern.test(urlLine)) {
   );
 }
 console.log(green('✔ .env.local targets local Supabase.'));
+if (envSource === 'primary-worktree') {
+  console.log(green('✔ Loaded the primary checkout\'s local environment for this isolated Git worktree (no file copied).'));
+}
 
 // 3. Start local Supabase if it is not already running.
 console.log(blue('\nStep 3/6: Checking local Supabase status...'));
@@ -133,12 +160,12 @@ console.log(blue('\nStep 6/6: Verifying seeded organisation exists...'));
 try {
   const container = localDbContainerName();
   const result = execSync(
-    `docker exec -i ${container} psql -U postgres -d postgres -t -A -c "select name from public.organisations where id = '${ORG_ID}'"`,
+    `docker exec -i ${container} psql -U postgres -d postgres -t -A -F '|' -c "select id, name from public.organisations where id = '${ORG_ID}'"`,
   ).toString().trim();
-  if (result !== 'Villiz Pixels') {
-    fail(`Seed verification failed: expected organisation "Villiz Pixels" (${ORG_ID}), got "${result || '(none)'}".`);
-  }
-  console.log(green('✔ Seeded organisation "Villiz Pixels" confirmed.'));
+  const [id = '', name = ''] = result.split('|');
+  const verification = verifySeededOrganisation({ id, name });
+  if (!verification.ok) fail(`Seed verification failed: ${verification.error}.`);
+  console.log(green(`✔ Seeded organisation "${EXPECTED_SEEDED_ORGANISATION.name}" (${ORG_ID}) confirmed.`));
 } catch (err) {
   fail(`Could not verify seed data: ${err.message}`);
 }
@@ -148,7 +175,7 @@ console.log(`Local Web App:     ${green('http://localhost:3001')}`);
 console.log(`Supabase Studio:   ${green('http://127.0.0.1:54323')}`);
 console.log(`Mail Catcher:      ${green('http://127.0.0.1:54324')}`);
 console.log(`Staff Account:     ${green('Bodevilliz@gmail.com')} (role: lead)`);
-console.log(`Client Workspace:  ${green('Villiz Pixels')} (${ORG_ID})`);
+console.log(`Client Workspace:  ${green(EXPECTED_SEEDED_ORGANISATION.name)} (${ORG_ID})`);
 console.log(`Database resets:   ${yellow('manual only')} — run \`npm run db:reset:local\` yourself when you need one.`);
 console.log(blue('==========================\n'));
 
@@ -164,21 +191,72 @@ console.log(blue('==========================\n'));
 // user-facing error) with the draft left exactly as it was. That looked like
 // an application bug in the approval workflow; it was actually this.
 console.log(blue('\nChecking port 3001 is not already in use...'));
-const portOwnerPid = runCmd('lsof -tiTCP:3001 -sTCP:LISTEN', { silent: true, ignoreError: true });
-if (portOwnerPid && portOwnerPid.trim()) {
-  const alreadyHealthy = (() => {
+
+/**
+ * The working directory of a running process, or null if it cannot be read.
+ *
+ * This is the identity check. macOS has no /proc and `ps` cannot report another
+ * process's cwd, so `lsof -d cwd` is the only reliable source. It reads nothing
+ * but a path — no environment, no secrets.
+ */
+function processCwd(pid) {
+  const output = runCmd(`lsof -a -p ${pid} -d cwd -Fn`, { silent: true, ignoreError: true });
+  if (!output) return null;
+  const line = output.split('\n').find((l) => l.startsWith('n'));
+  if (!line) return null;
+  try {
+    return fs.realpathSync(line.slice(1).trim());
+  } catch {
+    return null;
+  }
+}
+
+const portOwnerOutput = runCmd('lsof -tiTCP:3001 -sTCP:LISTEN', { silent: true, ignoreError: true });
+const portOwnerPids = portOwnerOutput ? [...new Set(portOwnerOutput.trim().split('\n').filter(Boolean))] : [];
+
+if (portOwnerPids.length) {
+  // Answering on the port is liveness, not identity, and the two are not the
+  // same thing. Every sibling Git worktree of this repo serves a byte-identical
+  // /login, so a 200 here only ever proved "some Genesis-shaped app replied" —
+  // never "the app in *this* worktree, built from *this* source". Establish the
+  // listener's identity from the OS first, and only then ask whether it works.
+  const rootRealPath = fs.realpathSync(REPO_ROOT);
+  const foreign = portOwnerPids
+    .map((pid) => ({ pid, cwd: processCwd(pid) }))
+    .filter((owner) => owner.cwd !== rootRealPath);
+
+  if (foreign.length) {
+    const describe = foreign
+      .map((owner) => `pid ${owner.pid} (${owner.cwd ? `working directory ${owner.cwd}` : 'working directory unreadable'})`)
+      .join(', ');
+    fail(
+      `Port 3001 is held by a process that does not belong to this worktree: ${describe}. ` +
+        `This worktree is ${rootRealPath}. ` +
+        'Refusing to reuse it — serving a different checkout at the address this worktree expects is how "I fixed it but nothing changed" happens. ' +
+        'Refusing to kill it too, because it may be another worktree you are deliberately running. ' +
+        'Stop it yourself, or free the port, then run `npm run dev:local` again.',
+    );
+  }
+
+  // The listener is genuinely this worktree's server, so a duplicate must not be
+  // spawned on top of it (orphaned instances answering the same port served
+  // React Server Action IDs from a process that never compiled them — the
+  // silent "stuck in review" failure). But it still has to actually be serving:
+  // removing .next underneath a running `next dev` leaves the process alive and
+  // listening while every route 500s on a missing .next/routes-manifest.json,
+  // and it never rebuilds that file. Reusing that is reusing a dead environment.
+  const loginStatus = (() => {
     try {
-      const status = runCmd('curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/login --max-time 3', {
+      return runCmd('curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/login --max-time 5', {
         silent: true,
-      });
-      return status.trim() === '200';
+      }).trim();
     } catch {
-      return false;
+      return 'no response';
     }
   })();
 
-  if (alreadyHealthy) {
-    console.log(green('✔ A healthy dev server is already running on port 3001 — reusing it, not spawning a duplicate.'));
+  if (loginStatus === '200') {
+    console.log(green('✔ This worktree\'s dev server is already running and healthy on port 3001 — reusing it, not spawning a duplicate.'));
     console.log(blue('\n=== Environment Ready (already running) ==='));
     console.log(`Local Web App:     ${green('http://localhost:3001')}`);
     console.log(blue('==========================\n'));
@@ -186,9 +264,10 @@ if (portOwnerPid && portOwnerPid.trim()) {
   }
 
   fail(
-    `Port 3001 is already in use by another process (pid ${portOwnerPid.trim().split('\n').join(', ')}) that is not answering as this app. ` +
-      `Stop it before continuing: \`lsof -tiTCP:3001 -sTCP:LISTEN | xargs kill\`, then run \`npm run dev:local\` again. ` +
-      'Never spawn a second Next.js process on top of it — that is exactly how the review-workflow "stuck in review" bug happened before.',
+    `This worktree's own dev server (pid ${portOwnerPids.join(', ')}) is still listening on port 3001 but is no longer serving: /login answered ${loginStatus} instead of 200. ` +
+      'The usual cause is that `.next` was deleted while the server was running — Next.js keeps the process alive and listening, fails every request with ENOENT on `.next/routes-manifest.json`, and never rebuilds it, so it will not recover on its own. ' +
+      `Stop it and start clean: \`kill ${portOwnerPids.join(' ')}\`, then run \`npm run dev:local\` again. ` +
+      'Stop the server before deleting `.next`, never the other way round.',
   );
 }
 console.log(green('✔ Port 3001 is free.'));

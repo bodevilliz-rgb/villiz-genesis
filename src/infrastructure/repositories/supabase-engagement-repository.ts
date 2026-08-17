@@ -36,6 +36,7 @@ export class SupabaseEngagementRepository implements EngagementRepository {
         performance_confidence: input.performanceConfidence,
         performance_summary: input.performanceSummary as unknown as Json,
         evidence: input.evidence as unknown as Json,
+        strategy_metadata: input.strategyMetadata as unknown as Json,
         created_by: input.createdBy,
       })
       .select("*")
