@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildVisibilityPlan, deriveClientVisibilityEvidence, resolveVerticalPlaybook, VERTICAL_PLAYBOOKS, VISIBILITY_STRATEGY_VERSION } from "@/core/application/use-cases/market-intelligence/visibility";
+import { buildVisibilityPlan, BUYER_ORIENTATION_CONTRACT, deriveClientVisibilityEvidence, resolveVerticalPlaybook, VERTICAL_PLAYBOOKS, visibilityPlanPrompt, VISIBILITY_STRATEGY_VERSION } from "@/core/application/use-cases/market-intelligence/visibility";
 import type { EngagementMetricSnapshot, EngagementRecommendation } from "@/core/domain/entities/engagement";
 
 const base = { platform: "instagram" as const, objectiveType: "bookings" as const, commercialIntent: "convert" as const, targetAudience: "Couples planning a verified local wedding", industry: "Wedding photography", mediaMimeTypes: ["image/jpeg", "image/png"], selectedMarketPatternIds: [] };
@@ -143,5 +143,28 @@ describe("adaptive visibility intelligence", () => {
     expect(plan.goalRationale).toContain("WhatsApp enquiry");
     expect(plan.hookStrategy).toBe("confidence");
     expect(plan.actualHook).toBe("Your portrait can make a statement before you say a word.");
+  });
+
+  it.each([
+    ["Photography", "People considering a portrait photography service"],
+    ["Hair & Beauty salon", "People considering a hair or beauty service"],
+  ])("keeps consumer-service Foundation copy oriented to buyers for %s", (industry, targetAudience) => {
+    const prompt = visibilityPlanPrompt(buildVisibilityPlan({ ...base, industry, targetAudience, mediaMimeTypes: ["image/jpeg"] }));
+    expect(prompt).toContain(`Target audience: ${targetAudience}`);
+    expect(prompt).toContain("write to a plausible prospective buyer or user of that service");
+    expect(prompt).toContain("Technical media observations are internal evidence");
+    expect(prompt).toContain("Every CTA or closing question must address the same legitimate prospective customer");
+    expect(prompt).toContain("practitioners are the public audience only when authoritative MemBrain audience context explicitly defines them");
+  });
+
+  it.each([
+    ["Professional services consultancy", "Operations leaders choosing an external adviser"],
+    ["Unknown specialist business", "Independent practitioners explicitly configured in MemBrain"],
+  ])("preserves the configured audience safely for %s", (industry, targetAudience) => {
+    const prompt = visibilityPlanPrompt(buildVisibilityPlan({ ...base, industry, targetAudience, mediaMimeTypes: ["image/jpeg"] }));
+    expect(prompt).toContain(`Target audience: ${targetAudience}`);
+    expect(prompt).toContain("follow the authoritative configured audience without assuming either a consumer buyer or practitioner audience");
+    expect(prompt).toContain("If the audience is unclear, remain neutral rather than inventing one");
+    expect(BUYER_ORIENTATION_CONTRACT).not.toMatch(/Villiz|photography studio|salon client/i);
   });
 });

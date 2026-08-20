@@ -33,4 +33,10 @@ describe("AGIE request-scoped multimodal contract", () => {
     expect(source).toContain("Awo could not select a valid active MemBrain content pillar");
     expect(source).toContain("MEDIA_SAFETY_PROMPT");
   });
+
+  it("applies the reusable buyer-orientation contract during media analysis", () => {
+    const source = readFileSync("src/server/actions/awo.ts", "utf8");
+    expect(source).toContain("${BUYER_ORIENTATION_CONTRACT}");
+    expect(source).toContain("BUYER_ORIENTATION_CONTRACT, deriveClientVisibilityEvidence");
+  });
 });
