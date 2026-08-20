@@ -19,6 +19,7 @@ import {
   buildCaptionSystemPrompt,
   buildRewriteSystemPrompt,
   classifyContentIntent,
+  resolveActivePillarSelection,
   type GenerationIntentHints,
   type GenerationGuidedContext,
 } from "./awo-grounding";
@@ -363,7 +364,9 @@ export async function generateCaption(
   }
 
   const operatorPillar = guidedContext?.contentPillar?.trim() || null;
-  const analysedPillar = analysedMedia ? pillarEntries.find((entry) => entry.title.toLocaleLowerCase() === analysedMedia!.selectedPillarTitle.trim().toLocaleLowerCase()) : null;
+  const analysedPillar = analysedMedia
+    ? resolveActivePillarSelection(pillarEntries, analysedMedia.selectedPillarTitle)
+    : null;
   if (!operatorPillar && analysedMedia && !analysedPillar) throw new Error("Awo could not select a valid active MemBrain content pillar from the organisation's approved entries.");
   const selectedPillar = operatorPillar ?? analysedPillar?.title ?? null;
   const pillarRationale = operatorPillar ? "Selected by the operator." : analysedMedia?.pillarRationale ?? "No request-scoped pillar selection was available.";

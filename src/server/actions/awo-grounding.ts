@@ -97,6 +97,26 @@ export interface GenerationIntentHints {
   userPromptIsExplicit?: boolean;
 }
 
+/**
+ * Reconciles the model's pillar selection with the authoritative active
+ * MemBrain options. Gemini can echo the prompt's `title: body` line even when
+ * asked for the title alone, so accept that delimiter-bound form without ever
+ * accepting a title that is not present in the approved option set.
+ */
+export function resolveActivePillarSelection<T extends { title: string }>(
+  entries: T[],
+  selectedPillarTitle: string,
+): T | null {
+  const selection = selectedPillarTitle.trim().toLocaleLowerCase();
+  const exact = entries.find((entry) => entry.title.trim().toLocaleLowerCase() === selection);
+  if (exact) return exact;
+
+  const echoed = entries.filter((entry) =>
+    selection.startsWith(`${entry.title.trim().toLocaleLowerCase()}:`),
+  );
+  return echoed.length === 1 ? echoed[0]! : null;
+}
+
 function activeBodiesForKey(membrain: MembrainOverview, key: string): string[] {
   const group = membrain.groups.find((g) => g.category.key === key);
   if (!group) return [];

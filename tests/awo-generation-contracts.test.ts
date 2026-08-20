@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { assembleMarketGenerationContext, recommendCommercialIntent } from "@/core/application/use-cases/market-intelligence/context";
 import type { MarketIntelligenceProfile, MarketPattern } from "@/core/domain/entities/market-intelligence";
+import { resolveActivePillarSelection } from "@/server/actions/awo-grounding";
 
 const awoActionSource = readFileSync("src/server/actions/awo.ts", "utf8");
 const draftFormSource = readFileSync("src/components/content/draft-form.tsx", "utf8");
@@ -140,6 +141,30 @@ describe("New Draft page pillar source", () => {
   it("selects active entries from the content_pillars category only", () => {
     expect(newDraftPage).toContain('group.category.key === "content_pillars"');
     expect(newDraftPage).toContain('entry.status === "active"');
+  });
+});
+
+describe("multimodal pillar selection reconciliation", () => {
+  const activePillars = [
+    { title: "Product education" },
+    { title: "Workflow demonstration" },
+  ];
+
+  it("accepts an exact approved active pillar title", () => {
+    expect(resolveActivePillarSelection(activePillars, "product EDUCATION")).toBe(activePillars[0]);
+  });
+
+  it("accepts Gemini echoing the approved title with its colon-delimited description", () => {
+    expect(
+      resolveActivePillarSelection(
+        activePillars,
+        "Product education: Demonstrate useful product knowledge.",
+      ),
+    ).toBe(activePillars[0]);
+  });
+
+  it("still rejects a model-selected pillar outside the approved active entries", () => {
+    expect(resolveActivePillarSelection(activePillars, "Invented campaign pillar")).toBeNull();
   });
 });
 
