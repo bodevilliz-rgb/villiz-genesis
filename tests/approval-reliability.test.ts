@@ -287,12 +287,13 @@ describe("T7 — self-approval blocked", () => {
     expect(mutations).toHaveLength(0);
   });
 
-  it("lead who authored the draft also cannot self-approve", async () => {
+  it("sole eligible Account Lead uses the ordinary single-mutation approval path", async () => {
     const draft = draftWithStatus("in_review", ACTOR_ID);
     const mutations: MutationRecord[] = [];
     const d = buildDeps(draft, ACTOR_ID, "lead", mutations);
-    await expect(approveDraft(d, baseInput)).rejects.toBeInstanceOf(ForbiddenError);
-    expect(mutations).toHaveLength(0);
+    await expect(approveDraft(d, baseInput)).resolves.toMatchObject({ status: "approved" });
+    expect(mutations).toHaveLength(1);
+    expect(mutations[0]).toMatchObject({ action: "approved", newStatus: "approved" });
   });
 });
 
