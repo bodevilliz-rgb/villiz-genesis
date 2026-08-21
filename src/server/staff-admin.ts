@@ -70,7 +70,8 @@ export async function inviteStaff(input: { name: string; email: string; platform
     await admin.from("staff_invitations").update({ status: "revoked", revoked_at: new Date().toISOString() }).eq("id", invitation.id);
     throw result.error ?? new Error("Supabase did not create the invited identity.");
   }
-  await admin.from("profiles").update({ full_name: input.name.trim(), role: input.platformRole, is_active: true }).eq("id", result.data.user.id);
+  const { error: activationError } = await admin.rpc("admin_set_staff_profile", { p_actor_id: input.invitedBy, p_profile_id: result.data.user.id, p_full_name: input.name.trim(), p_role: input.platformRole, p_is_active: true });
+  if (activationError) throw activationError;
   if (input.access.length) {
     const { error: accessError } = await admin.from("organisation_members").upsert(input.access.map((a) => ({ organisation_id: a.organisationId, profile_id: result.data.user.id, role: a.role, assigned_by: input.invitedBy })), { onConflict: "organisation_id,profile_id" });
     if (accessError) throw accessError;
@@ -84,7 +85,9 @@ export async function inviteStaff(input: { name: string; email: string; platform
 export async function updateStaff(input: { profileId: string; platformRole: PlatformRole; access: StaffAccess[]; actorId: string }) {
   const admin = createAdminClient();
   if (input.profileId === input.actorId && input.platformRole === "member") throw new Error("You cannot remove your own administrator access.");
-  const { error } = await admin.from("profiles").update({ role: input.platformRole }).eq("id", input.profileId);
+  const { data: current, error: currentError } = await admin.from("profiles").select("full_name,is_active").eq("id", input.profileId).single();
+  if (currentError) throw currentError;
+  const { error } = await admin.rpc("admin_set_staff_profile", { p_actor_id: input.actorId, p_profile_id: input.profileId, p_full_name: current.full_name ?? "", p_role: input.platformRole, p_is_active: current.is_active });
   if (error) throw error;
   await admin.from("organisation_members").delete().eq("profile_id", input.profileId);
   if (input.access.length) {
@@ -96,7 +99,9 @@ export async function updateStaff(input: { profileId: string; platformRole: Plat
 export async function deactivateStaff(profileId: string, actorId: string) {
   if (profileId === actorId) throw new Error("You cannot deactivate your own account.");
   const admin = createAdminClient();
-  const { error } = await admin.from("profiles").update({ is_active: false }).eq("id", profileId);
+  const { data: current, error: currentError } = await admin.from("profiles").select("full_name,role").eq("id", profileId).single();
+  if (currentError) throw currentError;
+  const { error } = await admin.rpc("admin_set_staff_profile", { p_actor_id: actorId, p_profile_id: profileId, p_full_name: current.full_name ?? "", p_role: current.role, p_is_active: false });
   if (error) throw error;
   await admin.from("organisation_members").delete().eq("profile_id", profileId);
 }
@@ -109,7 +114,9 @@ export async function revokeInvitation(invitationId: string) {
   const { data } = await admin.auth.admin.listUsers();
   const user = data.users.find((candidate) => candidate.email?.toLowerCase() === invitation.email);
   if (user && !user.last_sign_in_at) {
-    await admin.from("profiles").update({ is_active: false }).eq("id", user.id);
+    const { data: inviter } = await admin.from("staff_invitations").select("invited_by").eq("id", invitationId).single();
+    const { data: current } = await admin.from("profiles").select("full_name,role").eq("id", user.id).single();
+    if (inviter && current) await admin.rpc("admin_set_staff_profile", { p_actor_id: inviter.invited_by, p_profile_id: user.id, p_full_name: current.full_name ?? "", p_role: current.role, p_is_active: false });
     await admin.from("organisation_members").delete().eq("profile_id", user.id);
   }
 }

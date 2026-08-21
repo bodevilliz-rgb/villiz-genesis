@@ -1254,6 +1254,10 @@ export type Database = {
       organisation_usage_snapshot: View<UsageSnapshotRow>;
     };
     Functions: {
+      admin_set_staff_profile: {
+        Args: { p_actor_id: string; p_profile_id: string; p_full_name: string; p_role: PlatformRoleDb; p_is_active: boolean };
+        Returns: ProfileRow;
+      };
       get_media_deletion_status: {
         Args: { p_organisation_id: string; p_asset_id: string };
         Returns: Json;
