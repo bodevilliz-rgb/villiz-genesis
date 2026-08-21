@@ -3,6 +3,7 @@ import { createAdminClient } from "@/infrastructure/supabase/admin-client";
 import { isAllowedEmail, serverEnv } from "@/lib/env";
 import { routes } from "@/lib/routes";
 import type { PlatformRole, OrganisationRole } from "@/core/domain/entities/identity";
+import { ConflictError, InfrastructureError, LimitExceededError } from "@/core/domain/errors";
 
 export type StaffAccess = { organisationId: string; role: OrganisationRole };
 export type StaffAdminRow = {
@@ -39,9 +40,16 @@ export async function resendInvitation(invitationId: string) {
   const admin = createAdminClient();
   const { data: invitation, error } = await admin.from("staff_invitations").select("email,status").eq("id", invitationId).single();
   if (error) throw error;
-  if (invitation.status !== "pending") throw new Error("Only pending invitations can be resent.");
+  if (invitation.status !== "pending") throw new ConflictError("Only pending invitations can be resent.");
   const { error: sendError } = await admin.auth.signInWithOtp({ email: invitation.email, options: { shouldCreateUser: false, emailRedirectTo: `${serverEnv().NEXT_PUBLIC_SITE_URL.replace(/\/$/, "")}${routes.authCallback}` } });
-  if (sendError) throw sendError;
+  if (sendError) throw staffEmailError(sendError);
+}
+
+function staffEmailError(error: { status?: number; code?: string }): Error {
+  if (error.status === 429 || error.code === "over_email_send_rate_limit" || error.code === "over_request_rate_limit") {
+    return new LimitExceededError("Staff access is ready, but the email service is temporarily busy. Use Resend invite in a few minutes.");
+  }
+  return new InfrastructureError("Staff access is ready, but the invitation email could not be sent. Use Resend invite to try again.");
 }
 
 export async function inviteStaff(input: { name: string; email: string; platformRole: PlatformRole; access: StaffAccess[]; invitedBy: string }) {
@@ -58,28 +66,30 @@ export async function inviteStaff(input: { name: string; email: string; platform
   }).select("id").single();
   if (invitationError) throw invitationError;
 
-  const { data: users } = await admin.auth.admin.listUsers();
+  const { data: users, error: usersError } = await admin.auth.admin.listUsers();
+  if (usersError) {
+    await admin.from("staff_invitations").update({ status: "revoked", revoked_at: new Date().toISOString() }).eq("id", invitation.id);
+    throw usersError;
+  }
   const existingUser = users.users.find((user) => user.email?.toLowerCase() === email);
-  const result = existingUser
-    ? { data: { user: existingUser }, error: null }
-    : await admin.auth.admin.inviteUserByEmail(email, {
-        redirectTo: `${serverEnv().NEXT_PUBLIC_SITE_URL.replace(/\/$/, "")}${routes.authCallback}`,
-        data: { full_name: input.name.trim(), genesis_invitation_id: invitation.id },
-      });
+  const result = existingUser ? { data: { user: existingUser }, error: null } : await admin.auth.admin.createUser({
+    email,
+    email_confirm: false,
+    user_metadata: { full_name: input.name.trim(), genesis_invitation_id: invitation.id },
+  });
   if (result.error || !result.data.user) {
     await admin.from("staff_invitations").update({ status: "revoked", revoked_at: new Date().toISOString() }).eq("id", invitation.id);
     throw result.error ?? new Error("Supabase did not create the invited identity.");
   }
-  const { error: activationError } = await admin.rpc("admin_set_staff_profile", { p_actor_id: input.invitedBy, p_profile_id: result.data.user.id, p_full_name: input.name.trim(), p_role: input.platformRole, p_is_active: true });
-  if (activationError) throw activationError;
-  if (input.access.length) {
-    const { error: accessError } = await admin.from("organisation_members").upsert(input.access.map((a) => ({ organisation_id: a.organisationId, profile_id: result.data.user.id, role: a.role, assigned_by: input.invitedBy })), { onConflict: "organisation_id,profile_id" });
-    if (accessError) throw accessError;
+  const { error: preparationError } = await admin.rpc("admin_prepare_staff_invitation", { p_actor_id: input.invitedBy, p_invitation_id: invitation.id, p_profile_id: result.data.user.id });
+  if (preparationError) {
+    await admin.from("staff_invitations").update({ status: "revoked", revoked_at: new Date().toISOString() }).eq("id", invitation.id);
+    if (!existingUser) await admin.auth.admin.deleteUser(result.data.user.id);
+    throw preparationError;
   }
-  if (existingUser) {
-    const { error: sendError } = await admin.auth.signInWithOtp({ email, options: { shouldCreateUser: false, emailRedirectTo: `${serverEnv().NEXT_PUBLIC_SITE_URL.replace(/\/$/, "")}${routes.authCallback}` } });
-    if (sendError) throw sendError;
-  }
+
+  const { error: sendError } = await admin.auth.signInWithOtp({ email, options: { shouldCreateUser: false, emailRedirectTo: `${serverEnv().NEXT_PUBLIC_SITE_URL.replace(/\/$/, "")}${routes.authCallback}` } });
+  if (sendError) throw staffEmailError(sendError);
 }
 
 export async function updateStaff(input: { profileId: string; platformRole: PlatformRole; access: StaffAccess[]; actorId: string }) {
