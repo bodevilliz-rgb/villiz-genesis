@@ -23,6 +23,7 @@ export interface EngagementRepository {
   listFeedbackForDraft?(organisationId: string, draftId: string, before: string, limit: number): Promise<EngagementFeedbackEvent[]>;
   listMetricSnapshots?(organisationId: string, platform: CampaignPlatform, objectiveType: EngagementObjectiveType, providerAccountId: string): Promise<EngagementMetricSnapshot[]>;
   listMetricSnapshotsForDraft?(organisationId: string, draftId: string): Promise<EngagementMetricSnapshot[]>;
+  listMetricSnapshotsForOrganisation?(organisationId: string, limit?: number): Promise<EngagementMetricSnapshot[]>;
   createMetricSnapshot?(input: EngagementMetricSnapshotWriteModel): Promise<EngagementMetricSnapshotInsertResult>;
   createCommercialOutcome?(input: EngagementCommercialOutcomeWriteModel): Promise<EngagementCommercialOutcome>;
   listCommercialOutcomes?(organisationId: string, platform: CampaignPlatform, providerAccountId: string): Promise<EngagementCommercialOutcome[]>;

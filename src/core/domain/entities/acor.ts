@@ -1,3 +1,5 @@
+import type { EngagementMetricSnapshot } from "./engagement";
+
 export const ACOR_LIFECYCLE = ["DISCOVERY", "FORENSIC_REVIEW", "STRATEGY_REQUIRED", "GROUNDING", "GROWTH_READY", "ACTIVE_LEARNING"] as const;
 export type AcorLifecycle = (typeof ACOR_LIFECYCLE)[number];
 export const PROOF_DEPTHS = ["STRONGLY_PROVEN", "ADEQUATELY_PROVEN", "UNDER_PROVEN", "CONFIRMED_UNPROVEN", "NOT_MARKET_READY"] as const;
@@ -41,7 +43,35 @@ export function computeGrowthReadiness(values: Record<GrowthReadinessGateKey, { 
   return { lifecycle: missing.length === 0 ? "GROWTH_READY" : "GROUNDING", metCount: gates.length - missing.length, total: gates.length, gates, missing };
 }
 
-export function deriveGrowthReadinessFromGenesis(input: { brandDescriptionReady: boolean; brandVoiceReady: boolean; membrainReady: boolean; marketIntelligenceReady: boolean; conversionActions: string[]; approvedPriorityProof: boolean; baselineCaptured: boolean; connectedPlatformCount: number; measurementConfigured: boolean; }): GrowthReadiness {
+export interface MeasurementReadiness {
+  configured: boolean;
+  dataExists: boolean;
+  adaptiveEvidenceReady: boolean;
+}
+
+export function deriveMeasurementReadiness(input: {
+  blotatoEnabled: boolean;
+  connectedProviderAccountCount: number;
+  snapshots: Pick<EngagementMetricSnapshot, "externalPostId" | "measurementWindow">[];
+}): MeasurementReadiness {
+  const comparablePosts = new Set(input.snapshots
+    .filter((snapshot) => snapshot.measurementWindow === "7d")
+    .map((snapshot) => snapshot.externalPostId));
+  return {
+    configured: input.blotatoEnabled && input.connectedProviderAccountCount > 0,
+    dataExists: input.snapshots.length > 0,
+    adaptiveEvidenceReady: comparablePosts.size >= 10,
+  };
+}
+
+export function deriveGrowthReadinessFromGenesis(input: { brandDescriptionReady: boolean; brandVoiceReady: boolean; membrainReady: boolean; marketIntelligenceReady: boolean; conversionActions: string[]; approvedPriorityProof: boolean; baselineCaptured: boolean; connectedPlatformCount: number; measurementConfigured: boolean; measurementDataExists?: boolean; adaptiveEvidenceReady?: boolean; }): GrowthReadiness {
+  const measurementEvidence = !input.measurementConfigured
+    ? "Measurement infrastructure is not operational for this organisation."
+    : input.adaptiveEvidenceReady
+      ? "Measurement is configured, provider data exists, and comparable 7-day adaptive evidence is ready."
+      : input.measurementDataExists
+        ? "Measurement is configured and provider data exists. Comparable 7-day adaptive evidence is not ready yet."
+        : "Measurement is configured. No provider measurement has been collected yet; adaptive evidence is not ready.";
   return computeGrowthReadiness({
     brand_truth: { met: input.brandDescriptionReady && input.brandVoiceReady, evidence: input.brandDescriptionReady && input.brandVoiceReady ? "Approved brand description and voice are active." : "Approved brand description or voice is missing." },
     membrain: { met: input.membrainReady, evidence: input.membrainReady ? "All six authoritative knowledge areas are ready." : "One or more authoritative knowledge areas are incomplete." },
@@ -50,7 +80,7 @@ export function deriveGrowthReadinessFromGenesis(input: { brandDescriptionReady:
     priority_offer_proof: { met: input.approvedPriorityProof, evidence: input.approvedPriorityProof ? "Human-reviewed priority-offer proof is recorded." : "Priority-offer proof is missing or pending approval." },
     baseline: { met: input.baselineCaptured, evidence: input.baselineCaptured ? "An honest Day-0 reference is recorded." : "Day-0 baseline is not recorded." },
     platform_connections: { met: input.connectedPlatformCount > 0, evidence: input.connectedPlatformCount > 0 ? `${input.connectedPlatformCount} authorised destination account(s) connected.` : "No authorised destination account is connected." },
-    measurement: { met: input.measurementConfigured, evidence: input.measurementConfigured ? "Measurement is configured." : "Measurement remains not configured or not measured." },
+    measurement: { met: input.measurementConfigured, evidence: measurementEvidence },
   });
 }
 

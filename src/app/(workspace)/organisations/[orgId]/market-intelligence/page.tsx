@@ -5,15 +5,17 @@ import { PageHeader } from "@/components/common/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { saveMarketProfileAction, addMarketReferenceAction, addMarketPatternAction } from "@/server/actions/market-intelligence";
 import { getMembrainOverview } from "@/core/application/use-cases/membrain";
-import { deriveGrowthReadinessFromGenesis, emptyImpactCheckpoint } from "@/core/domain/entities/acor";
+import { deriveGrowthReadinessFromGenesis, deriveMeasurementReadiness, emptyImpactCheckpoint } from "@/core/domain/entities/acor";
+import { blotatoConfig } from "@/infrastructure/blotato/blotato-config";
 
 const input = "w-full rounded-md border border-border bg-input px-3 py-2 text-sm";
 export default async function MarketIntelligencePage({ params }: { params: Promise<{ orgId: string }> }) {
   const { orgId } = await params; const context = await requireContext();
-  const [organisation, snapshot, membrain, connectedAccounts] = await Promise.all([context.organisations.findById(orgId), context.marketIntelligence.getSnapshot(orgId), getMembrainOverview({ actor: context.actor, organisations: context.organisations, membrain: context.membrain }, orgId), context.blotatoAccounts.listActiveForOrganisation(orgId)]);
+  const [organisation, snapshot, membrain, connectedAccounts, metricSnapshots] = await Promise.all([context.organisations.findById(orgId), context.marketIntelligence.getSnapshot(orgId), getMembrainOverview({ actor: context.actor, organisations: context.organisations, membrain: context.membrain }, orgId), context.blotatoAccounts.listActiveForOrganisation(orgId), context.engagement.listMetricSnapshotsForOrganisation?.(orgId) ?? Promise.resolve([])]);
   if (!organisation) notFound(); const readiness = marketProfileReadiness(snapshot.profile); const profile = snapshot.profile;
   const signal = (key: string) => membrain.readiness.signals.find(item => item.categoryKey === key)?.met ?? false;
-  const growthReadiness = deriveGrowthReadinessFromGenesis({ brandDescriptionReady: signal("brand_description"), brandVoiceReady: signal("brand_voice"), membrainReady: membrain.readiness.percentage === 100, marketIntelligenceReady: readiness.percentage === 100, conversionActions: profile?.conversionActions ?? [], approvedPriorityProof: snapshot.patterns.some(pattern => pattern.category === "proof" && pattern.isActive && Boolean(pattern.reviewedAt) && pattern.confidence >= 70), baselineCaptured: snapshot.references.some(reference => reference.isActive && /day-0/i.test(reference.identifier)), connectedPlatformCount: connectedAccounts.length, measurementConfigured: false });
+  const measurement = deriveMeasurementReadiness({ blotatoEnabled: blotatoConfig().enabled, connectedProviderAccountCount: connectedAccounts.length, snapshots: metricSnapshots });
+  const growthReadiness = deriveGrowthReadinessFromGenesis({ brandDescriptionReady: signal("brand_description"), brandVoiceReady: signal("brand_voice"), membrainReady: membrain.readiness.percentage === 100, marketIntelligenceReady: readiness.percentage === 100, conversionActions: profile?.conversionActions ?? [], approvedPriorityProof: snapshot.patterns.some(pattern => pattern.category === "proof" && pattern.isActive && Boolean(pattern.reviewedAt) && pattern.confidence >= 70), baselineCaptured: snapshot.references.some(reference => reference.isActive && /day-0/i.test(reference.identifier)), connectedPlatformCount: connectedAccounts.length, measurementConfigured: measurement.configured, measurementDataExists: measurement.dataExists, adaptiveEvidenceReady: measurement.adaptiveEvidenceReady });
   const impact = ([30, 60, 90] as const).map(emptyImpactCheckpoint);
   return <div className="flex max-w-4xl flex-col gap-6">
     <PageHeader eyebrow="Awo" title="Market Intelligence" description="Client-owned strategy and approved market patterns. MemBrain remains authoritative for brand facts, offers, services and contact channels." />

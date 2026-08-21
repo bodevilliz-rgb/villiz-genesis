@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ACOR_LIFECYCLE, PROOF_DEPTHS, canGroundMembrain, computeGrowthReadiness, deriveGrowthReadinessFromGenesis, emptyImpactCheckpoint, validateBaseline, type AcorEvidence } from "@/core/domain/entities/acor";
+import { ACOR_LIFECYCLE, PROOF_DEPTHS, canGroundMembrain, computeGrowthReadiness, deriveGrowthReadinessFromGenesis, deriveMeasurementReadiness, emptyImpactCheckpoint, validateBaseline, type AcorEvidence } from "@/core/domain/entities/acor";
 
 const evidence = (overrides: Partial<AcorEvidence> = {}): AcorEvidence => ({ id: "evidence-a", organisationId: "org-uk", evidenceType: "owner confirmation", serviceCategory: "portrait", provenance: "Owner-confirmed ACOR intake", ownerSupplied: true, publicUseStatus: "NOT_APPLICABLE", market: "UK", proves: "Portrait photography is an active service", restrictions: [], verification: "VERIFIED", approval: "APPROVED", ...overrides });
 
@@ -23,6 +23,15 @@ describe("ACOR grounding boundary", () => {
   it("represents Day-0 unknowns and zeroes without fabrication", () => {
     expect(validateBaseline([{ key: "followers", label: "Followers", state: "ACTUAL", value: 3, source: "owner-observed" }, { key: "enquiries", label: "Enquiries", state: "NOT_MEASURED", value: null, source: "none" }])).toHaveLength(2);
     expect(() => validateBaseline([{ key: "reach", label: "Reach", state: "NOT_MEASURED", value: 50, source: "none" }])).toThrow();
+  });
+  it("separates configured measurement, collected data and adaptive evidence", () => {
+    expect(deriveMeasurementReadiness({ blotatoEnabled: true, connectedProviderAccountCount: 1, snapshots: [] }))
+      .toEqual({ configured: true, dataExists: false, adaptiveEvidenceReady: false });
+    const snapshots = Array.from({ length: 10 }, (_, index) => ({ externalPostId: `post-${index}`, measurementWindow: "7d" as const }));
+    expect(deriveMeasurementReadiness({ blotatoEnabled: true, connectedProviderAccountCount: 1, snapshots: snapshots.slice(0, 1) }))
+      .toEqual({ configured: true, dataExists: true, adaptiveEvidenceReady: false });
+    expect(deriveMeasurementReadiness({ blotatoEnabled: true, connectedProviderAccountCount: 1, snapshots }))
+      .toEqual({ configured: true, dataExists: true, adaptiveEvidenceReady: true });
   });
   it("keeps 30/60/90 visibility, engagement, intent and commercial outcomes separate", () => {
     for (const day of [30, 60, 90] as const) { const point = emptyImpactCheckpoint(day); expect(point.visibility).not.toHaveProperty("bookings"); expect(point.engagement).not.toHaveProperty("revenue"); expect(point.commercialOutcomes.bookings).toBeNull(); }

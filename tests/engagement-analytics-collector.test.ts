@@ -54,6 +54,20 @@ describe("engagement analytics collector", () => {
     }));
   });
 
+  it("normalises Blotato's actual plural Count fields without treating provider data as commercial outcomes", async () => {
+    const createMetricSnapshot = vi.fn(async (input) => ({ snapshot: { id: "metric", createdAt: input.observedAt, ...input }, created: true }));
+    const publishing = { listAttemptsForAnalytics: vi.fn(async () => [attempt]) } as unknown as PublishingRepository;
+    const blotatoClient = { getPostAnalytics: vi.fn(async () => ({ postId: "post-1", history: [], latest: { capturedAt: null, metrics: {
+      viewsCount: "128", reachCount: "111", likesCount: "1", commentsCount: "0", sharesCount: "0", savesCount: "0",
+      profileVisitsCount: "3", viewTimeMsSum: "283695", leads: "99", conversions: "88",
+    } } })) } as unknown as BlotatoClient;
+    await collectEngagementAnalytics({ publishing, engagement: { findLatestFeedback: vi.fn(async () => null), createMetricSnapshot } as unknown as EngagementRepository, blotatoClient });
+    expect(createMetricSnapshot).toHaveBeenCalledWith(expect.objectContaining({ metrics: expect.objectContaining({
+      views: 128, reach: 111, likes: 1, comments: 0, shares: 0, saves: 0, profileVisits: 3,
+      watchTimeMs: 283695, enquiries: null, bookings: null,
+    }) }));
+  });
+
   it("keeps baseline metrics unattributed when no recommendation was selected", async () => {
     const createMetricSnapshot = vi.fn(async (input) => ({ snapshot: { id: "metric-1", createdAt: input.observedAt, ...input }, created: true }));
     const engagement = {

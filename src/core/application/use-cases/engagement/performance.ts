@@ -9,18 +9,18 @@ export const MINIMUM_PERFORMANCE_SAMPLE = 10;
 export const STRONG_PERFORMANCE_SAMPLE = 30;
 
 const ALIASES = {
-  views: ["views", "viewCount", "videoViews", "mediaViews"],
-  reach: ["reach", "uniqueViews", "accountsReached"],
-  impressions: ["impressions", "impressionCount"],
-  likes: ["likes", "likeCount"],
-  comments: ["comments", "commentCount"],
-  shares: ["shares", "shareCount", "sends"],
-  saves: ["saves", "saveCount", "bookmarks"],
-  clicks: ["clicks", "clickCount", "linkClicks"],
-  profileVisits: ["profileVisits", "profileVisitCount"],
+  views: ["views", "viewCount", "viewsCount", "videoViews", "mediaViews"],
+  reach: ["reach", "reachCount", "uniqueViews", "accountsReached"],
+  impressions: ["impressions", "impressionCount", "impressionsCount"],
+  likes: ["likes", "likeCount", "likesCount"],
+  comments: ["comments", "commentCount", "commentsCount"],
+  shares: ["shares", "shareCount", "sharesCount", "sends"],
+  saves: ["saves", "saveCount", "savesCount", "bookmarks"],
+  clicks: ["clicks", "clickCount", "clicksCount", "linkClicks", "linkClicksCount"],
+  profileVisits: ["profileVisits", "profileVisitCount", "profileVisitsCount"],
   enquiries: ["enquiries", "inquiries", "leads"],
   bookings: ["bookings", "conversions"],
-  watchTimeMs: ["watchTimeMs", "watchTime", "totalWatchTimeMs"],
+  watchTimeMs: ["watchTimeMs", "watchTime", "totalWatchTimeMs", "viewTimeMsSum"],
 } as const;
 
 export type CanonicalEngagementMetrics = { [K in keyof typeof ALIASES]: number | null };

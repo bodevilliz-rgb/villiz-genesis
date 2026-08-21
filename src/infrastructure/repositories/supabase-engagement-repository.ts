@@ -128,6 +128,14 @@ export class SupabaseEngagementRepository implements EngagementRepository {
     return (data ?? []).map(toEngagementMetricSnapshot);
   }
 
+  async listMetricSnapshotsForOrganisation(organisationId: string, limit = 500) {
+    const { data, error } = await this.client.from("engagement_metric_snapshots").select("*")
+      .eq("organisation_id", organisationId)
+      .order("observed_at", { ascending: false }).limit(Math.min(Math.max(limit, 1), 500));
+    if (error) translateError(error, "Organisation engagement metrics");
+    return (data ?? []).map(toEngagementMetricSnapshot);
+  }
+
   async createMetricSnapshot(input: EngagementMetricSnapshotWriteModel) {
     const metrics = input.metrics;
     const existing = await this.client.from("engagement_metric_snapshots").select("*")
