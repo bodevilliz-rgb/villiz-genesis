@@ -146,8 +146,8 @@ describe("New Draft page pillar source", () => {
 
 describe("multimodal pillar selection reconciliation", () => {
   const activePillars = [
-    { title: "Product education" },
-    { title: "Workflow demonstration" },
+    { title: "Product education", body: "Useful product knowledge." },
+    { title: "Workflow demonstration", body: "Show the workflow." },
   ];
 
   it("accepts an exact approved active pillar title", () => {
@@ -165,6 +165,25 @@ describe("multimodal pillar selection reconciliation", () => {
 
   it("still rejects a model-selected pillar outside the approved active entries", () => {
     expect(resolveActivePillarSelection(activePillars, "Invented campaign pillar")).toBeNull();
+  });
+
+  it("reconciles a unique approved heading in a legacy pillar body", () => {
+    const legacyPillars = [
+      { title: "Additional content pillars", body: "TRANSFORMATION STORIES\n\nApproved guidance." },
+      { title: "Additional content pillars", body: "EDUCATIONAL CONTENT\n\nApproved guidance." },
+    ];
+
+    expect(resolveActivePillarSelection(legacyPillars, "Transformation Stories")).toBe(legacyPillars[0]);
+  });
+
+  it("rejects ambiguous or prose-only legacy body matches", () => {
+    const legacyPillars = [
+      { title: "Additional content pillars", body: "SHARED HEADING\n\nTransformation stories are useful." },
+      { title: "Additional content pillars", body: "SHARED HEADING\n\nOther guidance." },
+    ];
+
+    expect(resolveActivePillarSelection(legacyPillars, "Shared Heading")).toBeNull();
+    expect(resolveActivePillarSelection(legacyPillars, "Transformation stories are useful.")).toBeNull();
   });
 });
 

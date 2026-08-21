@@ -103,18 +103,28 @@ export interface GenerationIntentHints {
  * asked for the title alone, so accept that delimiter-bound form without ever
  * accepting a title that is not present in the approved option set.
  */
-export function resolveActivePillarSelection<T extends { title: string }>(
+function approvedPillarAliases(entry: { title: string; body?: string }): string[] {
+  const bodyHeadings = (entry.body ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 3 && line.length <= 200)
+    .filter((line) => /^\d+\.\s+\S/.test(line) || (/[A-Z]/.test(line) && line === line.toLocaleUpperCase()))
+    .map((line) => line.replace(/^\d+\.\s+/, "").trim());
+
+  return [entry.title, ...bodyHeadings]
+    .map((value) => value.toLocaleLowerCase())
+    .filter((value, index, values) => values.indexOf(value) === index);
+}
+
+export function resolveActivePillarSelection<T extends { title: string; body?: string }>(
   entries: T[],
   selectedPillarTitle: string,
 ): T | null {
   const selection = selectedPillarTitle.trim().toLocaleLowerCase();
-  const exact = entries.find((entry) => entry.title.trim().toLocaleLowerCase() === selection);
-  if (exact) return exact;
-
-  const echoed = entries.filter((entry) =>
-    selection.startsWith(`${entry.title.trim().toLocaleLowerCase()}:`),
-  );
-  return echoed.length === 1 ? echoed[0]! : null;
+  const matches = entries.filter((entry) => approvedPillarAliases(entry).some((alias) =>
+    selection === alias || selection.startsWith(`${alias}:`),
+  ));
+  return matches.length === 1 ? matches[0]! : null;
 }
 
 function activeBodiesForKey(membrain: MembrainOverview, key: string): string[] {
