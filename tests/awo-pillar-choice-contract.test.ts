@@ -57,6 +57,19 @@ describe("request-scoped approved MemBrain pillar choices", () => {
     ]);
   });
 
+  it("keeps duplicate approved semantic headings distinct by choice ID", () => {
+    const choices = buildApprovedPillarChoices([
+      { id: "legacy-a", title: "Additional content pillars", body: "CLIENT STORIES\n\nApproved context A." },
+      { id: "legacy-b", title: "Additional content pillars", body: "CLIENT STORIES\n\nApproved context B." },
+    ]);
+    expect(choices.map((choice) => [choice.choiceId, choice.sourceEntryId, choice.label])).toEqual([
+      ["P1", "legacy-a", "CLIENT STORIES"],
+      ["P2", "legacy-b", "CLIENT STORIES"],
+    ]);
+    expect(resolveApprovedPillarChoice(choices, "P1")?.sourceEntryId).toBe("legacy-a");
+    expect(resolveApprovedPillarChoice(choices, "P2")?.sourceEntryId).toBe("legacy-b");
+  });
+
   it("uses the approved entry as the honest broad fallback when no semantic section is safely derivable", () => {
     const choices = buildApprovedPillarChoices([{ id: "legacy", title: "Additional content pillars", body: "Ordinary prose without a structured heading." }]);
     expect(choices).toEqual([{ choiceId: "P1", sourceEntryId: "legacy", sourceEntryVersion: null, label: "Additional content pillars", context: "Ordinary prose without a structured heading." }]);
