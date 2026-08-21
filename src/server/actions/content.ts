@@ -17,6 +17,7 @@ import type { AwoGenerationAttribution, EngagementObjectiveType, EngagementStrat
 import { toBlotatoPlatform } from "@/core/domain/entities/blotato";
 import { VISIBILITY_STRATEGY_VERSION } from "@/core/application/use-cases/market-intelligence/visibility";
 import { isPublishingPlatform } from "@/core/domain/entities/publishing";
+import { buildApprovedPillarChoices, PILLAR_CHOICE_CONTRACT_VERSION } from "./awo-grounding";
 
 function contentDeps(context: Awaited<ReturnType<typeof requireContext>>) {
   return {
@@ -77,6 +78,9 @@ const awoAttributionSchema = z.object({
     rationale: z.string().min(1).max(2000),
   }).passthrough(),
   suggestedHashtags: z.array(z.string().max(100)).max(30),
+  pillarSourceEntryId: z.string().uuid().nullable().optional().default(null),
+  pillarSemanticLabel: z.string().min(1).max(200).nullable().optional().default(null),
+  pillarChoiceVersion: z.literal(PILLAR_CHOICE_CONTRACT_VERSION).nullable().optional().default(null),
 });
 
 function parseAwoAttribution(formData: FormData): AwoGenerationAttribution | null {
@@ -110,6 +114,22 @@ async function persistAwoAttribution(
   const allowedAssetIds = new Set(visibleAssets.map((asset) => asset.id));
   if (attribution.mediaAssetIds.some((id) => !allowedAssetIds.has(id))) throw new Error("The attributed media does not belong to this organisation.");
 
+  let pillarEvidence: { sourceType: "membrain_entry"; sourceId: string; title: string; categoryKey: string; version: number } | null = null;
+  if (attribution.pillarSourceEntryId || attribution.pillarSemanticLabel || attribution.pillarChoiceVersion) {
+    if (!attribution.pillarSourceEntryId || !attribution.pillarSemanticLabel || attribution.pillarChoiceVersion !== PILLAR_CHOICE_CONTRACT_VERSION) {
+      throw new Error("The Awo pillar attribution is incomplete.");
+    }
+    const sourceEntry = await context.membrain.findEntry(draft.organisationId, attribution.pillarSourceEntryId);
+    if (!sourceEntry || sourceEntry.status !== "active" || sourceEntry.category?.key !== "content_pillars") {
+      throw new Error("The attributed MemBrain pillar source is inactive or does not belong to this organisation.");
+    }
+    const stillApproved = buildApprovedPillarChoices([sourceEntry]).some((choice) => choice.label === attribution.pillarSemanticLabel);
+    if (!stillApproved || plan.contentPillar !== attribution.pillarSemanticLabel) {
+      throw new Error("The attributed MemBrain pillar is stale or inconsistent.");
+    }
+    pillarEvidence = { sourceType: "membrain_entry", sourceId: sourceEntry.id, title: attribution.pillarSemanticLabel, categoryKey: "content_pillars", version: sourceEntry.version };
+  }
+
   const objectiveType: EngagementObjectiveType = attribution.commercialIntent === "convert" ? "enquiries" : attribution.commercialIntent === "build_trust" ? "awareness" : "engagement";
   const strategyMetadata: EngagementStrategyMetadata = {
     commercialIntent: attribution.commercialIntent,
@@ -132,6 +152,9 @@ async function persistAwoAttribution(
     discoveryStrategy: plan.discoveryStrategy,
     measurementPlan: plan.measurementPlan,
     supportingDistributionActions: plan.supportingDistributionActions,
+    pillarSourceEntryId: attribution.pillarSourceEntryId,
+    pillarSemanticLabel: attribution.pillarSemanticLabel,
+    pillarChoiceVersion: attribution.pillarChoiceVersion,
   };
   const recommendation = await context.engagement.create({
     organisationId: draft.organisationId,
@@ -156,7 +179,10 @@ async function persistAwoAttribution(
     confidence: plan.confidence,
     performanceConfidence: plan.visibilityEvidenceLevel === "CLIENT_EVIDENCE" ? plan.confidence : null,
     performanceSummary: { sampleSize: 0, minimumSampleSize: 10, directionalScore: null, label: plan.visibilityEvidenceLevel === "CLIENT_EVIDENCE" ? "performance_informed" : "insufficient_data", championVariant: null, challengerVariant: null, variantScores: {} },
-    evidence: attribution.mediaAssetIds.map((id) => ({ sourceType: "media_asset" as const, sourceId: id, title: "Selected draft media" })),
+    evidence: [
+      ...(pillarEvidence ? [pillarEvidence] : []),
+      ...attribution.mediaAssetIds.map((id) => ({ sourceType: "media_asset" as const, sourceId: id, title: "Selected draft media" })),
+    ],
     strategyMetadata,
     createdBy: context.actor.id,
   });

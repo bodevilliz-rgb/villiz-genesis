@@ -18,8 +18,10 @@ import {
   extractAwoMembrainContext,
   buildCaptionSystemPrompt,
   buildRewriteSystemPrompt,
+  buildApprovedPillarChoices,
   classifyContentIntent,
-  resolveActivePillarSelection,
+  PILLAR_CHOICE_CONTRACT_VERSION,
+  resolveApprovedPillarChoice,
   type GenerationIntentHints,
   type GenerationGuidedContext,
 } from "./awo-grounding";
@@ -48,7 +50,7 @@ const mediaDecisionSchema = z.object({
   formatOpportunities: z.array(z.string().max(120)).max(4),
   potentialContentTerritory: z.string().max(240),
   evidenceLimitations: z.string().max(300),
-  selectedPillarTitle: z.string().max(200),
+  selectedPillarChoiceId: z.string().regex(/^P[1-9]\d*$/).max(20),
   pillarRationale: z.string().max(300),
   narrowedTargetAudience: z.string().max(300),
   hookFamily: z.enum(["outcome_led", "transformation", "curiosity", "confidence", "educational", "social_proof", "occasion_milestone", "problem_solution", "authority", "story", "question", "proof_result"]),
@@ -330,6 +332,7 @@ export async function generateCaption(
   const media = selectedAssets.map(({ mimeType, title, description, altText, tags }) => ({ mimeType, title, description, altText, tags }));
   const resolvedIntent = market.commercialIntent;
   const pillarEntries = membrain.groups.find((group) => group.category.key === "content_pillars")?.entries.filter((entry) => entry.status === "active") ?? [];
+  const approvedPillarChoices = buildApprovedPillarChoices(pillarEntries);
   const ai = getAIProvider();
   let analysedMedia: MediaDecision | null = null;
   let mediaLimitation: string | null = null;
@@ -339,7 +342,9 @@ export async function generateCaption(
       mediaLimitation = "ACTUAL IMAGE CONTENT NOT ANALYSED: the configured provider or storage adapter does not support request-scoped multimodal analysis.";
     } else {
       const imageBytes = await context.storage.downloadMedia(selectedImage.storagePath);
-      const pillarOptions = pillarEntries.map((entry) => `- ${entry.title}: ${entry.body}`).join("\n") || "- No active content-pillar entries are configured.";
+      const pillarOptions = approvedPillarChoices.map((choice) =>
+        `- ${choice.choiceId} | ${choice.label}\n${choice.context}`,
+      ).join("\n\n") || "- No active content-pillar choices are configured.";
       analysedMedia = await ai.analyzeImage(
         [
           "Inspect the attached image before the Growth Decision is made.",
@@ -348,7 +353,8 @@ export async function generateCaption(
           `Configured audience context: ${market.targetAudience ?? "Not configured"}`,
           `Configured geography: ${[...market.targetGeographies, ...market.serviceAreas].join(", ") || "Not configured"}`,
           `Organisation industry: ${org.industry ?? "Not configured"}`,
-          "Choose exactly one active MemBrain pillar title from this list:",
+          "Choose exactly one approved MemBrain pillar choice from this request-scoped list.",
+          "Return its choice identifier in selectedPillarChoiceId. Do not return a pillar title as the identifier.",
           pillarOptions,
           market.enabled ? market.prompt : "No approved Market Intelligence profile is available.",
         ].join("\n\n"),
@@ -364,11 +370,11 @@ export async function generateCaption(
   }
 
   const operatorPillar = guidedContext?.contentPillar?.trim() || null;
-  const analysedPillar = analysedMedia
-    ? resolveActivePillarSelection(pillarEntries, analysedMedia.selectedPillarTitle)
+  const analysedPillarChoice = analysedMedia
+    ? resolveApprovedPillarChoice(approvedPillarChoices, analysedMedia.selectedPillarChoiceId)
     : null;
-  if (!operatorPillar && analysedMedia && !analysedPillar) throw new Error("Awo could not select a valid active MemBrain content pillar from the organisation's approved entries.");
-  const selectedPillar = operatorPillar ?? analysedPillar?.title ?? null;
+  if (!operatorPillar && analysedMedia && !analysedPillarChoice) throw new Error("Awo returned an unknown request-scoped MemBrain pillar choice identifier.");
+  const selectedPillar = operatorPillar ?? analysedPillarChoice?.label ?? null;
   const pillarRationale = operatorPillar ? "Selected by the operator." : analysedMedia?.pillarRationale ?? "No request-scoped pillar selection was available.";
   const goalRationale = commercialIntent
     ? "Selected explicitly by the operator."
@@ -446,6 +452,9 @@ export async function generateCaption(
       culturalVoiceLevel: market.culturalVoiceLevel,
       visibilityPlan,
       suggestedHashtags: [],
+      pillarSourceEntryId: operatorPillar ? null : analysedPillarChoice?.sourceEntryId ?? null,
+      pillarSemanticLabel: selectedPillar,
+      pillarChoiceVersion: operatorPillar ? null : PILLAR_CHOICE_CONTRACT_VERSION,
     },
   };
 }

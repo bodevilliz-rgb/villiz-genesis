@@ -46,6 +46,9 @@ export interface EngagementStrategyMetadata {
   discoveryStrategy?: string;
   measurementPlan?: string;
   supportingDistributionActions?: string[];
+  pillarSourceEntryId?: string | null;
+  pillarSemanticLabel?: string | null;
+  pillarChoiceVersion?: string | null;
 }
 
 /** Request-scoped AGIE result handed into the existing immutable engagement recommendation path once a new draft has an id. */
@@ -59,6 +62,9 @@ export interface AwoGenerationAttribution {
   culturalVoiceLevel: CulturalVoiceLevel;
   visibilityPlan: EngagementVisibilityPlan;
   suggestedHashtags: string[];
+  pillarSourceEntryId?: string | null;
+  pillarSemanticLabel?: string | null;
+  pillarChoiceVersion?: string | null;
 }
 
 export type VisibilityContentFormat = "short_form_video" | "carousel" | "single_image" | "supporting_story" | "text_led" | "other_supported";

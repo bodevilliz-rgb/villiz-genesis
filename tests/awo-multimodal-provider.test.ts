@@ -30,7 +30,9 @@ describe("AGIE request-scoped multimodal contract", () => {
     expect(source).toContain("context.storage.downloadMedia(selectedImage.storagePath)");
     expect(source).toContain("selectedIdSet.has(asset.id)");
     expect(source).toContain("entry.status === \"active\"");
-    expect(source).toContain("Awo could not select a valid active MemBrain content pillar");
+    expect(source).toContain("selectedPillarChoiceId");
+    expect(source).toContain("resolveApprovedPillarChoice(approvedPillarChoices");
+    expect(source).not.toContain("analysedMedia.selectedPillarTitle");
     expect(source).toContain("MEDIA_SAFETY_PROMPT");
   });
 
