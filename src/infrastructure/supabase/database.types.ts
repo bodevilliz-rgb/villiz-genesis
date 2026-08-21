@@ -46,6 +46,7 @@ export type MembrainStatusDb = "draft" | "active" | "archived";
 export type OrganisationRoleDb = "lead" | "contributor" | "reviewer";
 export type OrganisationStatusDb = "prospect" | "active" | "paused" | "offboarded";
 export type PlatformRoleDb = "owner" | "admin" | "member";
+export type StaffInvitationStatusDb = "pending" | "accepted" | "revoked";
 export type PostStatusDb = "idea" | "researching" | "drafting" | "in_review" | "approved" | "scheduled" | "published" | "failed" | "archived";
 export type PublishingAttemptStatusDb = "queued" | "started" | "awaiting_confirmation" | "completed" | "failed";
 export type PublishingExecutionModeDb = "simulation" | "live";
@@ -676,6 +677,19 @@ export type ProfileRow = {
   updated_at: string;
 };
 
+export type StaffInvitationRow = {
+  id: string;
+  email: string;
+  full_name: string;
+  platform_role: PlatformRoleDb;
+  organisation_access: Json;
+  status: StaffInvitationStatusDb;
+  invited_by: string;
+  invited_at: string;
+  accepted_at: string | null;
+  revoked_at: string | null;
+};
+
 export type ProjectRow = {
   id: string;
   name: string;
@@ -1180,6 +1194,12 @@ export type Database = {
         [
           Fk<"profiles_id_fkey", "id", "users">,
         ]
+      >;
+      staff_invitations: Table<
+        StaffInvitationRow,
+        Pick<StaffInvitationRow, "email" | "full_name" | "platform_role" | "organisation_access" | "invited_by"> & Partial<StaffInvitationRow>,
+        Partial<StaffInvitationRow>,
+        [Fk<"staff_invitations_invited_by_fkey", "invited_by", "profiles">]
       >;
       projects: Table<ProjectRow>;
       publishing_attempts: Table<

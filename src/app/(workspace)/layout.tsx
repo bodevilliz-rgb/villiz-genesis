@@ -69,7 +69,10 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
         </div>
 
         <div className="border-t border-border pt-2">
-          <SidebarNav items={[{ href: routes.settings, label: "Settings", icon: "settings" }]} label="System" />
+          <SidebarNav items={[
+            ...(context.actor.isPlatformAdmin ? [{ href: routes.team, label: "Team", icon: "users" as const }] : []),
+            { href: routes.settings, label: "Settings", icon: "settings" },
+          ]} label="System" />
           <UserMenu actor={context.actor} />
         </div>
       </aside>
@@ -83,7 +86,10 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
                 { label: "Operations", items: OPERATIONS_NAV },
                 { label: "Business", items: BUSINESS_NAV },
                 { label: "Intelligence", items: INTELLIGENCE_NAV },
-                { label: "System", items: [{ href: routes.settings, label: "Settings", icon: "settings" }] },
+                { label: "System", items: [
+                  ...(context.actor.isPlatformAdmin ? [{ href: routes.team, label: "Team", icon: "users" as const }] : []),
+                  { href: routes.settings, label: "Settings", icon: "settings" },
+                ] },
               ]}
               organisations={organisations}
               canCreateOrganisation={context.actor.isPlatformAdmin}

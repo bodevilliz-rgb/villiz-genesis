@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canApproveContent, canEditOrganisation, canWriteContent } from "@/core/domain/entities/identity";
+import { canApproveContent, canEditOrganisation, canManagePlatformStaff, canWriteContent } from "@/core/domain/entities/identity";
 import type { Actor } from "@/core/domain/entities/identity";
 
 function actor(overrides: Partial<Actor> = {}): Actor {
@@ -59,5 +59,17 @@ describe("who may change what", () => {
 
   it("lets a platform admin approve content regardless of role", () => {
     expect(canApproveContent(actor({ isPlatformAdmin: true, role: "admin" }), null)).toBe(true);
+  });
+
+  it("allows only active canonical owners and admins to manage staff", () => {
+    expect(canManagePlatformStaff(actor({ role: "owner", isPlatformAdmin: true }))).toBe(true);
+    expect(canManagePlatformStaff(actor({ role: "admin", isPlatformAdmin: true }))).toBe(true);
+    expect(canManagePlatformStaff(actor({ role: "member", isPlatformAdmin: false }))).toBe(false);
+    expect(canManagePlatformStaff(actor({ role: "admin", isPlatformAdmin: true, isActive: false }))).toBe(false);
+  });
+
+  it("does not trust an inconsistent client-supplied admin flag", () => {
+    expect(canManagePlatformStaff(actor({ role: "member", isPlatformAdmin: true }))).toBe(false);
+    expect(canManagePlatformStaff(actor({ role: "admin", isPlatformAdmin: false }))).toBe(false);
   });
 });

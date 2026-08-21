@@ -12,6 +12,7 @@ export const routes = {
   reviewWorkspace: (id: string) => `/review/${id}`,
   reviewCompare: (id: string) => `/review/${id}/compare`,
   settings: "/settings",
+  team: "/team",
   settingsPublishing: "/settings/publishing",
   organisations: {
     index: "/organisations",
