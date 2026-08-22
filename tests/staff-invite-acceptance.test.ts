@@ -17,6 +17,13 @@ describe("Supabase Admin staff invitation acceptance", () => {
     });
   });
 
+  it("accepts the first-use unconfirmed staff signup contract emitted by Supabase", () => {
+    expect(parseInviteSessionHash("#type=signup&refresh_token=refresh&access_token=access")).toEqual({
+      accessToken: "access",
+      refreshToken: "refresh",
+    });
+  });
+
   it("fails closed for incomplete, unrelated or query-string input", () => {
     expect(parseInviteSessionHash("#type=invite&access_token=access")).toBeNull();
     expect(parseInviteSessionHash("#type=recovery&access_token=access&refresh_token=refresh")).toBeNull();
