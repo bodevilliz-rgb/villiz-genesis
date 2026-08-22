@@ -28,4 +28,10 @@ describe("Supabase Admin staff invitation acceptance", () => {
     expect(source).toContain("exchangeCodeForSession(code)");
     expect(source).toContain('NextResponse.redirect(`${origin}/auth/accept`)');
   });
+
+  it("sends staff links directly to the client acceptance route so the session fragment is never carried across a server redirect", () => {
+    const source = readFileSync("src/server/staff-admin.ts", "utf8");
+    expect(source).toContain("routes.authAccept");
+    expect(source).not.toMatch(/emailRedirectTo:[^\n]*routes\.authCallback/);
+  });
 });

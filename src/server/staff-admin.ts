@@ -41,7 +41,7 @@ export async function resendInvitation(invitationId: string) {
   const { data: invitation, error } = await admin.from("staff_invitations").select("email,status").eq("id", invitationId).single();
   if (error) throw error;
   if (invitation.status !== "pending") throw new ConflictError("Only pending invitations can be resent.");
-  const { error: sendError } = await admin.auth.signInWithOtp({ email: invitation.email, options: { shouldCreateUser: false, emailRedirectTo: `${serverEnv().NEXT_PUBLIC_SITE_URL.replace(/\/$/, "")}${routes.authCallback}` } });
+  const { error: sendError } = await admin.auth.signInWithOtp({ email: invitation.email, options: { shouldCreateUser: false, emailRedirectTo: `${serverEnv().NEXT_PUBLIC_SITE_URL.replace(/\/$/, "")}${routes.authAccept}` } });
   if (sendError) throw staffEmailError(sendError);
 }
 
@@ -88,7 +88,7 @@ export async function inviteStaff(input: { name: string; email: string; platform
     throw preparationError;
   }
 
-  const { error: sendError } = await admin.auth.signInWithOtp({ email, options: { shouldCreateUser: false, emailRedirectTo: `${serverEnv().NEXT_PUBLIC_SITE_URL.replace(/\/$/, "")}${routes.authCallback}` } });
+  const { error: sendError } = await admin.auth.signInWithOtp({ email, options: { shouldCreateUser: false, emailRedirectTo: `${serverEnv().NEXT_PUBLIC_SITE_URL.replace(/\/$/, "")}${routes.authAccept}` } });
   if (sendError) throw staffEmailError(sendError);
 }
 
