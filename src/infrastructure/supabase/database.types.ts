@@ -1262,6 +1262,22 @@ export type Database = {
         Args: { p_actor_id: string; p_invitation_id: string; p_profile_id: string };
         Returns: ProfileRow;
       };
+      admin_manage_staff_access: {
+        Args: { p_actor_id: string; p_profile_id: string; p_role: PlatformRoleDb; p_is_active: boolean; p_access: Json };
+        Returns: ProfileRow;
+      };
+      admin_update_pending_staff_invitation: {
+        Args: { p_actor_id: string; p_invitation_id: string; p_role: PlatformRoleDb; p_access: Json };
+        Returns: StaffInvitationRow;
+      };
+      admin_reactivate_staff: {
+        Args: { p_actor_id: string; p_profile_id: string; p_role: PlatformRoleDb; p_access: Json };
+        Returns: string;
+      };
+      admin_staff_deletion_status: {
+        Args: { p_actor_id: string; p_profile_id: string };
+        Returns: Json;
+      };
       get_media_deletion_status: {
         Args: { p_organisation_id: string; p_asset_id: string };
         Returns: Json;

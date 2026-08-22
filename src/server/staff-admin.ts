@@ -10,9 +10,10 @@ export type StaffAdminRow = {
   id: string; email: string; fullName: string | null; platformRole: PlatformRole;
   isActive: boolean; status: "Active" | "Pending" | "Revoked";
   memberships: StaffAccess[]; invitationId: string | null;
+  permanentDeletionAllowed: boolean; deletionReason: string | null;
 };
 
-export async function listStaffAdmin(): Promise<StaffAdminRow[]> {
+export async function listStaffAdmin(actorId: string): Promise<StaffAdminRow[]> {
   const admin = createAdminClient();
   const [{ data: profiles, error: profileError }, { data: members, error: memberError }, { data: invitations, error: inviteError }, { data: authUsers }] = await Promise.all([
     admin.from("profiles").select("id,email,full_name,role,is_active").order("full_name"),
@@ -24,16 +25,29 @@ export async function listStaffAdmin(): Promise<StaffAdminRow[]> {
   const signedIn = new Set((authUsers?.users ?? []).filter((u) => u.last_sign_in_at).map((u) => u.email?.toLowerCase()));
   const acceptedIds = (invitations ?? []).filter((i) => i.status === "pending" && signedIn.has(i.email)).map((i) => i.id);
   if (acceptedIds.length) await admin.from("staff_invitations").update({ status: "accepted", accepted_at: new Date().toISOString() }).in("id", acceptedIds);
-  const latest = new Map((invitations ?? []).map((i) => [i.email, acceptedIds.includes(i.id) ? { ...i, status: "accepted" as const } : i]));
-  return (profiles ?? []).map((p) => {
+  const latest = new Map<string, (typeof invitations)[number]>();
+  for (const invitation of invitations ?? []) if (!latest.has(invitation.email)) latest.set(invitation.email, acceptedIds.includes(invitation.id) ? { ...invitation, status: "accepted" as const } : invitation);
+  return Promise.all((profiles ?? []).map(async (p) => {
     const invitation = latest.get(p.email);
+    const invitationAccess = Array.isArray(invitation?.organisation_access) ? invitation.organisation_access as StaffAccess[] : [];
+    const currentMemberships = (members ?? []).filter((m) => m.profile_id === p.id).map((m) => ({ organisationId: m.organisation_id, role: m.role }));
+    const status = invitation?.status === "pending" ? "Pending" : invitation?.status === "revoked" ? "Revoked" : p.is_active ? "Active" : "Revoked";
+    const deletion = status === "Revoked" ? await admin.rpc("admin_staff_deletion_status", { p_actor_id: actorId, p_profile_id: p.id }) : { data: null, error: null };
+    const deletionData = deletion.data && typeof deletion.data === "object" && !Array.isArray(deletion.data) ? deletion.data as Record<string, unknown> : null;
     return {
       id: p.id, email: p.email, fullName: p.full_name, platformRole: p.role, isActive: p.is_active,
-      status: invitation?.status === "pending" ? "Pending" : invitation?.status === "revoked" ? "Revoked" : p.is_active ? "Active" : "Revoked",
-      memberships: (members ?? []).filter((m) => m.profile_id === p.id).map((m) => ({ organisationId: m.organisation_id, role: m.role })),
+      status,
+      memberships: currentMemberships.length ? currentMemberships : invitationAccess,
       invitationId: invitation?.id ?? null,
+      permanentDeletionAllowed: deletionData?.allowed === true,
+      deletionReason: typeof deletionData?.reason === "string" ? deletionData.reason : null,
     };
-  });
+  }));
+}
+
+export async function updatePendingInvitation(input: { invitationId: string; platformRole: PlatformRole; access: StaffAccess[]; actorId: string }) {
+  const { error } = await createAdminClient().rpc("admin_update_pending_staff_invitation", { p_actor_id: input.actorId, p_invitation_id: input.invitationId, p_role: input.platformRole, p_access: input.access });
+  if (error) throw error;
 }
 
 export async function resendInvitation(invitationId: string) {
@@ -94,26 +108,38 @@ export async function inviteStaff(input: { name: string; email: string; platform
 
 export async function updateStaff(input: { profileId: string; platformRole: PlatformRole; access: StaffAccess[]; actorId: string }) {
   const admin = createAdminClient();
-  if (input.profileId === input.actorId && input.platformRole === "member") throw new Error("You cannot remove your own administrator access.");
-  const { data: current, error: currentError } = await admin.from("profiles").select("full_name,is_active").eq("id", input.profileId).single();
-  if (currentError) throw currentError;
-  const { error } = await admin.rpc("admin_set_staff_profile", { p_actor_id: input.actorId, p_profile_id: input.profileId, p_full_name: current.full_name ?? "", p_role: input.platformRole, p_is_active: current.is_active });
+  const { error } = await admin.rpc("admin_manage_staff_access", { p_actor_id: input.actorId, p_profile_id: input.profileId, p_role: input.platformRole, p_is_active: true, p_access: input.access });
   if (error) throw error;
-  await admin.from("organisation_members").delete().eq("profile_id", input.profileId);
-  if (input.access.length) {
-    const { error: accessError } = await admin.from("organisation_members").insert(input.access.map((a) => ({ organisation_id: a.organisationId, profile_id: input.profileId, role: a.role, assigned_by: input.actorId })));
-    if (accessError) throw accessError;
-  }
 }
 
 export async function deactivateStaff(profileId: string, actorId: string) {
   if (profileId === actorId) throw new Error("You cannot deactivate your own account.");
   const admin = createAdminClient();
-  const { data: current, error: currentError } = await admin.from("profiles").select("full_name,role").eq("id", profileId).single();
+  const { data: current, error: currentError } = await admin.from("profiles").select("role").eq("id", profileId).single();
   if (currentError) throw currentError;
-  const { error } = await admin.rpc("admin_set_staff_profile", { p_actor_id: actorId, p_profile_id: profileId, p_full_name: current.full_name ?? "", p_role: current.role, p_is_active: false });
+  const { error } = await admin.rpc("admin_manage_staff_access", { p_actor_id: actorId, p_profile_id: profileId, p_role: current.role, p_is_active: false, p_access: [] });
   if (error) throw error;
-  await admin.from("organisation_members").delete().eq("profile_id", profileId);
+}
+
+export async function reactivateStaff(input: { profileId: string; platformRole: PlatformRole; access: StaffAccess[]; actorId: string }) {
+  const admin = createAdminClient();
+  const { data: invitationId, error } = await admin.rpc("admin_reactivate_staff", { p_actor_id: input.actorId, p_profile_id: input.profileId, p_role: input.platformRole, p_access: input.access });
+  if (error) throw error;
+  await resendInvitation(invitationId);
+}
+
+export async function permanentlyDeleteStaff(profileId: string, actorId: string) {
+  if (profileId === actorId) throw new Error("You cannot delete your own account.");
+  const admin = createAdminClient();
+  const { data: status, error } = await admin.rpc("admin_staff_deletion_status", { p_actor_id: actorId, p_profile_id: profileId });
+  if (error) throw error;
+  const result = status && typeof status === "object" && !Array.isArray(status) ? status as Record<string, unknown> : {};
+  if (result.allowed !== true) throw new ConflictError(typeof result.reason === "string" ? result.reason : "Historical records protect this staff identity. Deactivate access instead.");
+  const { data: profile, error: profileError } = await admin.from("profiles").select("email").eq("id", profileId).single();
+  if (profileError) throw profileError;
+  const { error: deleteError } = await admin.auth.admin.deleteUser(profileId);
+  if (deleteError) throw deleteError;
+  await admin.from("staff_invitations").delete().eq("email", profile.email);
 }
 
 export async function revokeInvitation(invitationId: string) {
