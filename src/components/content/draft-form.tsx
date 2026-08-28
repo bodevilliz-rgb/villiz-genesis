@@ -305,7 +305,7 @@ export function DraftForm({
 
   function acceptAiSuggestion() {
     if (!aiSuggestion) return;
-    if (!visibilityPlan || visibilityPlan.distributionGate !== "pass" || visibilityPlan.distributionReadinessScore < 95) {
+    if (!visibilityPlan || visibilityPlan.distributionGate !== "pass" || visibilityPlan.distributionReadinessScore < 95 || visibilityPlan.distributionBlockers.length > 0) {
       toast.error(`Awo Audience Distribution Gate blocked this post (${visibilityPlan?.distributionReadinessScore ?? 0}/100). Complete the listed strategy inputs and regenerate.`);
       return;
     }
@@ -666,7 +666,7 @@ export function DraftForm({
               <span className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">AI Suggestion:</span>
               <p className="text-[13px] whitespace-pre-wrap font-mono text-muted-foreground">{aiSuggestion}</p>
               <div className="flex gap-2 justify-end">
-                <Button type="button" variant="secondary" size="sm" onClick={acceptAiSuggestion} disabled={!visibilityPlan || visibilityPlan.distributionGate !== "pass" || visibilityPlan.distributionReadinessScore < 95}>
+                <Button type="button" variant="secondary" size="sm" onClick={acceptAiSuggestion} disabled={!visibilityPlan || visibilityPlan.distributionGate !== "pass" || visibilityPlan.distributionReadinessScore < 95 || visibilityPlan.distributionBlockers.length > 0}>
                   {visibilityPlan?.distributionGate === "blocked" ? "Blocked by Distribution Gate" : "Accept Suggestion"}
                 </Button>
                 <Button type="button" variant="ghost" size="sm" onClick={() => setAiSuggestion(null)}>
