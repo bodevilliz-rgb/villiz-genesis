@@ -135,6 +135,46 @@ describe("ReviewPanel — decision buttons on a freshly submitted (needs_review)
     expect(screen.queryByText("Reject")).toBeNull();
     expect(screen.getByText(/waiting on a lead or reviewer/i)).toBeInTheDocument();
   });
+
+  it("blocks approval when the Audience Distribution Gate is below 95 while preserving the other review decisions", () => {
+    render(
+      <ReviewPanel
+        organisationId="00000000-0000-4000-8000-000000000001"
+        draft={needsReviewDraft("reviewer-1")}
+        eligibleReviewers={[]}
+        actorId="reviewer-1"
+        canWrite={false}
+        canLead={false}
+        distributionApproval={{
+          eligible: false,
+          score: 85,
+          blockers: ["Configure both local and service discovery/hashtag roles."],
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Request changes" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Reject" })).toBeEnabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Audience Distribution Gate 85/100");
+    expect(screen.getByRole("alert")).toHaveTextContent("Configure both local and service discovery/hashtag roles.");
+  });
+
+  it("allows approval only when the current recommendation passes the distribution gate", () => {
+    render(
+      <ReviewPanel
+        organisationId="00000000-0000-4000-8000-000000000001"
+        draft={needsReviewDraft("reviewer-1")}
+        eligibleReviewers={[]}
+        actorId="reviewer-1"
+        canWrite={false}
+        canLead={false}
+        distributionApproval={{ eligible: true, score: 95, blockers: [] }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled();
+  });
 });
 
 /**
