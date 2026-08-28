@@ -149,6 +149,10 @@ describe("EngagementIntelligencePanel", () => {
     delete legacyVisibilityPlan.distributionGate;
     delete legacyVisibilityPlan.distributionReadinessScore;
     delete legacyVisibilityPlan.distributionBlockers;
+    delete legacyVisibilityPlan.contentFormat;
+    delete legacyVisibilityPlan.visibilityEvidenceLevel;
+    delete legacyVisibilityPlan.targetLocalities;
+    delete legacyVisibilityPlan.supportingDistributionActions;
     const legacyRecommendation = {
       ...recommendation,
       creativeGuidance: {
@@ -168,6 +172,7 @@ describe("EngagementIntelligencePanel", () => {
 
     expect(screen.getByText(/predates the Audience Distribution Gate/)).toBeInTheDocument();
     expect(screen.getByText(/Readiness 0\/100/)).toBeInTheDocument();
+    expect(screen.getByText(/uses an earlier contract and cannot be trusted/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Review caption + hashtags" })).toBeDisabled();
   });
 
