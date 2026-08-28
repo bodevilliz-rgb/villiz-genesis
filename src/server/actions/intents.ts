@@ -20,7 +20,7 @@ export async function createIntentSignalAction(formData: FormData) {
     source: z.enum(INTENT_SOURCES),
     stage: z.enum(INTENT_STAGES),
     consentStatus: z.enum(INTENT_CONSENT_STATUSES),
-    occurredAt: z.string().datetime({ offset: true }),
+    occurredAt: z.string().min(1),
   }).parse({
     organisationId: formData.get("organisationId"),
     serviceLabel: formData.get("serviceLabel"),
@@ -39,8 +39,12 @@ export async function createIntentSignalAction(formData: FormData) {
   const serviceKey = normaliseIntentService(parsed.serviceLabel);
   if (!serviceKey) throw new Error("Enter a valid service.");
 
+  const occurredAt = new Date(parsed.occurredAt);
+  if (Number.isNaN(occurredAt.getTime())) throw new Error("Enter a valid intent date and time.");
+
   await context.intents.create({
     ...parsed,
+    occurredAt: occurredAt.toISOString(),
     serviceKey,
     createdBy: context.actor.id,
   });
