@@ -44,6 +44,22 @@ const recommendation: EngagementRecommendation = {
     saveTrigger: "Save the preparation tips.",
     accessibilityNote: "Add descriptive alt text.",
     linkedinPersonalProfile: null,
+    visibilityPlan: {
+      goal: "engage", goalRationale: "Support conversation.", contentJob: "DISCOVERY",
+      targetAudience: "Portrait clients in Coventry", mediaObservation: "A portrait image is attached.",
+      contentPillar: "Portrait confidence", contentPillarRationale: "Selected from MemBrain.",
+      contentFormat: "single_image", formatRationale: "Matches the attached media.",
+      attentionMechanism: "Identity-led portrait", hookStrategy: "question", actualHook: "A portrait that feels like you.",
+      discoveryStrategy: "Use verified local and portrait language.", targetLocalities: ["Coventry"],
+      platformStrategy: "Use visual proof for local discovery.", discoveryRoles: ["local", "service"],
+      distributionReadinessScore: 100, distributionGate: "pass", distributionBlockers: [],
+      searchableLanguage: ["Coventry portrait photographer"], ctaStrategy: "Invite a booking enquiry.",
+      measurementPlan: "Measure qualified enquiries.", supportingDistributionActions: ["Reshare to Stories."],
+      publishingWindow: "Not enough evidence yet.", publishingWindowEvidenceState: "INSUFFICIENT_ACCOUNT_EVIDENCE",
+      visibilityEvidenceLevel: "CLIENT_EVIDENCE", verticalIntelligenceAvailable: true,
+      evidenceSources: ["MemBrain"], confidence: 80, foundationVersion: "v1",
+      rationale: "Uses configured client evidence.",
+    },
   },
   confidence: 70,
   performanceConfidence: null,
@@ -126,6 +142,42 @@ describe("EngagementIntelligencePanel", () => {
 
     expect(screen.getByText("Outdated")).toBeInTheDocument();
     expect(screen.getByText(/used draft v3; the current draft is v4/i)).toBeInTheDocument();
+  });
+
+  it("makes a blocked distribution recommendation visibly ineligible and impossible to review", () => {
+    const blockedRecommendation: EngagementRecommendation = {
+      ...recommendation,
+      creativeGuidance: {
+        ...recommendation.creativeGuidance,
+        visibilityPlan: {
+          ...recommendation.creativeGuidance.visibilityPlan!,
+          targetAudience: "No legitimate target audience is currently configured.",
+          targetLocalities: [],
+          discoveryRoles: [],
+          searchableLanguage: [],
+          distributionGate: "blocked",
+          distributionReadinessScore: 45,
+          distributionBlockers: [
+            "Configure the exact buyer/audience Awo should address.",
+            "Configure at least one ACOR target geography or service locality.",
+          ],
+        },
+      },
+    };
+    render(
+      <EngagementIntelligencePanel
+        organisationId="org-1" draftId="draft-1" currentDraftVersion={3}
+        initialPlatform="instagram" initialRecommendation={blockedRecommendation}
+        initialLearningOverview={learningOverview} initialDraftBody="Existing caption"
+        initialDraftHashtags={[]} draftLocked={false} canWrite={true}
+      />,
+    );
+
+    expect(screen.getByRole("alert", { name: "Audience Distribution Gate" })).toHaveTextContent("BLOCKED");
+    expect(screen.getByRole("alert", { name: "Audience Distribution Gate" })).toHaveTextContent("45/100");
+    expect(screen.getByText("Configure the exact buyer/audience Awo should address.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review caption + hashtags" })).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: /Edit the recommendation before applying/i })).toBeDisabled();
   });
 
   it("keeps generation unavailable to a read-only reviewer", () => {
