@@ -72,6 +72,29 @@ const PUBLISHABLE_ENGAGEMENT_PLATFORMS = new Set<CampaignPlatform>([
   "instagram", "facebook", "linkedin", "x", "tiktok",
 ]);
 
+export function assessRecommendationDistributionEligibility(
+  recommendation: EngagementRecommendation | null,
+  currentDraftVersion: number,
+): { eligible: boolean; score: number; blockers: string[] } {
+  if (!recommendation) {
+    return { eligible: false, score: 0, blockers: ["Generate an Awo recommendation before approval."] };
+  }
+  if (recommendation.draftVersion !== currentDraftVersion) {
+    return { eligible: false, score: 0, blockers: ["Generate a new recommendation for the current draft version before approval."] };
+  }
+  const plan = recommendation.creativeGuidance.visibilityPlan;
+  if (!plan || !Array.isArray(plan.distributionBlockers)) {
+    return { eligible: false, score: 0, blockers: ["This recommendation predates the Audience Distribution Gate. Generate a new recommendation before approval."] };
+  }
+  const score = plan.distributionReadinessScore ?? 0;
+  const blockers = plan.distributionBlockers;
+  return {
+    eligible: plan.distributionGate === "pass" && score >= DISTRIBUTION_READINESS_THRESHOLD && blockers.length === 0,
+    score,
+    blockers,
+  };
+}
+
 async function resolveLearningAccount(
   blotatoAccounts: BlotatoAccountRepository,
   organisationId: string,
