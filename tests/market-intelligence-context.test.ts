@@ -64,7 +64,16 @@ describe("Market Intelligence generation context", () => {
     expect(rejectsCompetitorImitation("Write in the style of @competitor")).toBe(true);
     expect(rejectsCompetitorImitation("Use an outcome-led transformation hook")).toBe(false);
   });
-  it("calculates readiness deterministically", () => expect(marketProfileReadiness(snapshot.profile)).toEqual({ complete: 6, total: 6, percentage: 100 }));
+  it("does not report full readiness until both mandatory discovery roles are configured", () => {
+    expect(marketProfileReadiness(snapshot.profile)).toEqual({ complete: 5, total: 6, percentage: 83 });
+    expect(marketProfileReadiness({
+      ...snapshot.profile!,
+      hashtagStrategy: {
+        ...snapshot.profile!.hashtagStrategy,
+        service: "Use verified service terminology",
+      },
+    })).toEqual({ complete: 6, total: 6, percentage: 100 });
+  });
   it("duplicates only version-controlled structure", () => {
     const cloned = profileFromTemplate("org-b", { businessObjectives: ["visibility"], culturalVoiceLevel: "neutral", platformStrategy: {}, hashtagStrategy: { brand: "Use owned brand tags" } });
     expect(cloned.organisationId).toBe("org-b"); expect(cloned.audienceContext).toBeNull(); expect(cloned.conversionActions).toEqual([]);
