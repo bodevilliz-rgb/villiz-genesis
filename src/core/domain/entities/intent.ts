@@ -57,7 +57,7 @@ export function buildIntentOpportunities(signals: IntentSignal[], now = new Date
   }
 
   return [...groups.entries()].map(([key, group]) => {
-    const latest = [...group].sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))[0];
+    const latest = [...group].sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))[0]!;
     const latestAgeHours = Math.max(0, (now.getTime() - new Date(latest.occurredAt).getTime()) / 3_600_000);
     const volumeScore = Math.min(40, group.length * 10);
     const recencyScore = latestAgeHours <= 48 ? 20 : latestAgeHours <= 168 ? 12 : 4;
