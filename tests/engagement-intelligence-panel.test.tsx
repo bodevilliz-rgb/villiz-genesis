@@ -300,7 +300,7 @@ describe("EngagementIntelligencePanel", () => {
     );
     expect(screen.getByRole("heading", { name: "Post performance" })).toBeInTheDocument();
     expect(screen.getByText("1,200")).toBeInTheDocument();
-    expect(screen.getByText(/Exact applied recommendation match/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Attribution verified/).length).toBeGreaterThan(0);
     expect(screen.getByText("24h")).toBeInTheDocument();
     expect(screen.getByText("7 days")).toBeInTheDocument();
   });
