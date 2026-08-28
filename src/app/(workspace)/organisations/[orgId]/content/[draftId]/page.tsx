@@ -4,7 +4,7 @@ import { History } from "lucide-react";
 import { requireContext } from "@/server/container";
 import { getDraft, getLatestGenerationRequest } from "@/core/application/use-cases/content";
 import { getGenerationReadiness } from "@/core/application/use-cases/generation";
-import { getEngagementLearningOverview, getLatestEngagementRecommendation } from "@/core/application/use-cases/engagement";
+import { assessRecommendationDistributionEligibility, getEngagementLearningOverview, getLatestEngagementRecommendation } from "@/core/application/use-cases/engagement";
 import { canUseSoloOperatorApproval, getReviewHistory, listEligibleReviewers } from "@/core/application/use-cases/review";
 import { PageHeader } from "@/components/common/page-header";
 import { DraftForm } from "@/components/content/draft-form";
@@ -154,6 +154,7 @@ export default async function DraftDetailPage({
                 canWrite={canWrite}
                 canLead={canLead}
                 soloOperatorApproval={soloOperatorApproval}
+                distributionApproval={assessRecommendationDistributionEligibility(latestEngagementRecommendation, draft.version)}
               />
             </CardContent>
           </Card>
