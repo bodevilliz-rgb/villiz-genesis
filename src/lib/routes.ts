@@ -22,6 +22,7 @@ export const routes = {
     settings: (id: string) => `/organisations/${id}/settings`,
     team: (id: string) => `/organisations/${id}/team`,
     marketIntelligence: (id: string) => `/organisations/${id}/market-intelligence`,
+    intent: (id: string) => `/organisations/${id}/intent`,
     membrain: {
       index: (id: string) => `/organisations/${id}/membrain`,
       new: (id: string) => `/organisations/${id}/membrain/new`,
