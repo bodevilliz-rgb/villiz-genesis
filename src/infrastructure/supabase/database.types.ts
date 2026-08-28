@@ -530,6 +530,15 @@ export type MembrainCategoryRow = {
   created_at: string;
 };
 
+export type IntentSourceDb = "phone" | "direct_message" | "website" | "booking" | "social" | "referral" | "other";
+export type IntentStageDb = "enquiry" | "quote_requested" | "booking_started" | "booked" | "lost";
+export type IntentConsentStatusDb = "not_recorded" | "not_required" | "consented" | "objected";
+export type IntentSignalRow = {
+  id: string; organisation_id: string; service_key: string; service_label: string; locality: string | null;
+  desired_timeframe: string | null; source: IntentSourceDb; stage: IntentStageDb; consent_status: IntentConsentStatusDb;
+  occurred_at: string; created_by: string | null; created_at: string; updated_at: string;
+};
+
 export type MarketIntelligenceProfileRow = {
   organisation_id: string; business_objectives: string[]; target_geographies: string[]; service_areas: string[];
   audience_context: string | null; cultural_context: string | null; promotional_focus: string | null;
@@ -1047,6 +1056,7 @@ export type Database = {
       engagement_feedback_events: Table<EngagementFeedbackEventRow, Partial<EngagementFeedbackEventRow>, Partial<EngagementFeedbackEventRow>>;
       engagement_metric_snapshots: Table<EngagementMetricSnapshotRow, Partial<EngagementMetricSnapshotRow>, Partial<EngagementMetricSnapshotRow>>;
       engagement_commercial_outcomes: Table<EngagementCommercialOutcomeRow, Partial<EngagementCommercialOutcomeRow>, Partial<EngagementCommercialOutcomeRow>>;
+      intent_signals: Table<IntentSignalRow, Partial<IntentSignalRow>, Partial<IntentSignalRow>, [Fk<"intent_signals_organisation_id_fkey", "organisation_id", "organisations">]>;
       market_intelligence_profiles: Table<MarketIntelligenceProfileRow, Partial<MarketIntelligenceProfileRow>, Partial<MarketIntelligenceProfileRow>, [Fk<"market_intelligence_profiles_organisation_id_fkey", "organisation_id", "organisations">]>;
       market_intelligence_references: Table<MarketIntelligenceReferenceRow, Partial<MarketIntelligenceReferenceRow>, Partial<MarketIntelligenceReferenceRow>, [Fk<"market_intelligence_references_organisation_id_fkey", "organisation_id", "organisations">]>;
       market_intelligence_patterns: Table<MarketIntelligencePatternRow, Partial<MarketIntelligencePatternRow>, Partial<MarketIntelligencePatternRow>, [Fk<"market_intelligence_patterns_organisation_id_fkey", "organisation_id", "organisations">]>;
@@ -1405,6 +1415,9 @@ export type Database = {
       content_draft_status: ContentDraftStatusDb;
       content_draft_type: ContentDraftTypeDb;
       engagement_data_basis: EngagementDataBasisDb;
+      intent_source: IntentSourceDb;
+      intent_stage: IntentStageDb;
+      intent_consent_status: IntentConsentStatusDb;
       membrain_source: MembrainSourceDb;
       membrain_status: MembrainStatusDb;
       organisation_role: OrganisationRoleDb;

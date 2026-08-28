@@ -31,6 +31,7 @@ export default async function OrganisationLayout({
     { href: routes.organisations.detail(orgId), label: "Overview", icon: "layout-list" },
     { href: routes.organisations.membrain.index(orgId), label: "MemBrain", icon: "brain", prefix: true },
     { href: routes.organisations.marketIntelligence(orgId), label: "Market Intelligence", icon: "bar-chart", prefix: true },
+    { href: routes.organisations.intent(orgId), label: "Intent Opportunities", icon: "sparkles", prefix: true },
     { href: routes.organisations.content.index(orgId), label: "Content Studio", icon: "pen-line", prefix: true },
     { href: routes.organisations.campaigns.index(orgId), label: "Campaigns", icon: "blocks", prefix: true },
     { href: routes.organisations.media.index(orgId), label: "Media Library", icon: "images", prefix: true },
