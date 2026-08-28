@@ -213,6 +213,12 @@ export function EngagementIntelligencePanel({ organisationId, draftId, currentDr
     "This earlier recommendation predates the Audience Distribution Gate. Generate a new recommendation before review or application.",
   ];
   const distributionGate = visibilityPlan?.distributionGate ?? "blocked";
+  const hasCurrentDistributionContract = Boolean(
+    visibilityPlan
+      && (visibilityPlan.distributionGate === "pass" || visibilityPlan.distributionGate === "blocked")
+      && typeof visibilityPlan.distributionReadinessScore === "number"
+      && Array.isArray(visibilityPlan.distributionBlockers),
+  );
   const distributionGateBlocked = !visibilityPlan
     || visibilityPlan.distributionGate !== "pass"
     || (visibilityPlan.distributionReadinessScore ?? 0) < 95
@@ -518,7 +524,7 @@ export function EngagementIntelligencePanel({ organisationId, draftId, currentDr
 
             {visibilityPlan && !visibilityPlan.verticalIntelligenceAvailable ? <p className="rounded-md border border-border p-3 text-[11px] text-muted-foreground">Vertical-specific intelligence is unavailable. This plan uses the safe baseline, approved Market Intelligence and MemBrain context.</p> : null}
 
-            {visibilityPlan ? (
+            {visibilityPlan && hasCurrentDistributionContract ? (
               <details className="rounded-md border border-border px-3 py-2 text-[12px]" open>
                 <summary className="cursor-pointer font-semibold">Visibility plan</summary>
                 <div className="mt-3 grid gap-3 text-muted-foreground">
@@ -570,6 +576,10 @@ export function EngagementIntelligencePanel({ organisationId, draftId, currentDr
                   <p className="text-[11px]">{visibilityPlan.rationale}</p>
                 </div>
               </details>
+            ) : recommendation ? (
+              <div className="rounded-md border border-danger/30 bg-danger-soft p-3 text-[12px] text-danger">
+                The saved Visibility Plan uses an earlier contract and cannot be trusted for review. Generate a new recommendation to replace it.
+              </div>
             ) : null}
 
             <details className="rounded-md border border-border px-3 py-2 text-[12px]">
