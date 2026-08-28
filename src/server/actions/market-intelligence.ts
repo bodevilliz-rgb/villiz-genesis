@@ -1,5 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireContext } from "@/server/container";
 import { routes } from "@/lib/routes";
@@ -16,6 +17,7 @@ export async function saveMarketProfileAction(formData: FormData) {
   const voice = z.enum(CULTURAL_VOICE_LEVELS).parse(formData.get("culturalVoiceLevel"));
   await context.marketIntelligence.upsertProfile({ organisationId, businessObjectives: objectives, targetGeographies: list(formData.get("targetGeographies")), serviceAreas: list(formData.get("serviceAreas")), audienceContext: String(formData.get("audienceContext") || "").trim() || null, culturalContext: String(formData.get("culturalContext") || "").trim() || null, promotionalFocus: String(formData.get("promotionalFocus") || "").trim() || null, culturalVoiceLevel: voice, conversionActions: list(formData.get("conversionActions")), platformStrategy: Object.fromEntries(["instagram", "facebook", "linkedin", "x", "tiktok"].map((platform) => [platform, String(formData.get(`${platform}PlatformStrategy`) || "").trim()]).filter(([, value]) => value)), hashtagStrategy: { local: String(formData.get("localStrategy") || "").trim(), service: String(formData.get("serviceStrategy") || "").trim(), audience_cultural: String(formData.get("audienceStrategy") || "").trim(), occasion_topic: String(formData.get("occasionStrategy") || "").trim(), campaign: String(formData.get("campaignStrategy") || "").trim(), brand: String(formData.get("brandStrategy") || "").trim() } });
   revalidatePath(routes.organisations.marketIntelligence(organisationId));
+  redirect(`${routes.organisations.marketIntelligence(organisationId)}?saved=1`);
 }
 
 export async function addMarketReferenceAction(formData: FormData) {
