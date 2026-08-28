@@ -61,7 +61,7 @@ export function marketProfileReadiness(profile: MarketIntelligenceProfile | null
     Boolean(profile.audienceContext?.trim()),
     Boolean(profile.promotionalFocus?.trim()),
     profile.conversionActions.length > 0,
-    Object.keys(profile.hashtagStrategy).length > 0,
+    Boolean(profile.hashtagStrategy.local?.trim()) && Boolean(profile.hashtagStrategy.service?.trim()),
   ] : [false, false, false, false, false, false];
   const complete = checks.filter(Boolean).length;
   return { complete, total: checks.length, percentage: Math.round((complete / checks.length) * 100) };
