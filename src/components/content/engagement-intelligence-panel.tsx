@@ -110,7 +110,7 @@ export function EngagementIntelligencePanel({ organisationId, draftId, currentDr
   function confirmApplication() {
     if (!recommendation || !pendingApplication) return;
     const plan = recommendation.creativeGuidance.visibilityPlan;
-    if (!plan || plan.distributionGate !== "pass" || plan.distributionReadinessScore < 95) {
+    if (!plan || plan.distributionGate !== "pass" || plan.distributionReadinessScore < 95 || plan.distributionBlockers.length > 0) {
       toast.error("This recommendation is not eligible for use. Resolve the Audience Distribution Gate blockers and generate a new recommendation.");
       setPendingApplication(null);
       return;
@@ -209,7 +209,10 @@ export function EngagementIntelligencePanel({ organisationId, draftId, currentDr
   const linkedInHashtagPolicyRequired = recommendation?.platform === "linkedin" && hashtags.length > 0;
   const linkedInApplyBlocked = linkedInAuditRequired || linkedInHashtagPolicyRequired;
   const visibilityPlan = recommendation?.creativeGuidance.visibilityPlan ?? null;
-  const distributionGateBlocked = !visibilityPlan || visibilityPlan.distributionGate !== "pass" || visibilityPlan.distributionReadinessScore < 95;
+  const distributionGateBlocked = !visibilityPlan
+    || visibilityPlan.distributionGate !== "pass"
+    || visibilityPlan.distributionReadinessScore < 95
+    || visibilityPlan.distributionBlockers.length > 0;
   const distributionReadinessScore = visibilityPlan?.distributionReadinessScore ?? 0;
   const appliedToCurrentVersion = Boolean(recommendation && learningOverview.latestFeedback?.recommendationId === recommendation.id && learningOverview.latestFeedback.appliedDraftVersion === effectiveDraftVersion);
   const isStale = recommendation ? recommendation.draftVersion !== effectiveDraftVersion && !appliedToCurrentVersion : false;
