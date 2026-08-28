@@ -67,7 +67,7 @@ const draft: ContentDraft = {
   updatedBy: null,
 };
 
-function dependencies(options: { role?: "lead" | "contributor" | "reviewer"; withContext?: boolean; draftBody?: string } = {}) {
+function dependencies(options: { role?: "lead" | "contributor" | "reviewer"; withContext?: boolean; draftBody?: string; withContentPillar?: boolean } = {}) {
   const role = options.role ?? "contributor";
   const withContext = options.withContext ?? true;
   let persisted: EngagementRecommendationWriteModel | null = null;
@@ -108,6 +108,25 @@ function dependencies(options: { role?: "lead" | "contributor" | "reviewer"; wit
           ]
         : [],
     ),
+    listRecent: vi.fn(async () => options.withContentPillar === false ? [] : [{
+      id: "00000000-0000-4000-8000-000000000009",
+      organisationId: ORG_ID,
+      categoryId: "00000000-0000-4000-8000-000000000010",
+      title: "Portrait confidence",
+      summary: "Portraits that express the client's identity.",
+      body: "Show how thoughtful portrait direction helps clients feel confident.",
+      status: "active",
+      source: "client_brief",
+      sourceUrl: null,
+      importance: 5,
+      version: 3,
+      retrievalCount: 0,
+      lastRetrievedAt: null,
+      createdAt: "2026-08-01T00:00:00Z",
+      updatedAt: "2026-08-09T00:00:00Z",
+      category: { id: "00000000-0000-4000-8000-000000000010", key: "content_pillars", label: "Content pillars" },
+      tags: [], createdBy: null, updatedBy: null,
+    }]),
     markRetrieved: vi.fn(async () => undefined),
     recordAiUsage: vi.fn(async () => undefined),
   } as unknown as MembrainRepository;
@@ -242,9 +261,10 @@ describe("AWO Engagement Intelligence", () => {
 
     expect(recommendation.draftVersion).toBe(3);
     expect(recommendation.dataBasis).toBe("brand_only");
-    expect(recommendation.evidence).toEqual([
+    expect(recommendation.evidence).toEqual(expect.arrayContaining([
       expect.objectContaining({ sourceId: ENTRY_ID, categoryKey: "brand_voice", version: 2 }),
-    ]);
+      expect.objectContaining({ sourceId: "00000000-0000-4000-8000-000000000009", categoryKey: "content_pillars", version: 3 }),
+    ]));
     expect(fixture.getPersisted()).toEqual(expect.objectContaining({ createdBy: ACTOR_ID }));
   });
 
@@ -330,13 +350,46 @@ describe("AWO Engagement Intelligence", () => {
       contentFormat: expect.any(String),
       hookFamily: expect.any(String),
       ctaType: "trust_step",
-      contentPillar: null,
+      contentPillar: "Portrait confidence",
       marketPatternIds: expect.any(Array),
       hashtagRoleMix: expect.any(Array),
       culturalVoiceLevel: "neutral",
       visibilityStrategyVersion: "visibility-v2",
       visibilityEvidenceLevel: expect.any(String),
     }));
+  });
+
+  it("resolves an active MemBrain pillar into the visibility plan and preserves its provenance", async () => {
+    const fixture = dependencies();
+    const result = await generateEngagementRecommendation(fixture.deps, {
+      organisationId: ORG_ID, draftId: DRAFT_ID, platform: "instagram",
+    });
+
+    expect(result.creativeGuidance.visibilityPlan).toEqual(expect.objectContaining({
+      contentPillar: "Portrait confidence",
+      contentPillarRationale: expect.stringContaining('active MemBrain content pillar "Portrait confidence" (v3)'),
+    }));
+    expect(result.strategyMetadata?.contentPillar).toBe("Portrait confidence");
+    expect(result.evidence).toContainEqual(expect.objectContaining({
+      sourceType: "membrain_entry",
+      sourceId: "00000000-0000-4000-8000-000000000009",
+      categoryKey: "content_pillars",
+      version: 3,
+    }));
+  });
+
+  it("keeps the distribution gate blocked when no active MemBrain pillar exists", async () => {
+    const fixture = dependencies({ withContentPillar: false });
+    const result = await generateEngagementRecommendation(fixture.deps, {
+      organisationId: ORG_ID, draftId: DRAFT_ID, platform: "instagram",
+    });
+
+    expect(result.creativeGuidance.visibilityPlan).toEqual(expect.objectContaining({
+      distributionGate: "blocked",
+      contentPillar: expect.stringContaining("No MemBrain content pillar"),
+      distributionBlockers: expect.arrayContaining(["Select a legitimate MemBrain content pillar."]),
+    }));
+    expect(result.strategyMetadata?.contentPillar).toBeNull();
   });
 
   it("enforces personal-profile LinkedIn guidance and recalculates editorial readiness", async () => {
@@ -750,6 +803,29 @@ describe("Sprint 14 publish-to-learn contract", () => {
     });
     expect(result.draftVersion).toBe(4);
     expect(applyRecommendation).toHaveBeenCalledOnce();
+  });
+
+  it("refuses an inconsistent pass label when distribution blockers remain", async () => {
+    const fixture = dependencies();
+    const recommendation = distributionReady(await generateEngagementRecommendation(fixture.deps, {
+      organisationId: ORG_ID, draftId: DRAFT_ID, platform: "instagram",
+    }));
+    recommendation.creativeGuidance.visibilityPlan!.distributionBlockers = [
+      "Configure at least one ACOR target geography or service locality.",
+    ];
+    fixture.deps.engagement.findById = vi.fn(async () => recommendation);
+    const applyRecommendation = vi.fn();
+    fixture.deps.engagement.applyRecommendation = applyRecommendation;
+
+    await expect(applyEngagementRecommendation({
+      actor: fixture.deps.actor, organisations: fixture.deps.organisations,
+      engagement: fixture.deps.engagement, content: fixture.deps.content,
+    }, {
+      organisationId: ORG_ID, draftId: DRAFT_ID, recommendationId: recommendation.id,
+      action: "selected", variant: "recommended", captionSnapshot: recommendation.recommendedCaption,
+      hashtagSnapshot: [],
+    })).rejects.toThrow("Audience Distribution Gate blocked");
+    expect(applyRecommendation).not.toHaveBeenCalled();
   });
 
   it("refuses to apply a legacy LinkedIn recommendation without an independent audit", async () => {
