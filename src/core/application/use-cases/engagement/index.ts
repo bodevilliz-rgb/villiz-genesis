@@ -490,10 +490,6 @@ export async function recordEngagementFeedback(
   if (!deps.engagement.findById || !deps.engagement.createFeedback) throw new ValidationError("Engagement feedback storage is not available.");
   const recommendation = await deps.engagement.findById(input.organisationId, input.recommendationId);
   if (!recommendation || recommendation.draftId !== input.draftId) throw new NotFoundError("Engagement recommendation");
-  const visibilityPlan = recommendation.creativeGuidance.visibilityPlan;
-  if (!visibilityPlan || visibilityPlan.distributionGate !== "pass" || visibilityPlan.distributionReadinessScore < DISTRIBUTION_READINESS_THRESHOLD) {
-    throw new ValidationError(`Awo Audience Distribution Gate blocked this recommendation. ${visibilityPlan?.distributionBlockers.join(" ") || "Generate a new recommendation with complete audience, locality and discovery strategy."}`);
-  }
   const draft = await deps.content.findDraft(input.organisationId, input.draftId);
   if (!draft) throw new NotFoundError("Draft");
   return deps.engagement.createFeedback({
@@ -515,6 +511,10 @@ export async function applyEngagementRecommendation(
   if (!deps.engagement.applyRecommendation) throw new ValidationError("Atomic recommendation application is not available.");
   const recommendation = await deps.engagement.findById?.(input.organisationId, input.recommendationId);
   if (!recommendation || recommendation.draftId !== input.draftId) throw new NotFoundError("Engagement recommendation");
+  const visibilityPlan = recommendation.creativeGuidance.visibilityPlan;
+  if (!visibilityPlan || visibilityPlan.distributionGate !== "pass" || visibilityPlan.distributionReadinessScore < DISTRIBUTION_READINESS_THRESHOLD) {
+    throw new ValidationError(`Awo Audience Distribution Gate blocked this recommendation. ${visibilityPlan?.distributionBlockers.join(" ") || "Generate a new recommendation with complete audience, locality and discovery strategy."}`);
+  }
   if (recommendation.platform === "linkedin"
     && recommendation.creativeGuidance.linkedinPersonalProfile?.auditStatus !== "passed") {
     throw new ValidationError("This LinkedIn recommendation predates independent grounding. Generate a new recommendation before applying it.");
