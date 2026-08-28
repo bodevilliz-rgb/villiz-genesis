@@ -108,7 +108,9 @@ async function persistAwoAttribution(
   if (!attribution) return;
   const plan = attribution.visibilityPlan;
   if (plan.goal !== attribution.commercialIntent) throw new Error("The Awo goal attribution is inconsistent.");
-  if (plan.distributionGate !== "pass" || plan.distributionReadinessScore < DISTRIBUTION_READINESS_THRESHOLD) {
+  if (plan.distributionGate !== "pass"
+    || plan.distributionReadinessScore < DISTRIBUTION_READINESS_THRESHOLD
+    || plan.distributionBlockers.length > 0) {
     throw new Error(`Awo Audience Distribution Gate blocked this post (${plan.distributionReadinessScore}/100): ${plan.distributionBlockers.join(" ") || "regenerate after completing the required strategy inputs."}`);
   }
   if (!isPublishingPlatform(attribution.platform)) throw new Error("The attributed destination platform is not supported for publishing.");
