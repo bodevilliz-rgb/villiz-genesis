@@ -39,9 +39,12 @@ function attribution(destinationAccountId: string | null = "account-a") {
   return {
     caption: "A grounded caption.", platform: "instagram", destinationAccountId,
     mediaAssetIds: [ASSET], commercialIntent: "convert", commercialIntentSource: "recommended",
-    culturalVoiceLevel: "neutral", suggestedHashtags: ["Grounded"],
+    culturalVoiceLevel: "neutral", suggestedHashtags: ["Coventry", "Grounded"],
     visibilityPlan: {
       goal: "convert", goalRationale: "Configured enquiry action.", contentJob: "CONVERSION",
+      distributionGate: "pass", distributionReadinessScore: 100, distributionBlockers: [],
+      targetLocalities: ["Coventry"], platformStrategy: "Use visual proof for local service discovery.",
+      discoveryRoles: ["local", "service"],
       targetAudience: "Configured audience", mediaObservation: "Visible product image.",
       contentPillar: "Useful expertise", contentPillarRationale: "Selected from MemBrain.",
       contentFormat: "single_image", formatRationale: "One image is selected.", attentionMechanism: "Relevance",
@@ -59,7 +62,7 @@ function attribution(destinationAccountId: string | null = "account-a") {
 function form(payload = attribution()) {
   const data = new FormData();
   data.set("organisationId", ORG); data.set("title", "Grounded draft"); data.set("body", "A grounded caption.");
-  data.set("contentType", "social_post"); data.set("hashtags", JSON.stringify(["Grounded"]));
+  data.set("contentType", "social_post"); data.set("hashtags", JSON.stringify(["Coventry", "Grounded"]));
   data.set("awoAttribution", JSON.stringify(payload));
   return data;
 }
@@ -67,7 +70,7 @@ function form(payload = attribution()) {
 describe("New Draft → existing engagement attribution path", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.createDraft.mockResolvedValue({ id: DRAFT, organisationId: ORG, version: 1, body: "A grounded caption.", hashtags: ["Grounded"] });
+    mocks.createDraft.mockResolvedValue({ id: DRAFT, organisationId: ORG, version: 1, body: "A grounded caption.", hashtags: ["Coventry", "Grounded"] });
     mocks.activeAccounts.mockResolvedValue([{ id: "account-a" }]);
     mocks.listAssets.mockResolvedValue([{ id: ASSET }]);
     mocks.createRecommendation.mockResolvedValue({ id: "recommendation-1" });
@@ -81,7 +84,7 @@ describe("New Draft → existing engagement attribution path", () => {
       strategyMetadata: expect.objectContaining({ commercialIntent: "convert", commercialIntentSource: "recommended", contentJob: "CONVERSION", contentPillar: "Useful expertise", hookFamily: "question", destinationAccountId: "account-a", destinationPlatform: "instagram", marketPatternIds: ["pattern-a"], foundationVersion: "professional-services-v1", visibilityEvidenceLevel: "FOUNDATION_AND_MARKET" }),
       evidence: [{ sourceType: "media_asset", sourceId: ASSET, title: "Selected draft media" }],
     }));
-    expect(mocks.applyRecommendation).toHaveBeenCalledWith(expect.objectContaining({ draftId: DRAFT, recommendationId: "recommendation-1", variant: "recommended", captionSnapshot: "A grounded caption.", hashtagSnapshot: ["Grounded"] }));
+    expect(mocks.applyRecommendation).toHaveBeenCalledWith(expect.objectContaining({ draftId: DRAFT, recommendationId: "recommendation-1", variant: "recommended", captionSnapshot: "A grounded caption.", hashtagSnapshot: ["Coventry", "Grounded"] }));
   });
 
   it("preserves no-destination as an honest attributed state", async () => {
@@ -90,16 +93,14 @@ describe("New Draft → existing engagement attribution path", () => {
     expect(mocks.createRecommendation).toHaveBeenCalledWith(expect.objectContaining({ strategyMetadata: expect.objectContaining({ destinationAccountId: null }) }));
   });
 
-  it("does not attribute suggested hashtags that the operator did not accept", async () => {
+  it("blocks persistence when the operator did not accept the complete supported discovery set", async () => {
     const data = form();
     data.set("hashtags", JSON.stringify([]));
     mocks.createDraft.mockResolvedValue({ id: DRAFT, organisationId: ORG, version: 1, body: "A grounded caption.", hashtags: [] });
 
-    expect(await createDraftAction({ status: "idle", message: "" }, data)).toMatchObject({ status: "success" });
-    expect(mocks.createRecommendation).toHaveBeenCalledWith(expect.objectContaining({
-      hashtags: { brand: [], local: [], service: [], audience: [] },
-    }));
-    expect(mocks.applyRecommendation).toHaveBeenCalledWith(expect.objectContaining({ hashtagSnapshot: [] }));
+    expect(await createDraftAction({ status: "idle", message: "" }, data)).toMatchObject({ status: "error" });
+    expect(mocks.createRecommendation).not.toHaveBeenCalled();
+    expect(mocks.applyRecommendation).not.toHaveBeenCalled();
   });
 
   it("rejects an inactive or cross-organisation destination instead of attributing it", async () => {

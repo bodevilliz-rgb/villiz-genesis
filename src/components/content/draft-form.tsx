@@ -679,15 +679,15 @@ export function DraftForm({
             <details className="rounded border border-border bg-muted/20 p-3 text-[11px]" open>
               <summary className="cursor-pointer font-medium text-foreground">Awo Growth Decision · {visibilityPlan.visibilityEvidenceLevel.replaceAll("_", " ")}</summary>
               <dl className="mt-2 grid gap-2 sm:grid-cols-2 text-muted-foreground">
-                <div className="sm:col-span-2"><dt className="text-foreground">Audience Distribution Gate</dt><dd className={visibilityPlan.distributionGate === "pass" ? "text-positive" : "text-warning"}>{visibilityPlan.distributionGate.toUpperCase()} · {visibilityPlan.distributionReadinessScore}/100 · minimum 95</dd></div>
-                {visibilityPlan.distributionBlockers.length > 0 && <div className="sm:col-span-2"><dt className="text-foreground">Required before acceptance</dt><dd><ul className="list-disc pl-4">{visibilityPlan.distributionBlockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul></dd></div>}
+                <div className="sm:col-span-2"><dt className="text-foreground">Audience Distribution Gate</dt><dd className={visibilityPlan.distributionGate === "pass" ? "text-positive" : "text-warning"}>{(visibilityPlan.distributionGate ?? "blocked").toUpperCase()} · {visibilityPlan.distributionReadinessScore ?? 0}/100 · minimum 95</dd></div>
+                {(visibilityPlan.distributionBlockers ?? ["This earlier recommendation predates the audience distribution gate. Regenerate it before acceptance."]).length > 0 && <div className="sm:col-span-2"><dt className="text-foreground">Required before acceptance</dt><dd><ul className="list-disc pl-4">{(visibilityPlan.distributionBlockers ?? ["This earlier recommendation predates the audience distribution gate. Regenerate it before acceptance."]).map((blocker) => <li key={blocker}>{blocker}</li>)}</ul></dd></div>}
                 <div><dt className="text-foreground">Goal</dt><dd>{visibilityPlan.goal?.replaceAll("_", " ") ?? "Not recorded on this earlier decision"}</dd></div>
                 <div><dt className="text-foreground">Why this goal</dt><dd>{visibilityPlan.goalRationale ?? "Not recorded"}</dd></div>
                 <div><dt className="text-foreground">Content job</dt><dd>{visibilityPlan.contentJob ?? "Not recorded"}</dd></div>
                 <div className="sm:col-span-2"><dt className="text-foreground">Audience</dt><dd>{visibilityPlan.targetAudience}</dd></div>
-                <div className="sm:col-span-2"><dt className="text-foreground">ACOR locality</dt><dd>{visibilityPlan.targetLocalities.join(", ") || "None verified"}</dd></div>
-                <div className="sm:col-span-2"><dt className="text-foreground">Platform strategy</dt><dd>{visibilityPlan.platformStrategy}</dd></div>
-                <div className="sm:col-span-2"><dt className="text-foreground">Discovery roles</dt><dd>{visibilityPlan.discoveryRoles.join(", ") || "None configured"}</dd></div>
+                <div className="sm:col-span-2"><dt className="text-foreground">ACOR locality</dt><dd>{visibilityPlan.targetLocalities?.join(", ") || "None verified"}</dd></div>
+                <div className="sm:col-span-2"><dt className="text-foreground">Platform strategy</dt><dd>{visibilityPlan.platformStrategy ?? "Not recorded on this earlier decision"}</dd></div>
+                <div className="sm:col-span-2"><dt className="text-foreground">Discovery roles</dt><dd>{visibilityPlan.discoveryRoles?.join(", ") || "None configured"}</dd></div>
                 <div className="sm:col-span-2"><dt className="text-foreground">Media observation</dt><dd>{visibilityPlan.mediaObservation ?? "Not recorded on this earlier decision"}</dd></div>
                 <div><dt className="text-foreground">Pillar</dt><dd>{visibilityPlan.contentPillar ?? "Not recorded"}</dd></div>
                 <div><dt className="text-foreground">Pillar rationale</dt><dd>{visibilityPlan.contentPillarRationale ?? "Not recorded"}</dd></div>
