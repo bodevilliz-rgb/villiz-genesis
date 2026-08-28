@@ -11,7 +11,7 @@ import type { MembrainRepository } from "@/core/application/ports/membrain-port"
 import type { OrganisationRepository } from "@/core/application/ports/organisation-port";
 import type { PublishingRepository } from "@/core/application/ports/publishing-port";
 import type { ContentDraft } from "@/core/domain/entities/content";
-import type { EngagementRecommendationWriteModel } from "@/core/domain/entities/engagement";
+import type { EngagementRecommendation, EngagementRecommendationWriteModel } from "@/core/domain/entities/engagement";
 import type { Actor } from "@/core/domain/entities/identity";
 import { engagementRecommendationModelSchema } from "@/core/application/dto/engagement-dto";
 import {
@@ -334,7 +334,7 @@ describe("AWO Engagement Intelligence", () => {
       marketPatternIds: expect.any(Array),
       hashtagRoleMix: expect.any(Array),
       culturalVoiceLevel: "neutral",
-      visibilityStrategyVersion: "visibility-v1",
+      visibilityStrategyVersion: "visibility-v2",
       visibilityEvidenceLevel: expect.any(String),
     }));
   });
@@ -690,6 +690,21 @@ describe("Sprint 14 publish-to-learn contract", () => {
     "utf8",
   );
 
+  function distributionReady<T extends EngagementRecommendation>(recommendation: T): T {
+    return {
+      ...recommendation,
+      creativeGuidance: {
+        ...recommendation.creativeGuidance,
+        visibilityPlan: {
+          ...recommendation.creativeGuidance.visibilityPlan,
+          distributionGate: "pass",
+          distributionReadinessScore: 100,
+          distributionBlockers: [],
+        },
+      },
+    };
+  }
+
   it("applies the draft and inserts attribution inside one security-invoker transaction", () => {
     expect(migration).toContain("public.apply_engagement_recommendation");
     expect(migration).toContain("security invoker");
@@ -709,9 +724,9 @@ describe("Sprint 14 publish-to-learn contract", () => {
 
   it("uses the atomic repository path for selected recommendations", async () => {
     const fixture = dependencies();
-    const recommendation = await generateEngagementRecommendation(fixture.deps, {
+    const recommendation = distributionReady(await generateEngagementRecommendation(fixture.deps, {
       organisationId: ORG_ID, draftId: DRAFT_ID, platform: "instagram",
-    });
+    }));
     fixture.deps.engagement.findById = vi.fn(async () => recommendation);
     const applyRecommendation = vi.fn(async () => ({
       draftVersion: 4,
@@ -739,9 +754,9 @@ describe("Sprint 14 publish-to-learn contract", () => {
 
   it("refuses to apply a legacy LinkedIn recommendation without an independent audit", async () => {
     const fixture = dependencies();
-    const recommendation = await generateEngagementRecommendation(fixture.deps, {
+    const recommendation = distributionReady(await generateEngagementRecommendation(fixture.deps, {
       organisationId: ORG_ID, draftId: DRAFT_ID, platform: "instagram",
-    });
+    }));
     const legacyLinkedIn = {
       ...recommendation,
       platform: "linkedin" as const,
@@ -772,9 +787,9 @@ describe("Sprint 14 publish-to-learn contract", () => {
 
   it("refuses to apply custom LinkedIn text that did not receive the recommendation audit", async () => {
     const fixture = dependencies();
-    const recommendation = await generateEngagementRecommendation(fixture.deps, {
+    const recommendation = distributionReady(await generateEngagementRecommendation(fixture.deps, {
       organisationId: ORG_ID, draftId: DRAFT_ID, platform: "instagram",
-    });
+    }));
     const auditedLinkedIn = {
       ...recommendation,
       platform: "linkedin" as const,
@@ -806,9 +821,9 @@ describe("Sprint 14 publish-to-learn contract", () => {
 
   it("refuses to apply an audited legacy LinkedIn recommendation containing hashtags", async () => {
     const fixture = dependencies();
-    const recommendation = await generateEngagementRecommendation(fixture.deps, {
+    const recommendation = distributionReady(await generateEngagementRecommendation(fixture.deps, {
       organisationId: ORG_ID, draftId: DRAFT_ID, platform: "instagram",
-    });
+    }));
     const legacyLinkedIn = {
       ...recommendation,
       platform: "linkedin" as const,
