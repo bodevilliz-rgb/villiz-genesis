@@ -109,6 +109,12 @@ export function EngagementIntelligencePanel({ organisationId, draftId, currentDr
 
   function confirmApplication() {
     if (!recommendation || !pendingApplication) return;
+    const plan = recommendation.creativeGuidance.visibilityPlan;
+    if (!plan || plan.distributionGate !== "pass" || plan.distributionReadinessScore < 95) {
+      toast.error("This recommendation is not eligible for use. Resolve the Audience Distribution Gate blockers and generate a new recommendation.");
+      setPendingApplication(null);
+      return;
+    }
     startTransition(async () => {
       const result = await applyEngagementRecommendationAction({
         organisationId,
@@ -202,6 +208,9 @@ export function EngagementIntelligencePanel({ organisationId, draftId, currentDr
   const linkedInAuditRequired = recommendation?.platform === "linkedin" && linkedInGuidance?.auditStatus !== "passed";
   const linkedInHashtagPolicyRequired = recommendation?.platform === "linkedin" && hashtags.length > 0;
   const linkedInApplyBlocked = linkedInAuditRequired || linkedInHashtagPolicyRequired;
+  const visibilityPlan = recommendation?.creativeGuidance.visibilityPlan ?? null;
+  const distributionGateBlocked = !visibilityPlan || visibilityPlan.distributionGate !== "pass" || visibilityPlan.distributionReadinessScore < 95;
+  const distributionReadinessScore = visibilityPlan?.distributionReadinessScore ?? 0;
   const appliedToCurrentVersion = Boolean(recommendation && learningOverview.latestFeedback?.recommendationId === recommendation.id && learningOverview.latestFeedback.appliedDraftVersion === effectiveDraftVersion);
   const isStale = recommendation ? recommendation.draftVersion !== effectiveDraftVersion && !appliedToCurrentVersion : false;
 
@@ -340,6 +349,19 @@ export function EngagementIntelligencePanel({ organisationId, draftId, currentDr
             ) : null}
             {draftLocked ? <div className="rounded-md border border-warning/30 bg-warning-soft p-3 text-[12px] text-warning">This draft is locked. Reopen it before applying a recommendation.</div> : null}
             {linkedInHashtagPolicyRequired ? <div className="rounded-md border border-warning/30 bg-warning-soft p-3 text-[12px] text-warning">This LinkedIn recommendation contains legacy hashtags. Generate a new recommendation to apply clean, keyword-rich personal-profile copy without hashtags.</div> : null}
+            {distributionGateBlocked ? (
+              <section className="rounded-md border border-danger/40 bg-danger-soft p-3 text-[12px] text-danger" role="alert" aria-label="Audience Distribution Gate">
+                <p className="font-semibold">Not eligible for use · Audience Distribution Gate BLOCKED</p>
+                <p className="mt-1">Readiness {distributionReadinessScore}/100 · minimum 95. This caption may be inspected, but it cannot be reviewed or applied.</p>
+                {visibilityPlan ? (
+                  visibilityPlan.distributionBlockers.length > 0 ? (
+                    <ul className="mt-2 grid gap-1 pl-4">
+                      {visibilityPlan.distributionBlockers.map((blocker) => <li className="list-disc" key={blocker}>{blocker}</li>)}
+                    </ul>
+                  ) : null
+                ) : <p className="mt-2">This recommendation predates the distribution gate. Generate a new recommendation.</p>}
+              </section>
+            ) : null}
             <div className="flex items-center justify-between gap-3">
               <span className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
                 {CAMPAIGN_PLATFORM_LABELS[recommendation.platform]} · Draft v{recommendation.draftVersion}
@@ -426,7 +448,7 @@ export function EngagementIntelligencePanel({ organisationId, draftId, currentDr
                         caption: recommendation.recommendedCaption,
                       })
                     }
-                    disabled={!canWrite || pending || isStale || draftLocked || linkedInApplyBlocked}
+                    disabled={!canWrite || pending || isStale || draftLocked || linkedInApplyBlocked || distributionGateBlocked}
                   >
                     <Check className="size-3.5" aria-hidden />
                     {recommendation.platform === "linkedin" ? "Review caption without hashtags" : "Review caption + hashtags"}
@@ -452,7 +474,7 @@ export function EngagementIntelligencePanel({ organisationId, draftId, currentDr
                             caption,
                           })
                         }
-                        disabled={!canWrite || pending || isStale || draftLocked || linkedInApplyBlocked}
+                        disabled={!canWrite || pending || isStale || draftLocked || linkedInApplyBlocked || distributionGateBlocked}
                       >
                         Review alternative {index + 1}
                         {recommendation.platform === "linkedin" ? " without hashtags" : " + hashtags"}
@@ -469,7 +491,7 @@ export function EngagementIntelligencePanel({ organisationId, draftId, currentDr
               <details className="rounded-md border border-border px-3 py-2 text-[12px]">
                 <summary className="cursor-pointer font-semibold">Edit before applying</summary>
                 <div className="mt-3 grid gap-2">
-                  <Textarea value={editedCaption} onChange={(event) => setEditedCaption(event.target.value)} maxLength={5000} placeholder="Edit the recommendation before applying it" disabled={!canWrite || pending || isStale || draftLocked} />
+                  <Textarea aria-label="Edit the recommendation before applying" value={editedCaption} onChange={(event) => setEditedCaption(event.target.value)} maxLength={5000} placeholder="Edit the recommendation before applying it" disabled={!canWrite || pending || isStale || draftLocked || distributionGateBlocked} />
                   <Button
                     type="button"
                     size="sm"
@@ -479,7 +501,7 @@ export function EngagementIntelligencePanel({ organisationId, draftId, currentDr
                         caption: editedCaption,
                       })
                     }
-                    disabled={!editedCaption.trim() || !canWrite || pending || isStale || draftLocked}
+                    disabled={!editedCaption.trim() || !canWrite || pending || isStale || draftLocked || distributionGateBlocked}
                   >
                     Preview custom caption
                   </Button>
@@ -487,40 +509,47 @@ export function EngagementIntelligencePanel({ organisationId, draftId, currentDr
               </details>
             )}
 
-            {recommendation.creativeGuidance.visibilityPlan && !recommendation.creativeGuidance.visibilityPlan.verticalIntelligenceAvailable ? <p className="rounded-md border border-border p-3 text-[11px] text-muted-foreground">Vertical-specific intelligence is unavailable. This plan uses the safe baseline, approved Market Intelligence and MemBrain context.</p> : null}
+            {visibilityPlan && !visibilityPlan.verticalIntelligenceAvailable ? <p className="rounded-md border border-border p-3 text-[11px] text-muted-foreground">Vertical-specific intelligence is unavailable. This plan uses the safe baseline, approved Market Intelligence and MemBrain context.</p> : null}
 
-            {recommendation.creativeGuidance.visibilityPlan ? (
+            {visibilityPlan ? (
               <details className="rounded-md border border-border px-3 py-2 text-[12px]" open>
                 <summary className="cursor-pointer font-semibold">Visibility plan</summary>
                 <div className="mt-3 grid gap-3 text-muted-foreground">
+                  <div className={visibilityPlan.distributionGate === "pass" && visibilityPlan.distributionReadinessScore >= 95 ? "rounded border border-positive/30 bg-positive-soft p-2 text-positive" : "rounded border border-danger/30 bg-danger-soft p-2 text-danger"}>
+                    <p className="font-semibold">Audience Distribution Gate · {visibilityPlan.distributionGate.toUpperCase()}</p>
+                    <p>{visibilityPlan.distributionReadinessScore}/100 · minimum 95</p>
+                  </div>
                   <div className="flex flex-wrap gap-2">
-                    <Badge tone="muted">{recommendation.creativeGuidance.visibilityPlan.contentFormat.replaceAll("_", " ")}</Badge>
-                    <Badge tone="muted">{recommendation.creativeGuidance.visibilityPlan.visibilityEvidenceLevel.replaceAll("_", " ").toLocaleLowerCase()}</Badge>
+                    <Badge tone="muted">{visibilityPlan.contentFormat.replaceAll("_", " ")}</Badge>
+                    <Badge tone="muted">{visibilityPlan.visibilityEvidenceLevel.replaceAll("_", " ").toLocaleLowerCase()}</Badge>
                   </div>
                   <div>
                     <p className="font-medium text-foreground">Target audience</p>
-                    <p>{recommendation.creativeGuidance.visibilityPlan.targetAudience}</p>
+                    <p>{visibilityPlan.targetAudience}</p>
+                    <p className="mt-1 text-[11px]">Localities: {visibilityPlan.targetLocalities.join(", ") || "None verified"}</p>
                   </div>
                   <div>
                     <p className="font-medium text-foreground">Hook strategy</p>
-                    <p>{recommendation.creativeGuidance.visibilityPlan.hookStrategy.replaceAll("_", " ")}</p>
+                    <p>{visibilityPlan.hookStrategy.replaceAll("_", " ")}</p>
                   </div>
                   <div>
                     <p className="font-medium text-foreground">Discovery</p>
-                    <p>{recommendation.creativeGuidance.visibilityPlan.discoveryStrategy}</p>
+                    <p>{visibilityPlan.discoveryStrategy}</p>
+                    <p className="mt-1 text-[11px]">Searchable language: {visibilityPlan.searchableLanguage.join(", ") || "None verified"}</p>
+                    <p className="mt-1 text-[11px]">Discovery roles: {visibilityPlan.discoveryRoles.join(", ") || "None configured"}</p>
                   </div>
                   <div>
                     <p className="font-medium text-foreground">Call to action</p>
-                    <p>{recommendation.creativeGuidance.visibilityPlan.ctaStrategy}</p>
+                    <p>{visibilityPlan.ctaStrategy}</p>
                   </div>
                   <div>
                     <p className="font-medium text-foreground">Measurement</p>
-                    <p>{recommendation.creativeGuidance.visibilityPlan.measurementPlan}</p>
+                    <p>{visibilityPlan.measurementPlan}</p>
                   </div>
                   <div>
                     <p className="font-medium text-foreground">Supporting distribution</p>
                     <ul className="mt-1 grid gap-1 pl-4">
-                      {recommendation.creativeGuidance.visibilityPlan.supportingDistributionActions.map((action) => (
+                      {visibilityPlan.supportingDistributionActions.map((action) => (
                         <li className="list-disc" key={action}>
                           {action}
                         </li>
@@ -529,9 +558,9 @@ export function EngagementIntelligencePanel({ organisationId, draftId, currentDr
                   </div>
                   <div>
                     <p className="font-medium text-foreground">Publishing window</p>
-                    <p>{recommendation.creativeGuidance.visibilityPlan.publishingWindow}</p>
+                    <p>{visibilityPlan.publishingWindow}</p>
                   </div>
-                  <p className="text-[11px]">{recommendation.creativeGuidance.visibilityPlan.rationale}</p>
+                  <p className="text-[11px]">{visibilityPlan.rationale}</p>
                 </div>
               </details>
             ) : null}
