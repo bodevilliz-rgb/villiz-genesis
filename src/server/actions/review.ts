@@ -12,6 +12,8 @@ import {
 import { errorState, successState, text, textOrEmpty, type ActionState } from "../action-result";
 import { routes } from "@/lib/routes";
 import { SOLO_OPERATOR_APPROVAL_MARKER } from "@/core/domain/entities/review";
+import { assessRecommendationDistributionEligibility } from "@/core/application/use-cases/engagement";
+import { ValidationError } from "@/core/domain/errors";
 
 function reviewDeps(context: RequestContext) {
   return {
@@ -149,6 +151,17 @@ export async function recordReviewDecisionAction(_prev: ActionState, formData: F
     let soloOperatorApproval = false;
 
     if (decision === "approve") {
+      const [currentDraft, latestRecommendation] = await Promise.all([
+        context.content.findDraft(organisationId, draftId),
+        context.engagement.findLatest(organisationId, draftId),
+      ]);
+      if (!currentDraft) throw new ValidationError("Draft not found.");
+      const distribution = assessRecommendationDistributionEligibility(latestRecommendation, currentDraft.version);
+      if (!distribution.eligible) {
+        throw new ValidationError(
+          `Approval blocked by the Audience Distribution Gate (${distribution.score}/100). ${distribution.blockers.join(" ")}`,
+        );
+      }
       draft = await approveDraft(deps, input);
       const [decisionEntry] = await context.reviews.listHistory(organisationId, draftId);
       soloOperatorApproval = Boolean(
