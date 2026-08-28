@@ -118,7 +118,7 @@ const DECISION_COMMENT_REQUIRED: Record<ReviewDecision, boolean> = {
   reject: true,
 };
 
-function DecisionForm({ organisationId, draftId, soloOperatorApproval = false }: { organisationId: string; draftId: string; soloOperatorApproval?: boolean }) {
+function DecisionForm({ organisationId, draftId, soloOperatorApproval = false, approvalBlocked = false }: { organisationId: string; draftId: string; soloOperatorApproval?: boolean; approvalBlocked?: boolean }) {
   const [state, formAction] = useActionState(recordReviewDecisionAction, idleState);
   useActionToast(state);
   const [decision, setDecision] = useState<ReviewDecision | null>(null);
@@ -138,7 +138,7 @@ function DecisionForm({ organisationId, draftId, soloOperatorApproval = false }:
   if (!decision) {
     return (
       <div className="flex flex-wrap gap-2">
-        <Button variant="primary" size="sm" onClick={() => setDecision("approve")}>
+        <Button variant="primary" size="sm" onClick={() => setDecision("approve")} disabled={approvalBlocked}>
           {soloOperatorApproval ? "Solo Operator Approval" : REVIEW_DECISION_LABELS.approve}
         </Button>
         <Button variant="secondary" size="sm" onClick={() => setDecision("request_changes")}>
@@ -192,6 +192,7 @@ export function ReviewPanel({
   canWrite,
   canLead,
   soloOperatorApproval = false,
+  distributionApproval,
 }: {
   organisationId: string;
   draft: ContentDraft;
@@ -202,6 +203,7 @@ export function ReviewPanel({
   /** Server-derived display hint. The approval use-case independently
    * rechecks organisation membership before accepting the decision. */
   soloOperatorApproval?: boolean;
+  distributionApproval?: { eligible: boolean; score: number; blockers: string[] };
 }) {
   const isSelfAuthored = draft.createdBy?.id === actorId;
   /** The one place the ordinary self-authorship block is visibly relaxed. */
@@ -263,7 +265,13 @@ export function ReviewPanel({
                     <p>This account has one eligible active operator. Your approval remains a recorded review decision and will be labelled in its immutable history.</p>
                   </div>
                 ) : null}
-                <DecisionForm organisationId={organisationId} draftId={draft.id} soloOperatorApproval={isSelfAuthored && soloOperatorApproval} />
+                {distributionApproval && !distributionApproval.eligible ? (
+                  <div className="rounded-md border border-danger/40 bg-danger-soft p-3 text-[12px] text-danger" role="alert">
+                    <p className="font-semibold">Approval blocked · Audience Distribution Gate {distributionApproval.score}/100</p>
+                    <ul className="mt-2 grid gap-1 pl-4">{distributionApproval.blockers.map((blocker) => <li className="list-disc" key={blocker}>{blocker}</li>)}</ul>
+                  </div>
+                ) : null}
+                <DecisionForm organisationId={organisationId} draftId={draft.id} soloOperatorApproval={isSelfAuthored && soloOperatorApproval} approvalBlocked={Boolean(distributionApproval && !distributionApproval.eligible)} />
               </div>
             )
           ) : (
