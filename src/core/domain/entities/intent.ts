@@ -65,7 +65,7 @@ export function buildIntentOpportunities(signals: IntentSignal[], now = new Date
     const localityScore = latest.locality ? 10 : 0;
     const sourceScore = new Set(group.map((signal) => signal.source)).size >= 2 ? 5 : 0;
     const score = Math.min(100, volumeScore + recencyScore + stageScore + localityScore + sourceScore);
-    const priority = score >= 85 ? "priority" : score >= 60 ? "recommend" : "observe";
+    const priority: IntentOpportunity["priority"] = score >= 85 ? "priority" : score >= 60 ? "recommend" : "observe";
     const rationale = [
       group.length + " demand signal" + (group.length === 1 ? "" : "s") + " recorded",
       latestAgeHours <= 48 ? "Recent intent within 48 hours" : latestAgeHours <= 168 ? "Intent active within seven days" : "Older demand evidence",
