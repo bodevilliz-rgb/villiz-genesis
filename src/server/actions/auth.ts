@@ -1,5 +1,6 @@
 "use server";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { z } from "zod";
 import { createGenesisClient } from "@/infrastructure/supabase/server-client";
 import { isAllowedEmail, serverEnv, allowedEmailDomains } from "@/lib/env";
@@ -7,6 +8,28 @@ import { routes } from "@/lib/routes";
 import { errorState, successState, type ActionState } from "../action-result";
 
 const emailSchema = z.string().trim().email();
+
+async function signInCallbackUrl(): Promise<string> {
+  const requestHeaders = await headers();
+  const origin = requestHeaders.get("origin");
+
+  if (origin) {
+    try {
+      const url = new URL(origin);
+      const isLocalDevelopment =
+        process.env.NODE_ENV !== "production" &&
+        (url.hostname === "localhost" || url.hostname === "127.0.0.1");
+
+      if ((url.protocol === "https:" || isLocalDevelopment) && !url.username && !url.password) {
+        return `${url.origin}${routes.authCallback}`;
+      }
+    } catch {
+      // Fall back to the configured canonical URL for non-browser callers.
+    }
+  }
+
+  return `${serverEnv().NEXT_PUBLIC_SITE_URL.replace(/\/$/, "")}${routes.authCallback}`;
+}
 
 /**
  * Passwordless sign-in.
@@ -37,11 +60,14 @@ export async function requestSignInLink(_prev: ActionState, formData: FormData):
     }
 
     const supabase = await createGenesisClient();
+    const emailRedirectTo = await signInCallbackUrl();
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
         shouldCreateUser: false,
-        emailRedirectTo: `${serverEnv().NEXT_PUBLIC_SITE_URL.replace(/\/$/, "")}${routes.authCallback}`,
+        // PKCE verification state is origin-bound. Return to the deployment
+        // where sign-in started so preview and production links both work.
+        emailRedirectTo,
       },
     });
 
