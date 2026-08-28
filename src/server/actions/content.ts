@@ -15,7 +15,7 @@ import { errorState, successState, textOrEmpty, type ActionState } from "../acti
 import { routes } from "@/lib/routes";
 import type { AwoGenerationAttribution, EngagementObjectiveType, EngagementStrategyMetadata } from "@/core/domain/entities/engagement";
 import { toBlotatoPlatform } from "@/core/domain/entities/blotato";
-import { VISIBILITY_STRATEGY_VERSION } from "@/core/application/use-cases/market-intelligence/visibility";
+import { DISTRIBUTION_READINESS_THRESHOLD, VISIBILITY_STRATEGY_VERSION } from "@/core/application/use-cases/market-intelligence/visibility";
 import { isPublishingPlatform } from "@/core/domain/entities/publishing";
 import { buildApprovedPillarChoices, PILLAR_CHOICE_CONTRACT_VERSION } from "./awo-grounding";
 
@@ -69,6 +69,12 @@ const awoAttributionSchema = z.object({
     actualHook: z.string().min(1).max(500),
     ctaStrategy: z.string().min(1).max(1000),
     discoveryStrategy: z.string().min(1).max(2000),
+    targetLocalities: z.array(z.string().min(1).max(200)).max(50),
+    platformStrategy: z.string().min(1).max(2000),
+    discoveryRoles: z.array(z.enum(["local", "service", "audience_cultural", "occasion_topic", "campaign", "brand"])).max(6),
+    distributionReadinessScore: z.number().int().min(0).max(100),
+    distributionGate: z.enum(["pass", "blocked"]),
+    distributionBlockers: z.array(z.string().min(1).max(500)).max(20),
     measurementPlan: z.string().min(1).max(2000),
     supportingDistributionActions: z.array(z.string().max(1000)).max(10),
     visibilityEvidenceLevel: z.enum(["CLIENT_EVIDENCE", "MARKET_EVIDENCE", "FOUNDATION_HYPOTHESIS", "FOUNDATION_AND_MARKET", "MARKET_PATTERN", "VERTICAL_HYPOTHESIS", "GENERAL_PLATFORM_OPTION", "INSUFFICIENT_EVIDENCE"]),
@@ -102,7 +108,17 @@ async function persistAwoAttribution(
   if (!attribution) return;
   const plan = attribution.visibilityPlan;
   if (plan.goal !== attribution.commercialIntent) throw new Error("The Awo goal attribution is inconsistent.");
+  if (plan.distributionGate !== "pass" || plan.distributionReadinessScore < DISTRIBUTION_READINESS_THRESHOLD) {
+    throw new Error(`Awo Audience Distribution Gate blocked this post (${plan.distributionReadinessScore}/100): ${plan.distributionBlockers.join(" ") || "regenerate after completing the required strategy inputs."}`);
+  }
   if (!isPublishingPlatform(attribution.platform)) throw new Error("The attributed destination platform is not supported for publishing.");
+  if (["instagram", "facebook", "tiktok"].includes(attribution.platform)) {
+    const suggested = new Set(attribution.suggestedHashtags.map((tag) => tag.replace(/^#/, "").toLocaleLowerCase()));
+    const applied = new Set(draft.hashtags.map((tag) => tag.replace(/^#/, "").toLocaleLowerCase()));
+    if (suggested.size < 2 || [...suggested].some((tag) => !applied.has(tag))) {
+      throw new Error("Apply the complete Awo-supported local and service discovery hashtag set before saving this post.");
+    }
+  }
 
   if (attribution.destinationAccountId) {
     const active = await context.blotatoAccounts.findActiveForOrganisationAndPlatform(toBlotatoPlatform(attribution.platform), draft.organisationId);
@@ -142,7 +158,7 @@ async function persistAwoAttribution(
     destinationAccountId: attribution.destinationAccountId,
     destinationPlatform: attribution.platform,
     marketPatternIds: plan.evidenceSources.filter((source) => source.startsWith("market-pattern:")).map((source) => source.slice("market-pattern:".length)),
-    hashtagRoleMix: [],
+    hashtagRoleMix: plan.discoveryRoles,
     culturalVoiceLevel: attribution.culturalVoiceLevel,
     contentFormat: plan.contentFormat,
     visibilityStrategyVersion: VISIBILITY_STRATEGY_VERSION,

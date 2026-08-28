@@ -85,6 +85,13 @@ export interface EngagementVisibilityPlan {
   hookStrategy: VisibilityHookFamily;
   actualHook: string;
   discoveryStrategy: string;
+  targetLocalities: string[];
+  platformStrategy: string;
+  discoveryRoles: MarketHashtagRole[];
+  /** Deterministic pre-publish completeness check, not a reach prediction. */
+  distributionReadinessScore: number;
+  distributionGate: "pass" | "blocked";
+  distributionBlockers: string[];
   searchableLanguage: string[];
   ctaStrategy: string;
   measurementPlan: string;

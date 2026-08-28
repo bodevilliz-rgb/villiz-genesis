@@ -403,6 +403,8 @@ export async function generateCaption(
     targetGeographies: market.targetGeographies,
     serviceAreas: market.serviceAreas,
     conversionActions: market.conversionActions,
+    platformStrategy: market.platformStrategy,
+    hashtagStrategyRoles: market.hashtagStrategyRoles,
     contentPillar: selectedPillar,
     contentPillarRationale: pillarRationale,
     mediaObservation: analysedMedia ? renderMediaObservation(analysedMedia) : mediaLimitation,
@@ -529,7 +531,17 @@ export async function generateHashtags(
       local: z.array(z.string()), service: z.array(z.string()), audienceCultural: z.array(z.string()),
       occasionTopic: z.array(z.string()), campaign: z.array(z.string()), brand: z.array(z.string()),
     }), { systemPrompt });
-    return { hashtags: filterUnsupportedOccasionHashtags([...new Set(Object.values(grouped).flat())], content).slice(0, count) };
+    const groupedTags = {
+      ...grouped,
+      local: filterUnsupportedOccasionHashtags(grouped.local, content),
+      service: filterUnsupportedOccasionHashtags(grouped.service, content),
+    };
+    if (["instagram", "facebook", "tiktok"].includes(platform) && (!groupedTags.local.length || !groupedTags.service.length)) {
+      throw new Error("Awo could not produce both verified local and service discovery hashtags. Complete Market Intelligence and try again.");
+    }
+    const prioritised = [groupedTags.local[0], groupedTags.service[0], ...Object.values(groupedTags).flat()]
+      .filter((tag): tag is string => Boolean(tag));
+    return { hashtags: filterUnsupportedOccasionHashtags([...new Set(prioritised)], content).slice(0, count) };
   } catch (error) {
     console.error("[genesis] hashtag generation provider failure", error);
     throw new Error(describeProviderFailure(error));

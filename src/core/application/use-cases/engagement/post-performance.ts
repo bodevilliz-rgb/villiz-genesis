@@ -3,6 +3,7 @@ import type {
   EngagementMetricSnapshot,
 } from "@/core/domain/entities/engagement";
 import type { CanonicalEngagementMetrics } from "./performance";
+import { hasSufficientLearningExposure, learningExposure, MINIMUM_LEARNING_EXPOSURE } from "./performance";
 
 export const PERFORMANCE_CHECKPOINTS = ["24h", "72h", "7d"] as const;
 export type PerformanceCheckpoint = (typeof PERFORMANCE_CHECKPOINTS)[number];
@@ -12,6 +13,11 @@ export interface PostPerformanceView {
   checkpoints: Partial<Record<PerformanceCheckpoint, EngagementMetricSnapshot>>;
   exactRecommendationMatch: boolean;
   engagementPerThousand: number | null;
+  exposure: number | null;
+  minimumLearningExposure: number;
+  attributionStatus: "verified" | "unverified";
+  evidenceStatus: "awaiting_7d" | "insufficient_exposure" | "sufficient";
+  learningStatus: "not_eligible" | "eligible";
 }
 
 function timestamp(snapshot: EngagementMetricSnapshot): number {
@@ -47,10 +53,20 @@ export function buildPostPerformanceView(snapshots: EngagementMetricSnapshot[]):
       checkpoints[snapshot.measurementWindow] = snapshot;
     }
   }
+  const exactRecommendationMatch = Boolean(latest?.recommendationId && latest.feedbackEventId);
+  const sevenDay = checkpoints["7d"];
+  const evidenceStatus: PostPerformanceView["evidenceStatus"] = !sevenDay
+    ? "awaiting_7d"
+    : hasSufficientLearningExposure(sevenDay.metrics) ? "sufficient" : "insufficient_exposure";
   return {
     latest,
     checkpoints,
-    exactRecommendationMatch: Boolean(latest?.recommendationId && latest.feedbackEventId),
+    exactRecommendationMatch,
     engagementPerThousand: latest ? engagementPerThousand(latest.metrics) : null,
+    exposure: latest ? learningExposure(latest.metrics) : null,
+    minimumLearningExposure: MINIMUM_LEARNING_EXPOSURE,
+    attributionStatus: exactRecommendationMatch ? "verified" : "unverified",
+    evidenceStatus,
+    learningStatus: exactRecommendationMatch && evidenceStatus === "sufficient" ? "eligible" : "not_eligible",
   };
 }
