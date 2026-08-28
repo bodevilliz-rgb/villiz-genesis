@@ -10,7 +10,7 @@ const snapshot: MarketIntelligenceSnapshot = {
 
 describe("Market Intelligence generation context", () => {
   it("is an exact neutral no-op when no repository/profile exists", async () => {
-    expect(await assembleMarketGenerationContext({ organisationId: "org-a", platform: "instagram" })).toEqual({ enabled: false, commercialIntent: "engage", commercialIntentSource: "recommended", culturalVoiceLevel: "neutral", selectedPatternIds: [], selectedPatterns: [], targetAudience: null, targetGeographies: [], serviceAreas: [], conversionActions: [], prompt: "" });
+    expect(await assembleMarketGenerationContext({ organisationId: "org-a", platform: "instagram" })).toEqual({ enabled: false, commercialIntent: "engage", commercialIntentSource: "recommended", culturalVoiceLevel: "neutral", selectedPatternIds: [], selectedPatterns: [], targetAudience: null, targetGeographies: [], serviceAreas: [], conversionActions: [], platformStrategy: null, hashtagStrategyRoles: [], prompt: "" });
     expect((await assembleMarketGenerationContext({ organisationId: "org-a", platform: "instagram", marketIntelligence: { getSnapshot: async () => ({ profile: null, references: [], patterns: [] }) } })).enabled).toBe(false);
   });
   it.each(["convert", "engage", "build_trust"] as const)("renders the %s intent", async (commercialIntent) => {

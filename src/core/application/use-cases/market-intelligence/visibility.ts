@@ -1,10 +1,11 @@
 import type { CampaignPlatform } from "@/core/domain/entities/campaign";
-import type { CommercialIntent } from "@/core/domain/entities/market-intelligence";
+import type { CommercialIntent, MarketHashtagRole } from "@/core/domain/entities/market-intelligence";
 import type { EngagementMetricSnapshot, EngagementObjectiveType, EngagementRecommendation, EngagementVisibilityPlan, VisibilityContentFormat, VisibilityEvidenceLevel, VisibilityHookFamily } from "@/core/domain/entities/engagement";
-import { normaliseEngagementMetrics, objectiveDirectionalScore } from "@/core/application/use-cases/engagement/performance";
+import { hasSufficientLearningExposure, normaliseEngagementMetrics, objectiveDirectionalScore } from "@/core/application/use-cases/engagement/performance";
 
-export const VISIBILITY_STRATEGY_VERSION = "visibility-v1";
+export const VISIBILITY_STRATEGY_VERSION = "visibility-v2";
 export const VERTICAL_PLAYBOOK_VERSION = "vertical-v1";
+export const DISTRIBUTION_READINESS_THRESHOLD = 95;
 export const BUYER_ORIENTATION_CONTRACT = [
   "=== BUYER ORIENTATION — public-copy boundary ===",
   "When the configured business is a consumer service, write to a plausible prospective buyer or user of that service, not to practitioners who deliver it.",
@@ -62,7 +63,7 @@ export function deriveClientVisibilityEvidence(input: {
   const { snapshots, recommendations, organisationId, platform, providerAccountId, objective } = input;
   const recommendationById = new Map(recommendations.map((recommendation) => [recommendation.id, recommendation]));
   const latestByPost = new Map<string, EngagementMetricSnapshot>();
-  for (const snapshot of snapshots.filter((item) => item.measurementWindow === "7d" && item.organisationId === organisationId && item.platform === platform && item.providerAccountId === providerAccountId && item.objectiveType === objective)) {
+  for (const snapshot of snapshots.filter((item) => item.measurementWindow === "7d" && Boolean(item.recommendationId && item.feedbackEventId) && hasSufficientLearningExposure(item.metrics) && item.organisationId === organisationId && item.platform === platform && item.providerAccountId === providerAccountId && item.objectiveType === objective)) {
     const current = latestByPost.get(snapshot.externalPostId);
     if (!current || snapshot.observedAt > current.observedAt) latestByPost.set(snapshot.externalPostId, snapshot);
   }
@@ -97,6 +98,8 @@ export interface VisibilityPlanInput {
   targetGeographies?: string[];
   serviceAreas?: string[];
   conversionActions?: string[];
+  platformStrategy?: string | null;
+  hashtagStrategyRoles?: MarketHashtagRole[];
   contentPillar?: string | null;
   contentPillarRationale?: string | null;
   mediaObservation?: string | null;
@@ -105,6 +108,47 @@ export interface VisibilityPlanInput {
   hookStrategyOverride?: VisibilityHookFamily | null;
   actualHook?: string | null;
   clientEvidence?: ClientVisibilityEvidence | null;
+}
+
+function isConfigured(value: string | null | undefined, unavailablePrefix: string): boolean {
+  const normalised = value?.trim().toLocaleLowerCase();
+  return Boolean(normalised && !normalised.startsWith(unavailablePrefix.toLocaleLowerCase()));
+}
+
+function distributionReadiness(input: VisibilityPlanInput, contentFormat: VisibilityContentFormat): Pick<EngagementVisibilityPlan, "distributionReadinessScore" | "distributionGate" | "distributionBlockers"> {
+  // Media analysis may narrow a configured audience, but it must never invent
+  // the authoritative audience that unlocks distribution.
+  const audienceReady = isConfigured(input.targetAudience, "no legitimate target audience");
+  const localityReady = [...(input.targetGeographies ?? []), ...(input.serviceAreas ?? [])].some((value) => Boolean(value.trim()));
+  const platformReady = Boolean(input.platformStrategy?.trim());
+  const discoveryRoles = new Set(input.hashtagStrategyRoles ?? []);
+  const discoveryReady = discoveryRoles.has("local") && discoveryRoles.has("service");
+  const pillarReady = isConfigured(input.contentPillar, "no membrain content pillar");
+  const visualPlatform = ["instagram", "facebook", "tiktok"].includes(input.platform);
+  const mediaReady = !visualPlatform || (input.mediaMimeTypes.length > 0 && contentFormat !== "text_led");
+  const conversionReady = input.commercialIntent !== "convert" || (input.conversionActions ?? []).some((value) => Boolean(value.trim()));
+  const score = (audienceReady ? 20 : 0)
+    + (localityReady ? 20 : 0)
+    + (platformReady ? 15 : 0)
+    + (discoveryReady ? 15 : 0)
+    + (pillarReady ? 10 : 0)
+    + (mediaReady ? 10 : 0)
+    + (conversionReady ? 5 : 0)
+    + 5; // Every resolved plan includes an objective-specific measurement plan.
+  const distributionBlockers = [
+    !audienceReady ? "Configure the exact buyer/audience Awo should address." : null,
+    !localityReady ? "Configure at least one ACOR target geography or service locality." : null,
+    !platformReady ? `Configure the ${input.platform} platform strategy.` : null,
+    !discoveryReady ? "Configure both local and service discovery/hashtag roles." : null,
+    !pillarReady ? "Select a legitimate MemBrain content pillar." : null,
+    !mediaReady ? `Attach suitable visual media for ${input.platform}.` : null,
+    !conversionReady ? "Configure a legitimate conversion action for this conversion post." : null,
+  ].filter((item): item is string => Boolean(item));
+  return {
+    distributionReadinessScore: score,
+    distributionGate: score >= DISTRIBUTION_READINESS_THRESHOLD && distributionBlockers.length === 0 ? "pass" : "blocked",
+    distributionBlockers,
+  };
 }
 
 function compatible(format: VisibilityContentFormat, media: string[]): boolean {
@@ -186,6 +230,8 @@ export function buildVisibilityPlan(input: VisibilityPlanInput): EngagementVisib
     : [];
   const contentJob = input.commercialIntent === "convert" ? "CONVERSION" : input.commercialIntent === "build_trust" ? "AUTHORITY" : "DISCOVERY";
   const evidenceSources = [vertical ? `${vertical.key}:${vertical.version}` : "safe-general-baseline", ...(input.selectedMarketPatterns ?? []).map((pattern) => `market-pattern:${pattern.id}`), ...(reliableClientEvidence ? [`client-performance:${input.clientEvidence!.sampleSize}`] : [])];
+  const targetLocalities = [...new Set(locationTerms)];
+  const readiness = distributionReadiness(input, contentFormat);
   return {
     goal: input.commercialIntent,
     goalRationale: input.goalRationale?.trim() || `The ${input.commercialIntent.replaceAll("_", " ")} goal follows the current operator selection or configured business objective.`,
@@ -200,6 +246,10 @@ export function buildVisibilityPlan(input: VisibilityPlanInput): EngagementVisib
     hookStrategy,
     actualHook: input.actualHook?.trim() || foundationHook(vertical),
     discoveryStrategy: searchableLanguage.length ? `Use natural searchable language around ${searchableLanguage.join(", ")}. Do not keyword-stuff or invent geography.` : "Use natural language from the approved brief and MemBrain only. No verified geography or service discovery terms are available; do not invent them.",
+    targetLocalities,
+    platformStrategy: input.platformStrategy?.trim() || "No platform strategy is configured.",
+    discoveryRoles: [...new Set(input.hashtagStrategyRoles ?? [])],
+    ...readiness,
     searchableLanguage,
     ctaStrategy,
     measurementPlan,
@@ -224,5 +274,5 @@ export function visibilityPlanPrompt(plan: EngagementVisibilityPlan): string {
       : foundation.startsWith("professional_services:")
         ? "Lead with one decision, risk, objection or useful insight the audience needs. Demonstrate authority through clarity, not self-congratulation or unsupported outcomes."
         : "Lead with one specific audience relevance, problem, desire or useful idea. Do not import service, booking, transformation or vertical-specific assumptions.";
-  return ["=== AWO GROWTH DECISION (DETERMINISTIC; DO NOT OVERRIDE) ===", `Goal: ${plan.goal} — ${plan.goalRationale}`, `Content job: ${plan.contentJob}`, `Target audience: ${plan.targetAudience}`, `Media observation: ${plan.mediaObservation}`, `Content pillar: ${plan.contentPillar} — ${plan.contentPillarRationale}`, `Content format: ${plan.contentFormat} — ${plan.formatRationale}`, `Attention mechanism: ${plan.attentionMechanism}`, `Hook family: ${plan.hookStrategy}`, `Actual hook: ${plan.actualHook}`, `Discovery: ${plan.discoveryStrategy}`, `Searchable language: ${plan.searchableLanguage.join(", ") || "None verified"}`, `CTA: ${plan.ctaStrategy}`, `Supporting distribution: ${plan.supportingDistributionActions.join(" ") || "None supported."}`, `Measurement: ${plan.measurementPlan}`, `Publishing window: ${plan.publishingWindow}`, `Evidence: ${plan.visibilityEvidenceLevel}; sources ${plan.evidenceSources.join(", ")}; confidence ${plan.confidence}/100`, plan.rationale, `Foundation writing principle: ${foundationPrinciple}`, BUYER_ORIENTATION_CONTRACT, "Write the caption against this resolved decision; do not compensate for missing strategy by broadening the audience or service catalogue. Open with the actual hook or a faithful expression of its specific tension, curiosity, desire, identity, objection, emotion, proof or usefulness. Make the audience the hero: communicate what they want, why it matters, the supported difference and then the appropriate action. Use natural service/location language only where supported. A tagline is optional, never filler. Asset evidence may describe this asset only; it never establishes a universal client process. Do not introduce occasion/service claims unsupported by the brief or media evidence. Do not escalate an enquiry CTA to booking, reservation or purchase. Do not invent media details, identities, demographics, sensitive traits, locations, proof, offers or conversion channels."].join("\n");
+  return ["=== AWO GROWTH DECISION (DETERMINISTIC; DO NOT OVERRIDE) ===", `Audience Distribution Gate: ${plan.distributionGate.toUpperCase()} · readiness ${plan.distributionReadinessScore}/100 · required ${DISTRIBUTION_READINESS_THRESHOLD}/100`, ...(plan.distributionBlockers.length ? plan.distributionBlockers.map((blocker) => `Distribution blocker: ${blocker}`) : ["Distribution blockers: none"]), `Goal: ${plan.goal} — ${plan.goalRationale}`, `Content job: ${plan.contentJob}`, `Target audience: ${plan.targetAudience}`, `Target localities: ${plan.targetLocalities.join(", ") || "None verified"}`, `Platform strategy: ${plan.platformStrategy}`, `Discovery roles: ${plan.discoveryRoles.join(", ") || "None configured"}`, `Media observation: ${plan.mediaObservation}`, `Content pillar: ${plan.contentPillar} — ${plan.contentPillarRationale}`, `Content format: ${plan.contentFormat} — ${plan.formatRationale}`, `Attention mechanism: ${plan.attentionMechanism}`, `Hook family: ${plan.hookStrategy}`, `Actual hook: ${plan.actualHook}`, `Discovery: ${plan.discoveryStrategy}`, `Searchable language: ${plan.searchableLanguage.join(", ") || "None verified"}`, `CTA: ${plan.ctaStrategy}`, `Supporting distribution: ${plan.supportingDistributionActions.join(" ") || "None supported."}`, `Measurement: ${plan.measurementPlan}`, `Publishing window: ${plan.publishingWindow}`, `Evidence: ${plan.visibilityEvidenceLevel}; sources ${plan.evidenceSources.join(", ")}; confidence ${plan.confidence}/100`, plan.rationale, `Foundation writing principle: ${foundationPrinciple}`, BUYER_ORIENTATION_CONTRACT, "Write the caption against this resolved decision; do not compensate for missing strategy by broadening the audience or service catalogue. Open with the actual hook or a faithful expression of its specific tension, curiosity, desire, identity, objection, emotion, proof or usefulness. Make the audience the hero: communicate what they want, why it matters, the supported difference and then the appropriate action. Use natural service/location language only where supported. A tagline is optional, never filler. Asset evidence may describe this asset only; it never establishes a universal client process. Do not introduce occasion/service claims unsupported by the brief or media evidence. Do not escalate an enquiry CTA to booking, reservation or purchase. Do not invent media details, identities, demographics, sensitive traits, locations, proof, offers or conversion channels."].join("\n");
 }

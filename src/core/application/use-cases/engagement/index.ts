@@ -48,7 +48,7 @@ import {
   ENGAGEMENT_CONTENT_BRIEF_MESSAGE,
 } from "./draft-input";
 import { assembleMarketGenerationContext, rejectsCompetitorImitation } from "@/core/application/use-cases/market-intelligence/context";
-import { buildVisibilityPlan, deriveClientVisibilityEvidence, visibilityPlanPrompt, VISIBILITY_STRATEGY_VERSION } from "@/core/application/use-cases/market-intelligence/visibility";
+import { buildVisibilityPlan, deriveClientVisibilityEvidence, DISTRIBUTION_READINESS_THRESHOLD, visibilityPlanPrompt, VISIBILITY_STRATEGY_VERSION } from "@/core/application/use-cases/market-intelligence/visibility";
 
 interface EngagementDeps {
   actor: Actor;
@@ -312,6 +312,15 @@ export async function generateEngagementRecommendation(
     industry: organisation.industry,
     mediaMimeTypes: mediaAssets.map((asset) => asset.mimeType),
     selectedMarketPatternIds: marketContext.selectedPatternIds,
+    targetGeographies: marketContext.targetGeographies,
+    serviceAreas: marketContext.serviceAreas,
+    conversionActions: marketContext.conversionActions,
+    platformStrategy: marketContext.platformStrategy,
+    hashtagStrategyRoles: marketContext.hashtagStrategyRoles,
+    // This legacy engagement route has no request-scoped MemBrain pillar
+    // selector. Keep it explicitly absent so the distribution gate cannot
+    // mistake a generic taxonomy label for approved strategy.
+    contentPillar: null,
     clientEvidence: clientVisibilityEvidence,
   });
 
@@ -481,6 +490,10 @@ export async function recordEngagementFeedback(
   if (!deps.engagement.findById || !deps.engagement.createFeedback) throw new ValidationError("Engagement feedback storage is not available.");
   const recommendation = await deps.engagement.findById(input.organisationId, input.recommendationId);
   if (!recommendation || recommendation.draftId !== input.draftId) throw new NotFoundError("Engagement recommendation");
+  const visibilityPlan = recommendation.creativeGuidance.visibilityPlan;
+  if (!visibilityPlan || visibilityPlan.distributionGate !== "pass" || visibilityPlan.distributionReadinessScore < DISTRIBUTION_READINESS_THRESHOLD) {
+    throw new ValidationError(`Awo Audience Distribution Gate blocked this recommendation. ${visibilityPlan?.distributionBlockers.join(" ") || "Generate a new recommendation with complete audience, locality and discovery strategy."}`);
+  }
   const draft = await deps.content.findDraft(input.organisationId, input.draftId);
   if (!draft) throw new NotFoundError("Draft");
   return deps.engagement.createFeedback({

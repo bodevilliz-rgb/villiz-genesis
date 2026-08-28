@@ -1,6 +1,6 @@
 import type { CampaignPlatform } from "@/core/domain/entities/campaign";
 import type { MarketIntelligenceRepository } from "@/core/application/ports/market-intelligence-port";
-import type { CommercialIntent, CulturalVoiceLevel, MarketIntelligenceProfile, MarketPattern } from "@/core/domain/entities/market-intelligence";
+import type { CommercialIntent, CulturalVoiceLevel, MarketHashtagRole, MarketIntelligenceProfile, MarketPattern } from "@/core/domain/entities/market-intelligence";
 
 export interface MarketGenerationContext {
   enabled: boolean;
@@ -14,6 +14,8 @@ export interface MarketGenerationContext {
   targetGeographies: string[];
   serviceAreas: string[];
   conversionActions: string[];
+  platformStrategy: string | null;
+  hashtagStrategyRoles: MarketHashtagRole[];
   prompt: string;
 }
 
@@ -87,7 +89,7 @@ export async function assembleMarketGenerationContext(input: {
   culturalVoiceLevel?: CulturalVoiceLevel;
 }): Promise<MarketGenerationContext> {
   const commercialIntentSource: MarketGenerationContext["commercialIntentSource"] = input.commercialIntent ? "operator" : "recommended";
-  const unavailable = { enabled: false as const, commercialIntent: input.commercialIntent ?? recommendCommercialIntent(null), commercialIntentSource, culturalVoiceLevel: "neutral" as const, selectedPatternIds: [], selectedPatterns: [], targetAudience: null, targetGeographies: [], serviceAreas: [], conversionActions: [], prompt: "" };
+  const unavailable = { enabled: false as const, commercialIntent: input.commercialIntent ?? recommendCommercialIntent(null), commercialIntentSource, culturalVoiceLevel: "neutral" as const, selectedPatternIds: [], selectedPatterns: [], targetAudience: null, targetGeographies: [], serviceAreas: [], conversionActions: [], platformStrategy: null, hashtagStrategyRoles: [], prompt: "" };
   if (!input.marketIntelligence) return unavailable;
   const snapshot = await input.marketIntelligence.getSnapshot(input.organisationId);
   if (!snapshot.profile || snapshot.profile.organisationId !== input.organisationId) return unavailable;
@@ -108,6 +110,9 @@ export async function assembleMarketGenerationContext(input: {
     targetGeographies: snapshot.profile.targetGeographies,
     serviceAreas: snapshot.profile.serviceAreas,
     conversionActions: snapshot.profile.conversionActions,
+    platformStrategy: snapshot.profile.platformStrategy[input.platform]?.trim() || null,
+    hashtagStrategyRoles: (Object.keys(snapshot.profile.hashtagStrategy) as MarketHashtagRole[])
+      .filter((role) => Boolean(snapshot.profile!.hashtagStrategy[role]?.trim())),
     prompt: [
       renderProfile(snapshot.profile, patterns, input.platform),
       `Commercial intent: ${commercialIntent.toUpperCase()} — ${INTENT_RULES[commercialIntent]}`,
