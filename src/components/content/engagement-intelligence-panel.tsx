@@ -110,7 +110,7 @@ export function EngagementIntelligencePanel({ organisationId, draftId, currentDr
   function confirmApplication() {
     if (!recommendation || !pendingApplication) return;
     const plan = recommendation.creativeGuidance.visibilityPlan;
-    if (!plan || plan.distributionGate !== "pass" || plan.distributionReadinessScore < 95 || plan.distributionBlockers.length > 0) {
+    if (!plan || plan.distributionGate !== "pass" || (plan.distributionReadinessScore ?? 0) < 95 || (plan.distributionBlockers?.length ?? 1) > 0) {
       toast.error("This recommendation is not eligible for use. Resolve the Audience Distribution Gate blockers and generate a new recommendation.");
       setPendingApplication(null);
       return;
@@ -209,10 +209,14 @@ export function EngagementIntelligencePanel({ organisationId, draftId, currentDr
   const linkedInHashtagPolicyRequired = recommendation?.platform === "linkedin" && hashtags.length > 0;
   const linkedInApplyBlocked = linkedInAuditRequired || linkedInHashtagPolicyRequired;
   const visibilityPlan = recommendation?.creativeGuidance.visibilityPlan ?? null;
+  const distributionBlockers = visibilityPlan?.distributionBlockers ?? [
+    "This earlier recommendation predates the Audience Distribution Gate. Generate a new recommendation before review or application.",
+  ];
+  const distributionGate = visibilityPlan?.distributionGate ?? "blocked";
   const distributionGateBlocked = !visibilityPlan
     || visibilityPlan.distributionGate !== "pass"
-    || visibilityPlan.distributionReadinessScore < 95
-    || visibilityPlan.distributionBlockers.length > 0;
+    || (visibilityPlan.distributionReadinessScore ?? 0) < 95
+    || distributionBlockers.length > 0;
   const distributionReadinessScore = visibilityPlan?.distributionReadinessScore ?? 0;
   const appliedToCurrentVersion = Boolean(recommendation && learningOverview.latestFeedback?.recommendationId === recommendation.id && learningOverview.latestFeedback.appliedDraftVersion === effectiveDraftVersion);
   const isStale = recommendation ? recommendation.draftVersion !== effectiveDraftVersion && !appliedToCurrentVersion : false;
@@ -357,9 +361,9 @@ export function EngagementIntelligencePanel({ organisationId, draftId, currentDr
                 <p className="font-semibold">Not eligible for use · Audience Distribution Gate BLOCKED</p>
                 <p className="mt-1">Readiness {distributionReadinessScore}/100 · minimum 95. This caption may be inspected, but it cannot be reviewed or applied.</p>
                 {visibilityPlan ? (
-                  visibilityPlan.distributionBlockers.length > 0 ? (
+                  distributionBlockers.length > 0 ? (
                     <ul className="mt-2 grid gap-1 pl-4">
-                      {visibilityPlan.distributionBlockers.map((blocker) => <li className="list-disc" key={blocker}>{blocker}</li>)}
+                      {distributionBlockers.map((blocker) => <li className="list-disc" key={blocker}>{blocker}</li>)}
                     </ul>
                   ) : null
                 ) : <p className="mt-2">This recommendation predates the distribution gate. Generate a new recommendation.</p>}
@@ -518,9 +522,9 @@ export function EngagementIntelligencePanel({ organisationId, draftId, currentDr
               <details className="rounded-md border border-border px-3 py-2 text-[12px]" open>
                 <summary className="cursor-pointer font-semibold">Visibility plan</summary>
                 <div className="mt-3 grid gap-3 text-muted-foreground">
-                  <div className={visibilityPlan.distributionGate === "pass" && visibilityPlan.distributionReadinessScore >= 95 ? "rounded border border-positive/30 bg-positive-soft p-2 text-positive" : "rounded border border-danger/30 bg-danger-soft p-2 text-danger"}>
-                    <p className="font-semibold">Audience Distribution Gate · {visibilityPlan.distributionGate.toUpperCase()}</p>
-                    <p>{visibilityPlan.distributionReadinessScore}/100 · minimum 95</p>
+                  <div className={distributionGate === "pass" && distributionReadinessScore >= 95 ? "rounded border border-positive/30 bg-positive-soft p-2 text-positive" : "rounded border border-danger/30 bg-danger-soft p-2 text-danger"}>
+                    <p className="font-semibold">Audience Distribution Gate · {distributionGate.toUpperCase()}</p>
+                    <p>{distributionReadinessScore}/100 · minimum 95</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Badge tone="muted">{visibilityPlan.contentFormat.replaceAll("_", " ")}</Badge>
