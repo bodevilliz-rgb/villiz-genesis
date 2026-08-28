@@ -17,6 +17,7 @@ import { SupabasePublishingRepository } from "@/infrastructure/repositories/supa
 import { SupabaseBlotatoAccountRepository } from "@/infrastructure/repositories/supabase-blotato-account-repository";
 import { SupabaseEngagementRepository } from "@/infrastructure/repositories/supabase-engagement-repository";
 import { SupabaseMarketIntelligenceRepository } from "@/infrastructure/repositories/supabase-market-intelligence-repository";
+import { SupabaseIntentRepository } from "@/infrastructure/repositories/supabase-intent-repository";
 import { HttpBlotatoClient } from "@/infrastructure/blotato/http-blotato-client";
 import { blotatoConfig } from "@/infrastructure/blotato/blotato-config";
 import type { Actor } from "@/core/domain/entities/identity";
@@ -50,6 +51,7 @@ export interface RequestContext {
   blotatoAccounts: SupabaseBlotatoAccountRepository;
   engagement: SupabaseEngagementRepository;
   marketIntelligence: SupabaseMarketIntelligenceRepository;
+  intents: SupabaseIntentRepository;
   blotatoClient: HttpBlotatoClient;
 }
 
@@ -82,6 +84,7 @@ export const getRequestContext = cache(async (): Promise<RequestContext | null> 
     blotatoAccounts: new SupabaseBlotatoAccountRepository(client),
     engagement: new SupabaseEngagementRepository(client),
     marketIntelligence: new SupabaseMarketIntelligenceRepository(client),
+    intents: new SupabaseIntentRepository(client),
     blotatoClient: new HttpBlotatoClient(blotatoConfig().apiKey),
   };
 });
