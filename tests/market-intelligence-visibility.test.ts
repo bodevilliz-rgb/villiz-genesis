@@ -20,7 +20,7 @@ describe("adaptive visibility intelligence", () => {
     expect(plan.publishingWindow).toBe("Not enough account-specific evidence yet.");
     expect(plan.supportingDistributionActions.length).toBeLessThanOrEqual(3);
     expect(plan.measurementPlan).toContain("booking outcomes separately");
-    expect(VISIBILITY_STRATEGY_VERSION).toBe("visibility-v1");
+    expect(VISIBILITY_STRATEGY_VERSION).toBe("visibility-v2");
   });
 
   it("allows sufficiently reliable client evidence to override a photography video hypothesis", () => {
@@ -42,6 +42,7 @@ describe("adaptive visibility intelligence", () => {
       objectiveType: "engagement",
       externalPostId: `post-${index}`,
       recommendationId: index < 7 ? "carousel" : "video",
+      feedbackEventId: `feedback-${index}`,
       measurementWindow: "7d",
       observedAt: `2026-08-${String(index + 1).padStart(2, "0")}T00:00:00Z`,
       metrics: { reach: 1000, comments: index < 7 ? 20 : 2, shares: 0, saves: 0, likes: 0 },
