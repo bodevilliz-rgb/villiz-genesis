@@ -9,8 +9,8 @@ import { deriveGrowthReadinessFromGenesis, deriveMeasurementReadiness, emptyImpa
 import { blotatoConfig } from "@/infrastructure/blotato/blotato-config";
 
 const input = "w-full rounded-md border border-border bg-input px-3 py-2 text-sm";
-export default async function MarketIntelligencePage({ params }: { params: Promise<{ orgId: string }> }) {
-  const { orgId } = await params; const context = await requireContext();
+export default async function MarketIntelligencePage({ params, searchParams }: { params: Promise<{ orgId: string }>; searchParams: Promise<{ saved?: string }> }) {
+  const [{ orgId }, query] = await Promise.all([params, searchParams]); const context = await requireContext();
   const [organisation, snapshot, membrain, connectedAccounts, metricSnapshots] = await Promise.all([context.organisations.findById(orgId), context.marketIntelligence.getSnapshot(orgId), getMembrainOverview({ actor: context.actor, organisations: context.organisations, membrain: context.membrain }, orgId), context.blotatoAccounts.listActiveForOrganisation(orgId), context.engagement.listMetricSnapshotsForOrganisation?.(orgId) ?? Promise.resolve([])]);
   if (!organisation) notFound(); const readiness = marketProfileReadiness(snapshot.profile); const profile = snapshot.profile;
   const signal = (key: string) => membrain.readiness.signals.find(item => item.categoryKey === key)?.met ?? false;
@@ -22,6 +22,7 @@ export default async function MarketIntelligencePage({ params }: { params: Promi
     <Card><CardHeader><CardTitle>ACOR Growth Readiness · {growthReadiness.lifecycle.replaceAll("_", " ")}</CardTitle><CardDescription>{growthReadiness.metCount} of {growthReadiness.total} explicit gates complete. This is not the forensic review score.</CardDescription></CardHeader><CardContent className="grid gap-2 sm:grid-cols-2">{growthReadiness.gates.map(gate=><div className="rounded-md border border-border p-3 text-sm" key={gate.key}><strong>{gate.met ? "Ready" : "Gap"} · {gate.label}</strong><p className="mt-1 text-xs text-muted-foreground">{gate.evidence}</p></div>)}</CardContent></Card>
     <Card><CardHeader><CardTitle>30 / 60 / 90 impact framework</CardTitle><CardDescription>Visibility, engagement, intent and explicit commercial outcomes remain separate. Empty values mean not measured.</CardDescription></CardHeader><CardContent className="grid gap-2 sm:grid-cols-3">{impact.map(point=><div className="rounded-md border border-border p-3 text-sm" key={point.day}><strong>Day {point.day}</strong><p className="mt-1 text-xs text-muted-foreground">Visibility · Engagement · Intent · Commercial outcomes</p></div>)}</CardContent></Card>
     <Card><CardHeader><CardTitle>Profile readiness · {readiness.percentage}%</CardTitle><CardDescription>{readiness.complete} of {readiness.total} deterministic profile areas configured.</CardDescription></CardHeader><CardContent>
+      {query.saved === "1" ? <div className="mb-4 rounded-md border border-positive/40 bg-positive-soft px-3 py-2 text-sm text-positive" role="status"><strong>Profile saved.</strong> The readiness score above reflects the stored values.</div> : null}
       <form action={saveMarketProfileAction} className="grid gap-4 sm:grid-cols-2"><input type="hidden" name="organisationId" value={orgId}/>
         <label className="text-sm">Business objectives<input className={input} name="businessObjectives" defaultValue={profile?.businessObjectives.join(", ")} placeholder={BUSINESS_OBJECTIVES.join(", ")}/></label>
         <label className="text-sm">Cultural voice<select className={input} name="culturalVoiceLevel" defaultValue={profile?.culturalVoiceLevel ?? "neutral"}>{CULTURAL_VOICE_LEVELS.map(v=><option key={v} value={v}>{v.replaceAll("_", " ").toUpperCase()}</option>)}</select></label>
