@@ -144,6 +144,33 @@ describe("EngagementIntelligencePanel", () => {
     expect(screen.getByText(/used draft v3; the current draft is v4/i)).toBeInTheDocument();
   });
 
+  it("renders and blocks a recommendation created before the distribution gate existed", () => {
+    const legacyVisibilityPlan = { ...recommendation.creativeGuidance.visibilityPlan } as Record<string, unknown>;
+    delete legacyVisibilityPlan.distributionGate;
+    delete legacyVisibilityPlan.distributionReadinessScore;
+    delete legacyVisibilityPlan.distributionBlockers;
+    const legacyRecommendation = {
+      ...recommendation,
+      creativeGuidance: {
+        ...recommendation.creativeGuidance,
+        visibilityPlan: legacyVisibilityPlan,
+      },
+    } as unknown as EngagementRecommendation;
+
+    render(
+      <EngagementIntelligencePanel
+        organisationId="org-1" draftId="draft-1" currentDraftVersion={3}
+        initialPlatform="instagram" initialRecommendation={legacyRecommendation}
+        initialLearningOverview={learningOverview} initialDraftBody="Existing caption"
+        initialDraftHashtags={[]} draftLocked={false} canWrite={true}
+      />,
+    );
+
+    expect(screen.getByText(/predates the Audience Distribution Gate/)).toBeInTheDocument();
+    expect(screen.getByText(/Readiness 0\/100/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review caption + hashtags" })).toBeDisabled();
+  });
+
   it("makes a blocked distribution recommendation visibly ineligible and impossible to review", () => {
     const blockedRecommendation: EngagementRecommendation = {
       ...recommendation,
