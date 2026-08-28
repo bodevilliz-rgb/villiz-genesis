@@ -27,6 +27,7 @@ import type {
   EngagementApplicationResult,
   EngagementCommercialOutcome,
 } from "@/core/domain/entities/engagement";
+import type { MembrainContextItem, MembrainEntry } from "@/core/domain/entities/membrain";
 import type { CampaignPlatform } from "@/core/domain/entities/campaign";
 import { isSimulatedPublishingAttempt, type PublishingPlatform } from "@/core/domain/entities/publishing";
 import { toBlotatoPlatform } from "@/core/domain/entities/blotato";
@@ -91,6 +92,51 @@ async function resolveLearningAccount(
 function nonBlank(value: string | undefined | null): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
+}
+
+function searchableTerms(value: string): Set<string> {
+  return new Set(value.toLocaleLowerCase().match(/[a-z0-9]{3,}/g) ?? []);
+}
+
+/**
+ * Resolve, rather than invent, the pillar used by the deterministic
+ * distribution plan. Only active entries in MemBrain's content-pillar
+ * category are eligible. A pillar already selected by ranked retrieval wins;
+ * otherwise the closest active pillar to the saved draft and objective wins.
+ * Importance and recency are deterministic tie-breakers, not evidence of
+ * predicted reach.
+ */
+function resolveApprovedContentPillar(input: {
+  entries: MembrainEntry[];
+  contextItems: MembrainContextItem[];
+  draftTitle: string;
+  draftBody: string;
+  objective: string;
+}): MembrainEntry | null {
+  const eligible = input.entries.filter((entry) =>
+    entry.status === "active"
+    && entry.category?.key === "content_pillars"
+    && Boolean(entry.title.trim()),
+  );
+  if (eligible.length === 0) return null;
+
+  const eligibleById = new Map(eligible.map((entry) => [entry.id, entry]));
+  for (const item of input.contextItems) {
+    const retrievedPillar = eligibleById.get(item.id);
+    if (retrievedPillar) return retrievedPillar;
+  }
+
+  const requestTerms = searchableTerms(`${input.draftTitle} ${input.draftBody} ${input.objective}`);
+  const relevance = (entry: MembrainEntry) => {
+    const pillarTerms = searchableTerms(`${entry.title} ${entry.summary ?? ""} ${entry.body}`);
+    return [...pillarTerms].reduce((score, term) => score + (requestTerms.has(term) ? 1 : 0), 0);
+  };
+  return [...eligible].sort((left, right) =>
+    relevance(right) - relevance(left)
+    || right.importance - left.importance
+    || right.updatedAt.localeCompare(left.updatedAt)
+    || left.id.localeCompare(right.id),
+  )[0] ?? null;
 }
 
 function uniqueHashtags(groups: EngagementHashtagGroups): EngagementRecommendationModelOutput["hashtags"] {
@@ -270,6 +316,14 @@ export async function generateEngagementRecommendation(
     throw new ValidationError("Add active MemBrain knowledge before requesting engagement intelligence.");
   }
 
+  const approvedContentPillar = resolveApprovedContentPillar({
+    entries: await deps.membrain.listRecent(input.organisationId, 500),
+    contextItems: contextPack.items,
+    draftTitle: draft.title,
+    draftBody: draft.body,
+    objective,
+  });
+
   if (rejectsCompetitorImitation(draft.body) || rejectsCompetitorImitation(input.objective ?? "")) {
     throw new ValidationError("Awo can apply approved market patterns, but cannot imitate or copy a named competitor.");
   }
@@ -317,10 +371,10 @@ export async function generateEngagementRecommendation(
     conversionActions: marketContext.conversionActions,
     platformStrategy: marketContext.platformStrategy,
     hashtagStrategyRoles: marketContext.hashtagStrategyRoles,
-    // This legacy engagement route has no request-scoped MemBrain pillar
-    // selector. Keep it explicitly absent so the distribution gate cannot
-    // mistake a generic taxonomy label for approved strategy.
-    contentPillar: null,
+    contentPillar: approvedContentPillar?.title ?? null,
+    contentPillarRationale: approvedContentPillar
+      ? `Resolved from active MemBrain content pillar "${approvedContentPillar.title}" (v${approvedContentPillar.version}).`
+      : "No active MemBrain content pillar could be resolved for this draft.",
     clientEvidence: clientVisibilityEvidence,
   });
 
@@ -421,6 +475,15 @@ export async function generateEngagementRecommendation(
     categoryKey: item.categoryKey,
     version: item.version,
   }));
+  if (approvedContentPillar && !evidence.some((item) => item.sourceType === "membrain_entry" && item.sourceId === approvedContentPillar.id)) {
+    evidence.push({
+      sourceType: "membrain_entry",
+      sourceId: approvedContentPillar.id,
+      title: approvedContentPillar.title,
+      categoryKey: approvedContentPillar.category?.key ?? null,
+      version: approvedContentPillar.version,
+    });
+  }
   evidence.push(...mediaAssets.map((asset) => ({
     sourceType: "media_asset" as const,
     sourceId: asset.id,
@@ -461,7 +524,7 @@ export async function generateEngagementRecommendation(
       commercialIntent: input.commercialIntent,
       hookFamily: visibilityPlan.hookStrategy,
       ctaType: input.commercialIntent === "convert" ? "conversion" : input.commercialIntent === "build_trust" ? "trust_step" : "conversation",
-      contentPillar: draft.category?.label ?? null,
+      contentPillar: approvedContentPillar?.title ?? null,
       marketPatternIds: marketContext.selectedPatternIds,
       hashtagRoleMix: (Object.entries(recommendation.hashtags).filter(([, values]) => (values ?? []).length > 0).map(([role]) => role === "audienceCultural" ? "audience_cultural" : role === "occasionTopic" ? "occasion_topic" : role) as import("@/core/domain/entities/market-intelligence").MarketHashtagRole[]),
       culturalVoiceLevel: marketContext.culturalVoiceLevel,
@@ -512,7 +575,10 @@ export async function applyEngagementRecommendation(
   const recommendation = await deps.engagement.findById?.(input.organisationId, input.recommendationId);
   if (!recommendation || recommendation.draftId !== input.draftId) throw new NotFoundError("Engagement recommendation");
   const visibilityPlan = recommendation.creativeGuidance.visibilityPlan;
-  if (!visibilityPlan || visibilityPlan.distributionGate !== "pass" || visibilityPlan.distributionReadinessScore < DISTRIBUTION_READINESS_THRESHOLD) {
+  if (!visibilityPlan
+    || visibilityPlan.distributionGate !== "pass"
+    || visibilityPlan.distributionReadinessScore < DISTRIBUTION_READINESS_THRESHOLD
+    || visibilityPlan.distributionBlockers.length > 0) {
     throw new ValidationError(`Awo Audience Distribution Gate blocked this recommendation. ${visibilityPlan?.distributionBlockers.join(" ") || "Generate a new recommendation with complete audience, locality and discovery strategy."}`);
   }
   if (recommendation.platform === "linkedin"
