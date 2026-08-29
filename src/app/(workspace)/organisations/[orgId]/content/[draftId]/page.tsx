@@ -154,7 +154,11 @@ export default async function DraftDetailPage({
                 canWrite={canWrite}
                 canLead={canLead}
                 soloOperatorApproval={soloOperatorApproval}
-                distributionApproval={assessRecommendationDistributionEligibility(latestEngagementRecommendation, draft.version)}
+                distributionApproval={assessRecommendationDistributionEligibility(
+                  latestEngagementRecommendation,
+                  draft.version,
+                  initialLearningOverview.latestFeedback,
+                )}
               />
             </CardContent>
           </Card>
