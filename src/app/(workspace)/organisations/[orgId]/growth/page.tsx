@@ -5,6 +5,7 @@ import { ArrowRight, BarChart3, CheckCircle2, Target, TrendingUp } from "lucide-
 import { PageHeader } from "@/components/common/page-header";
 import { requireContext } from "@/server/container";
 import { routes } from "@/lib/routes";
+import { classifyGrowthEvidence, GROWTH_EVIDENCE_LABELS } from "@/core/domain/services/growth-evidence";
 
 export const metadata: Metadata = { title: "Growth" };
 
@@ -127,7 +128,7 @@ export default async function GrowthPage({ params }: { params: Promise<{ orgId: 
             <span className="text-[12px] font-medium uppercase tracking-wide">Running tests</span>
           </div>
           <p className="mt-3 text-3xl font-semibold">{activeExperiments}</p>
-          <p className="mt-1 text-[13px] text-muted-foreground">Approved posts awaiting measurable results.</p>
+          <p className="mt-1 text-[13px] text-muted-foreground">Approved posts awaiting measurable evidence.</p>
         </div>
         <div className="rounded-lg border border-border bg-card p-5">
           <div className="flex items-center gap-2 text-muted-foreground">
@@ -150,7 +151,7 @@ export default async function GrowthPage({ params }: { params: Promise<{ orgId: 
       <section className="rounded-lg border border-border bg-card">
         <div className="flex flex-col gap-2 border-b border-border p-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-base font-semibold">Post experiments</h2>
+            <h2 className="text-base font-semibold">Growth evidence</h2>
             <p className="mt-1 text-[13px] text-muted-foreground">
               Genesis creates this record automatically when an AWO recommendation is applied.
             </p>
@@ -165,7 +166,7 @@ export default async function GrowthPage({ params }: { params: Promise<{ orgId: 
 
         {experiments.length === 0 ? (
           <div className="p-8 text-center">
-            <p className="font-medium">No growth experiment yet</p>
+            <p className="font-medium">No growth evidence test yet</p>
             <p className="mx-auto mt-2 max-w-lg text-[13px] text-muted-foreground">
               Apply an AWO recommendation to an approved draft. Genesis will register the audience,
               distribution decision and measurement checkpoints automatically.
@@ -182,7 +183,7 @@ export default async function GrowthPage({ params }: { params: Promise<{ orgId: 
               const enquiries = sum(draftOutcomes.map((item) => item.enquiries));
               const bookings = sum(draftOutcomes.map((item) => item.bookings));
               const checkpoints = new Set(draftMetrics.map((item) => item.measurement_window).filter(Boolean));
-              const status = draftMetrics.length > 0 ? "Learning" : draft?.status === "published" ? "Measuring" : "Ready to publish";
+              const evidence = classifyGrowthEvidence({\n                comparableObservations: draftMetrics.length,\n                completedCheckpoints: checkpoints.size,\n                hasCommercialOutcome: enquiries > 0 || bookings > 0,\n              });\n              const status = draftMetrics.length > 0 ? "Learning" : draft?.status === "published" ? "Measuring" : "Ready to publish";
 
               return (
                 <article key={experiment.id} className="grid gap-4 p-5 lg:grid-cols-[minmax(0,1.5fr)_repeat(3,minmax(110px,0.5fr))] lg:items-center">
@@ -247,7 +248,7 @@ export default async function GrowthPage({ params }: { params: Promise<{ orgId: 
       <div className="flex items-start gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
         <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-emerald-400" />
         <p className="text-[13px] leading-6 text-muted-foreground">
-          The operator sees one Growth screen. Experiment IDs, attribution and immutable provider snapshots remain protected underneath.
+          The operator sees one Growth screen. Evidence IDs, attribution and immutable provider snapshots remain protected underneath.
         </p>
       </div>
     </div>
