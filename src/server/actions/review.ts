@@ -151,12 +151,19 @@ export async function recordReviewDecisionAction(_prev: ActionState, formData: F
     let soloOperatorApproval = false;
 
     if (decision === "approve") {
-      const [currentDraft, latestRecommendation] = await Promise.all([
+      const [currentDraft, latestRecommendation, latestFeedback] = await Promise.all([
         context.content.findDraft(organisationId, draftId),
         context.engagement.findLatest(organisationId, draftId),
+        context.engagement.findLatestFeedback
+          ? context.engagement.findLatestFeedback(organisationId, draftId)
+          : Promise.resolve(null),
       ]);
       if (!currentDraft) throw new ValidationError("Draft not found.");
-      const distribution = assessRecommendationDistributionEligibility(latestRecommendation, currentDraft.version);
+      const distribution = assessRecommendationDistributionEligibility(
+        latestRecommendation,
+        currentDraft.version,
+        latestFeedback,
+      );
       if (!distribution.eligible) {
         throw new ValidationError(
           `Approval blocked by the Audience Distribution Gate (${distribution.score}/100). ${distribution.blockers.join(" ")}`,
