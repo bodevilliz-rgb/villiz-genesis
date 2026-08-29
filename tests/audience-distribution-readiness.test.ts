@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { assessRecommendationDistributionEligibility } from "@/core/application/use-cases/engagement";
+import type { EngagementFeedbackEvent, EngagementRecommendation } from "@/core/domain/entities/engagement";
 import {
   buildVisibilityPlan,
   DISTRIBUTION_READINESS_THRESHOLD,
@@ -53,5 +55,30 @@ describe("Awo Audience Distribution Gate", () => {
     expect(plan.distributionReadinessScore).toBe(95);
     expect(plan.distributionGate).toBe("blocked");
     expect(plan.distributionBlockers).toContain("Configure a legitimate conversion action for this conversion post.");
+  });
+
+  it("preserves a passing gate for the exact draft version created by applying that recommendation", () => {
+    const recommendation = {
+      id: "recommendation-1",
+      draftVersion: 3,
+      creativeGuidance: { visibilityPlan: buildVisibilityPlan(readyInput) },
+    } as EngagementRecommendation;
+    const feedback = {
+      recommendationId: recommendation.id,
+      action: "selected",
+      appliedDraftVersion: 4,
+    } as EngagementFeedbackEvent;
+
+    expect(assessRecommendationDistributionEligibility(recommendation, 4, feedback)).toEqual({
+      eligible: true,
+      score: 100,
+      blockers: [],
+    });
+    expect(assessRecommendationDistributionEligibility(recommendation, 5, feedback).eligible).toBe(false);
+    expect(assessRecommendationDistributionEligibility(
+      recommendation,
+      4,
+      { ...feedback, recommendationId: "different-recommendation" },
+    ).eligible).toBe(false);
   });
 });
