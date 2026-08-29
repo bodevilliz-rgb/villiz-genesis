@@ -64,7 +64,7 @@ export default async function GrowthPage({ params }: { params: Promise<{ orgId: 
   // These tables already power AWO's recommendation and publish-to-learn loop.
   // The Growth screen deliberately presents one calm view over them rather
   // than asking operators to manage experiment infrastructure themselves.
-  const client = context.client as any;
+  const client = context.client;
   const [experimentsResult, draftsResult, recommendationsResult, metricsResult, outcomesResult] = await Promise.all([
     client
       .from("engagement_feedback_events")
@@ -125,7 +125,7 @@ export default async function GrowthPage({ params }: { params: Promise<{ orgId: 
         <div className="rounded-lg border border-border bg-card p-5">
           <div className="flex items-center gap-2 text-muted-foreground">
             <Target className="size-4 text-primary" />
-            <span className="text-[12px] font-medium uppercase tracking-wide">Running tests</span>
+            <span className="text-[12px] font-medium uppercase tracking-wide">Active learning</span>
           </div>
           <p className="mt-3 text-3xl font-semibold">{activeExperiments}</p>
           <p className="mt-1 text-[13px] text-muted-foreground">Approved posts awaiting measurable evidence.</p>
@@ -213,7 +213,7 @@ export default async function GrowthPage({ params }: { params: Promise<{ orgId: 
                     </Link>
                     <p className="mt-1 text-[12px] text-muted-foreground">
                       Goal: {recommendation ? titleCase(recommendation.objective_type) : "Not set"}
-                      {" · "}AWO confidence {recommendation?.confidence ?? 0}/100
+                      {" · "}Evidence: {GROWTH_EVIDENCE_LABELS[evidence]}\n                      {" · "}Readiness {recommendation?.confidence ?? 0}/100
                     </p>
                   </div>
                   <div>
