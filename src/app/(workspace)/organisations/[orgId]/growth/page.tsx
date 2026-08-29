@@ -23,7 +23,12 @@ type Recommendation = {
   objective_type: string;
   confidence: number;
   performance_confidence: number | null;
-  creative_guidance: {\n    visibilityPlan?: { distributionReadinessScore?: number; distributionGate?: "pass" | "blocked" };\n  } | null;
+  creative_guidance: {
+    visibilityPlan?: {
+      distributionReadinessScore?: number;
+      distributionGate?: "pass" | "blocked";
+    };
+  } | null;
 };
 type Metric = {
   draft_id: string;
