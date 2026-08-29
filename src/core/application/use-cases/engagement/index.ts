@@ -75,11 +75,18 @@ const PUBLISHABLE_ENGAGEMENT_PLATFORMS = new Set<CampaignPlatform>([
 export function assessRecommendationDistributionEligibility(
   recommendation: EngagementRecommendation | null,
   currentDraftVersion: number,
+  latestFeedback: EngagementFeedbackEvent | null = null,
 ): { eligible: boolean; score: number; blockers: string[] } {
   if (!recommendation) {
     return { eligible: false, score: 0, blockers: ["Generate an Awo recommendation before approval."] };
   }
-  if (recommendation.draftVersion !== currentDraftVersion) {
+  // Applying a recommendation atomically creates the next draft version. That
+  // version remains covered only when the recorded application points to this
+  // exact recommendation and exact current version. Any later edit invalidates it.
+  const appliedToCurrentVersion = latestFeedback?.action === "selected"
+    && latestFeedback.recommendationId === recommendation.id
+    && latestFeedback.appliedDraftVersion === currentDraftVersion;
+  if (recommendation.draftVersion !== currentDraftVersion && !appliedToCurrentVersion) {
     return { eligible: false, score: 0, blockers: ["Generate a new recommendation for the current draft version before approval."] };
   }
   const plan = recommendation.creativeGuidance.visibilityPlan;
