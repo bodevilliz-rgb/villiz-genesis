@@ -183,7 +183,16 @@ export default async function GrowthPage({ params }: { params: Promise<{ orgId: 
               const enquiries = sum(draftOutcomes.map((item) => item.enquiries));
               const bookings = sum(draftOutcomes.map((item) => item.bookings));
               const checkpoints = new Set(draftMetrics.map((item) => item.measurement_window).filter(Boolean));
-              const evidence = classifyGrowthEvidence({\n                comparableObservations: draftMetrics.length,\n                completedCheckpoints: checkpoints.size,\n                hasCommercialOutcome: enquiries > 0 || bookings > 0,\n              });\n              const status = draftMetrics.length > 0 ? "Learning" : draft?.status === "published" ? "Measuring" : "Ready to publish";
+              const evidence = classifyGrowthEvidence({
+                comparableObservations: draftMetrics.length,
+                completedCheckpoints: checkpoints.size,
+                hasCommercialOutcome: enquiries > 0 || bookings > 0,
+              });
+              const status = draftMetrics.length > 0
+                ? "Learning"
+                : draft?.status === "published"
+                  ? "Measuring"
+                  : "Ready to publish";
 
               return (
                 <article key={experiment.id} className="grid gap-4 p-5 lg:grid-cols-[minmax(0,1.5fr)_repeat(3,minmax(110px,0.5fr))] lg:items-center">
