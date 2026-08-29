@@ -19,6 +19,7 @@ import {
   BarChart3,
   Wallet,
   Sparkles,
+  TrendingUp,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -40,7 +41,8 @@ export type IconName =
   | "folders"
   | "bar-chart"
   | "wallet"
-  | "sparkles";
+  | "sparkles"
+  | "trending-up";
 
 const iconMap: Record<IconName, LucideIcon> = {
   dashboard: LayoutDashboard,
@@ -60,6 +62,7 @@ const iconMap: Record<IconName, LucideIcon> = {
   "bar-chart": BarChart3,
   wallet: Wallet,
   sparkles: Sparkles,
+  "trending-up": TrendingUp,
 } as const;
 
 export interface NavItem {
