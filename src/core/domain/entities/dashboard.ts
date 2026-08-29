@@ -125,9 +125,11 @@ export type AwoInsightSeverity = "info" | "attention";
  * context, which would be far more expensive than a dashboard widget needs.
  */
 export interface AwoInsight {
+  kind: "knowledge" | "campaign_readiness";
   severity: AwoInsightSeverity;
   organisationId: string;
   organisationName: string;
+  campaignId?: string;
   message: string;
 }
 
@@ -146,6 +148,18 @@ export interface ReviewMetrics {
   averageTurnaroundMinutes: number | null;
 }
 
+/**
+ * Organisation-scoped readiness already fetched for the Command Centre.
+ * Exposed as a shared read model so Awo Social Intelligence can explain the
+ * same facts without issuing another query or reimplementing readiness rules.
+ */
+export interface ClientSocialIntelligence {
+  organisationId: string;
+  organisationName: string;
+  membrainReadinessPercent: number;
+  activeCampaigns: CampaignHealth[];
+}
+
 export interface DashboardHome {
   myWork: MyWork;
   activeCampaigns: CampaignHealth[];
@@ -153,6 +167,7 @@ export interface DashboardHome {
   teamActivity: DashboardActivityItem[];
   awoInsights: AwoInsight[];
   reviewMetrics: ReviewMetrics;
+  clientSocialIntelligence: ClientSocialIntelligence[];
   /** The most recently updated organisation the actor can see — used to target org-scoped Quick Actions. */
   defaultOrganisationId: string | null;
 }

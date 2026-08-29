@@ -115,7 +115,9 @@ export async function collectEngagementAnalytics(
       const seenKeys = new Set<string>();
       for (const snapshot of snapshots) {
         const rawMetrics = snapshot.metrics;
-        const metrics = normaliseEngagementMetrics(rawMetrics);
+        // Provider analytics are social/intent signals only. Commercial
+        // outcomes enter Genesis through explicit append-only operator records.
+        const metrics = { ...normaliseEngagementMetrics(rawMetrics), enquiries: null, bookings: null };
         if (Object.values(metrics).every((value) => value === null)) { result.skipped += 1; continue; }
         const providerSnapshotKey = `blotato:${accountId ?? "unknown-account"}:${attempt.externalPostId}:${snapshot.capturedAt ?? "undated"}:${stableMetricKey(rawMetrics)}`;
         if (seenKeys.has(providerSnapshotKey)) continue;

@@ -73,6 +73,7 @@ interface WorkspaceProps {
   members: { id: string; fullName: string | null; email: string }[];
   viewerRole: string;
   actorId: string;
+  soloOperatorApproval: boolean;
 }
 
 export function ReviewWorkspaceClient({
@@ -83,6 +84,7 @@ export function ReviewWorkspaceClient({
   members,
   viewerRole,
   actorId,
+  soloOperatorApproval,
 }: WorkspaceProps) {
   const router = useRouter();
 
@@ -129,6 +131,8 @@ export function ReviewWorkspaceClient({
   };
 
   const isLead = viewerRole === "lead";
+  const isSelfAuthored = draft.createdBy?.id === actorId;
+  const blocksSelfApproval = isSelfAuthored && !soloOperatorApproval;
 
   return (
     <div className="flex flex-col gap-6 h-full pb-8">
@@ -179,14 +183,14 @@ export function ReviewWorkspaceClient({
           )}
 
           {/* Lead/Assigned reviewer action decisions */}
-          {draft.status === "in_review" && (
+          {(draft.status === "in_review" || draft.status === "needs_review") && !blocksSelfApproval && (
             <div className="flex flex-wrap gap-2">
               <form action={decisionAction}>
                 <input type="hidden" name="organisationId" value={draft.organisationId} />
                 <input type="hidden" name="draftId" value={draft.id} />
                 <input type="hidden" name="decision" value="approve" />
                 <SubmitButton variant="primary" size="lg">
-                  Approve
+                  {isSelfAuthored && soloOperatorApproval ? "Solo Operator Approval" : "Approve"}
                 </SubmitButton>
               </form>
 
@@ -209,6 +213,14 @@ export function ReviewWorkspaceClient({
               </form>
             </div>
           )}
+          {(draft.status === "in_review" || draft.status === "needs_review") && blocksSelfApproval ? (
+            <p className="text-[12px] text-subtle-foreground">You cannot approve your own draft. Ask another Lead or Reviewer.</p>
+          ) : null}
+          {(draft.status === "in_review" || draft.status === "needs_review") && isSelfAuthored && soloOperatorApproval ? (
+            <p className="max-w-md text-[12px] text-muted-foreground">
+              Solo Operator Approval is available because this account has one eligible active operator. The decision will remain in immutable review history.
+            </p>
+          ) : null}
 
           {/* Reopen / Archive (Lead Only) */}
           {(draft.status === "approved" || draft.status === "rejected" || draft.status === "archived") && isLead && (

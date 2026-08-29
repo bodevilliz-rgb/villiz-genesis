@@ -28,6 +28,7 @@ describe("routing surface", () => {
     const pages = [
       "src/app/login/page.tsx",
       "src/app/(workspace)/dashboard/page.tsx",
+      "src/app/(workspace)/awo/page.tsx",
       "src/app/(workspace)/settings/page.tsx",
       "src/app/(workspace)/organisations/page.tsx",
       "src/app/(workspace)/organisations/new/page.tsx",

@@ -1,4 +1,5 @@
 import type { CampaignPlatform } from "./campaign";
+import type { CommercialIntent, CulturalVoiceLevel, MarketHashtagRole } from "./market-intelligence";
 
 export type EngagementDataBasis = "brand_only" | "performance_informed";
 export type EngagementObjectiveType = "awareness" | "engagement" | "enquiries" | "bookings";
@@ -19,6 +20,90 @@ export interface EngagementHashtagGroups {
   local: string[];
   service: string[];
   audience: string[];
+  audienceCultural?: string[];
+  occasionTopic?: string[];
+  campaign?: string[];
+}
+
+export interface EngagementStrategyMetadata {
+  commercialIntent: CommercialIntent;
+  commercialIntentSource?: "operator" | "recommended";
+  contentJob?: EngagementVisibilityPlan["contentJob"];
+  hookFamily: string | null;
+  actualHook?: string | null;
+  ctaType: "conversion" | "conversation" | "trust_step" | null;
+  contentPillar: string | null;
+  destinationAccountId?: string | null;
+  destinationPlatform?: CampaignPlatform;
+  marketPatternIds: string[];
+  hashtagRoleMix: MarketHashtagRole[];
+  culturalVoiceLevel: CulturalVoiceLevel;
+  contentFormat?: VisibilityContentFormat;
+  visibilityStrategyVersion?: string;
+  visibilityEvidenceLevel?: VisibilityEvidenceLevel;
+  foundationVersion?: string;
+  growthDecisionEvidenceSources?: string[];
+  discoveryStrategy?: string;
+  measurementPlan?: string;
+  supportingDistributionActions?: string[];
+  pillarSourceEntryId?: string | null;
+  pillarSemanticLabel?: string | null;
+  pillarChoiceVersion?: string | null;
+}
+
+/** Request-scoped AGIE result handed into the existing immutable engagement recommendation path once a new draft has an id. */
+export interface AwoGenerationAttribution {
+  caption: string;
+  platform: CampaignPlatform;
+  destinationAccountId: string | null;
+  mediaAssetIds: string[];
+  commercialIntent: CommercialIntent;
+  commercialIntentSource: "operator" | "recommended";
+  culturalVoiceLevel: CulturalVoiceLevel;
+  visibilityPlan: EngagementVisibilityPlan;
+  suggestedHashtags: string[];
+  pillarSourceEntryId?: string | null;
+  pillarSemanticLabel?: string | null;
+  pillarChoiceVersion?: string | null;
+}
+
+export type VisibilityContentFormat = "short_form_video" | "carousel" | "single_image" | "supporting_story" | "text_led" | "other_supported";
+export type VisibilityHookFamily = "outcome_led" | "transformation" | "curiosity" | "confidence" | "educational" | "social_proof" | "occasion_milestone" | "problem_solution" | "authority" | "story" | "question" | "proof_result";
+export type VisibilityEvidenceLevel = "CLIENT_EVIDENCE" | "MARKET_EVIDENCE" | "FOUNDATION_HYPOTHESIS" | "FOUNDATION_AND_MARKET" | "MARKET_PATTERN" | "VERTICAL_HYPOTHESIS" | "GENERAL_PLATFORM_OPTION" | "INSUFFICIENT_EVIDENCE";
+
+export interface EngagementVisibilityPlan {
+  goal: CommercialIntent;
+  goalRationale: string;
+  contentJob: "DISCOVERY" | "AUTHORITY" | "PROOF" | "CONVERSION";
+  targetAudience: string;
+  mediaObservation: string;
+  contentPillar: string;
+  contentPillarRationale: string;
+  contentFormat: VisibilityContentFormat;
+  formatRationale: string;
+  attentionMechanism: string;
+  hookStrategy: VisibilityHookFamily;
+  actualHook: string;
+  discoveryStrategy: string;
+  targetLocalities: string[];
+  platformStrategy: string;
+  discoveryRoles: MarketHashtagRole[];
+  /** Deterministic pre-publish completeness check, not a reach prediction. */
+  distributionReadinessScore: number;
+  distributionGate: "pass" | "blocked";
+  distributionBlockers: string[];
+  searchableLanguage: string[];
+  ctaStrategy: string;
+  measurementPlan: string;
+  supportingDistributionActions: string[];
+  publishingWindow: string;
+  publishingWindowEvidenceState: "INSUFFICIENT_ACCOUNT_EVIDENCE" | "ACCOUNT_EVIDENCE";
+  visibilityEvidenceLevel: VisibilityEvidenceLevel;
+  verticalIntelligenceAvailable: boolean;
+  evidenceSources: string[];
+  confidence: number;
+  foundationVersion: string;
+  rationale: string;
 }
 
 export type LinkedInPostArchetype =
@@ -70,6 +155,7 @@ export interface EngagementCreativeGuidance {
   accessibilityNote: string;
   /** Optional because recommendations created before Sprint 15 do not contain it. */
   linkedinPersonalProfile?: LinkedInPersonalProfileGuidance | null;
+  visibilityPlan?: EngagementVisibilityPlan;
 }
 
 export interface EngagementPerformanceSummary {
@@ -109,6 +195,7 @@ export interface EngagementRecommendation {
   performanceConfidence: number | null;
   performanceSummary: EngagementPerformanceSummary;
   evidence: EngagementEvidence[];
+  strategyMetadata?: EngagementStrategyMetadata;
   createdBy: string | null;
   createdAt: string;
 }
@@ -134,6 +221,7 @@ export interface EngagementRecommendationWriteModel {
   performanceConfidence: number | null;
   performanceSummary: EngagementPerformanceSummary;
   evidence: EngagementEvidence[];
+  strategyMetadata: EngagementStrategyMetadata;
   createdBy: string;
 }
 

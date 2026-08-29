@@ -1,4 +1,4 @@
-import type { MediaAsset, MediaCollection, MediaAssetVersion, PaginatedMediaAssets, MediaLibraryStats } from "../../domain/entities/media";
+import type { MediaAsset, MediaCollection, MediaAssetVersion, PaginatedMediaAssets, MediaLibraryStats, MediaDeletionRequest, MediaDeletionResult, MediaDeletionStatus } from "../../domain/entities/media";
 import type { BrandKit } from "../../domain/entities/brand";
 
 export interface MediaLibraryPageFilters {
@@ -56,8 +56,17 @@ export interface MediaRepository {
   /** Marks an asset as archived */
   archiveAsset(organisationId: string, assetId: string): Promise<void>;
   
-  /** Deletes an asset permanently, will fail if references exist */
-  deleteAsset(organisationId: string, assetId: string): Promise<void>;
+  /** Read-only advisory status. Permanent deletion always rechecks inside the transaction. */
+  getDeletionStatus(organisationId: string, assetId: string): Promise<MediaDeletionStatus>;
+
+  /** The sole permanent-delete path: atomically rechecks safety, records cleanup, and deletes the row. */
+  requestSafeDeletion(organisationId: string, assetId: string, idempotencyId: string): Promise<MediaDeletionResult>;
+
+  /** Returns only server-recorded paths for an authorised cleanup request. */
+  getDeletionRequest(organisationId: string, requestId: string): Promise<MediaDeletionRequest | null>;
+
+  /** Records a post-commit Storage attempt; failed attempts remain pending. */
+  recordCleanupResult(organisationId: string, requestId: string, succeeded: boolean, error?: string): Promise<void>;
 
   /** Attaches an asset to a campaign */
   attachToCampaign(campaignId: string, assetId: string, attachedBy: string): Promise<void>;

@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { CONTENT_DRAFT_STATUS_LABELS } from "@/core/domain/entities/content";
-import { REVIEW_ACTION_LABELS, type ReviewHistoryEntry } from "@/core/domain/entities/review";
+import { REVIEW_ACTION_LABELS, SOLO_OPERATOR_APPROVAL_MARKER, type ReviewHistoryEntry } from "@/core/domain/entities/review";
 import { formatDateTime } from "@/lib/format";
 
 /**
@@ -17,6 +17,7 @@ export function ReviewHistoryTimeline({ history }: { history: ReviewHistoryEntry
     <ol className="flex flex-col">
       {history.map((entry, index) => {
         const isLast = index === history.length - 1;
+        const isSoloOperatorApproval = entry.action === "approved" && entry.comment?.includes(SOLO_OPERATOR_APPROVAL_MARKER);
 
         return (
           <li key={entry.id} className="relative flex gap-4 pb-6 last:pb-0">
@@ -29,6 +30,7 @@ export function ReviewHistoryTimeline({ history }: { history: ReviewHistoryEntry
             <div className="flex min-w-0 flex-1 flex-col gap-1.5 rounded-lg border border-border bg-card px-4 py-3">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge tone="muted">{REVIEW_ACTION_LABELS[entry.action]}</Badge>
+                {isSoloOperatorApproval ? <Badge tone="warning">Solo Operator Approval</Badge> : null}
                 <span className="ml-auto text-[11px] text-subtle-foreground">{formatDateTime(entry.createdAt)}</span>
               </div>
 

@@ -39,11 +39,14 @@ export type EngagementObjectiveTypeDb = "awareness" | "engagement" | "enquiries"
 export type EngagementFeedbackActionDb = "selected" | "dismissed";
 export type EngagementVariantDb = "recommended" | "alternative_1" | "alternative_2" | "custom";
 export type EngagementMeasurementWindowDb = "under_24h" | "24h" | "72h" | "7d";
+export type MarketCulturalVoiceDb = "neutral" | "conversational" | "light_naija";
+export type MarketPatternCategoryDb = "hook" | "format" | "emotional_angle" | "educational_angle" | "transformation" | "proof" | "offer_positioning" | "cta" | "audience_question" | "discovery_language" | "local_language" | "occasion_language" | "caption_length";
 export type MembrainSourceDb = "manual" | "client_brief" | "discovery_call" | "performance_insight" | "competitor_research" | "published_asset";
 export type MembrainStatusDb = "draft" | "active" | "archived";
 export type OrganisationRoleDb = "lead" | "contributor" | "reviewer";
 export type OrganisationStatusDb = "prospect" | "active" | "paused" | "offboarded";
 export type PlatformRoleDb = "owner" | "admin" | "member";
+export type StaffInvitationStatusDb = "pending" | "accepted" | "revoked";
 export type PostStatusDb = "idea" | "researching" | "drafting" | "in_review" | "approved" | "scheduled" | "published" | "failed" | "archived";
 export type PublishingAttemptStatusDb = "queued" | "started" | "awaiting_confirmation" | "completed" | "failed";
 export type PublishingExecutionModeDb = "simulation" | "live";
@@ -261,6 +264,7 @@ export type EngagementRecommendationRow = {
   performance_confidence: number | null;
   performance_summary: Json;
   evidence: Json;
+  strategy_metadata: Json;
   created_by: string | null;
   created_at: string;
 };
@@ -461,6 +465,26 @@ export type MediaAssetRow = {
   is_ai_generated: boolean;
   is_archived: boolean;
   updated_at: string;
+  usage_tracking_started_at: string | null;
+  first_used_at: string | null;
+};
+
+export type MediaDeletionRequestRow = {
+  id: string;
+  organisation_id: string;
+  former_asset_id: string;
+  file_name: string;
+  object_paths: string[];
+  object_count: number;
+  total_bytes: number;
+  requested_by: string | null;
+  requested_at: string;
+  cleanup_state: "pending" | "complete";
+  cleanup_attempt_count: number;
+  last_error: string | null;
+  completed_at: string | null;
+  deletion_source: "single";
+  reference_check_outcome: "eligible";
 };
 
 export type MediaCollectionAssetRow = {
@@ -504,6 +528,23 @@ export type MembrainCategoryRow = {
   position: number;
   is_system: boolean;
   created_at: string;
+};
+
+export type MarketIntelligenceProfileRow = {
+  organisation_id: string; business_objectives: string[]; target_geographies: string[]; service_areas: string[];
+  audience_context: string | null; cultural_context: string | null; promotional_focus: string | null;
+  cultural_voice_level: MarketCulturalVoiceDb; conversion_actions: string[]; platform_strategy: Json; hashtag_strategy: Json;
+  created_by: string | null; created_at: string; updated_at: string;
+};
+export type MarketIntelligenceReferenceRow = {
+  id: string; organisation_id: string; identifier: string; platform: string; market: string | null; vertical: string | null;
+  relevance_note: string; source_url: string | null; is_active: boolean; reviewed_at: string | null;
+  created_by: string | null; created_at: string; updated_at: string;
+};
+export type MarketIntelligencePatternRow = {
+  id: string; organisation_id: string; observation: string; category: MarketPatternCategoryDb; platform: string | null;
+  market: string | null; vertical: string | null; provenance: string; source_url: string | null; confidence: number;
+  observed_at: string | null; reviewed_at: string | null; is_active: boolean; created_by: string | null; created_at: string; updated_at: string;
 };
 
 export type MembrainEntryRow = {
@@ -634,6 +675,19 @@ export type ProfileRow = {
   last_seen_at: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type StaffInvitationRow = {
+  id: string;
+  email: string;
+  full_name: string;
+  platform_role: PlatformRoleDb;
+  organisation_access: Json;
+  status: StaffInvitationStatusDb;
+  invited_by: string;
+  invited_at: string;
+  accepted_at: string | null;
+  revoked_at: string | null;
 };
 
 export type ProjectRow = {
@@ -993,6 +1047,9 @@ export type Database = {
       engagement_feedback_events: Table<EngagementFeedbackEventRow, Partial<EngagementFeedbackEventRow>, Partial<EngagementFeedbackEventRow>>;
       engagement_metric_snapshots: Table<EngagementMetricSnapshotRow, Partial<EngagementMetricSnapshotRow>, Partial<EngagementMetricSnapshotRow>>;
       engagement_commercial_outcomes: Table<EngagementCommercialOutcomeRow, Partial<EngagementCommercialOutcomeRow>, Partial<EngagementCommercialOutcomeRow>>;
+      market_intelligence_profiles: Table<MarketIntelligenceProfileRow, Partial<MarketIntelligenceProfileRow>, Partial<MarketIntelligenceProfileRow>, [Fk<"market_intelligence_profiles_organisation_id_fkey", "organisation_id", "organisations">]>;
+      market_intelligence_references: Table<MarketIntelligenceReferenceRow, Partial<MarketIntelligenceReferenceRow>, Partial<MarketIntelligenceReferenceRow>, [Fk<"market_intelligence_references_organisation_id_fkey", "organisation_id", "organisations">]>;
+      market_intelligence_patterns: Table<MarketIntelligencePatternRow, Partial<MarketIntelligencePatternRow>, Partial<MarketIntelligencePatternRow>, [Fk<"market_intelligence_patterns_organisation_id_fkey", "organisation_id", "organisations">]>;
       conversation_summaries: Table<ConversationSummaryRow>;
       daily_briefs: Table<DailyBriefRow>;
       decision_reviews: Table<DecisionReviewRow>;
@@ -1017,6 +1074,15 @@ export type Database = {
         [
           Fk<"media_assets_organisation_id_fkey", "organisation_id", "organisations">,
           Fk<"media_assets_uploaded_by_fkey", "uploaded_by", "profiles">,
+        ]
+      >;
+      media_deletion_requests: Table<
+        MediaDeletionRequestRow,
+        Partial<MediaDeletionRequestRow>,
+        Partial<MediaDeletionRequestRow>,
+        [
+          Fk<"media_deletion_requests_organisation_id_fkey", "organisation_id", "organisations">,
+          Fk<"media_deletion_requests_requested_by_fkey", "requested_by", "profiles">,
         ]
       >;
       media_collection_assets: Table<
@@ -1129,6 +1195,12 @@ export type Database = {
           Fk<"profiles_id_fkey", "id", "users">,
         ]
       >;
+      staff_invitations: Table<
+        StaffInvitationRow,
+        Pick<StaffInvitationRow, "email" | "full_name" | "platform_role" | "organisation_access" | "invited_by"> & Partial<StaffInvitationRow>,
+        Partial<StaffInvitationRow>,
+        [Fk<"staff_invitations_invited_by_fkey", "invited_by", "profiles">]
+      >;
       projects: Table<ProjectRow>;
       publishing_attempts: Table<
         PublishingAttemptRow,
@@ -1182,6 +1254,42 @@ export type Database = {
       organisation_usage_snapshot: View<UsageSnapshotRow>;
     };
     Functions: {
+      admin_set_staff_profile: {
+        Args: { p_actor_id: string; p_profile_id: string; p_full_name: string; p_role: PlatformRoleDb; p_is_active: boolean };
+        Returns: ProfileRow;
+      };
+      admin_prepare_staff_invitation: {
+        Args: { p_actor_id: string; p_invitation_id: string; p_profile_id: string };
+        Returns: ProfileRow;
+      };
+      admin_manage_staff_access: {
+        Args: { p_actor_id: string; p_profile_id: string; p_role: PlatformRoleDb; p_is_active: boolean; p_access: Json };
+        Returns: ProfileRow;
+      };
+      admin_update_pending_staff_invitation: {
+        Args: { p_actor_id: string; p_invitation_id: string; p_role: PlatformRoleDb; p_access: Json };
+        Returns: StaffInvitationRow;
+      };
+      admin_reactivate_staff: {
+        Args: { p_actor_id: string; p_profile_id: string; p_role: PlatformRoleDb; p_access: Json };
+        Returns: string;
+      };
+      admin_staff_deletion_status: {
+        Args: { p_actor_id: string; p_profile_id: string };
+        Returns: Json;
+      };
+      get_media_deletion_status: {
+        Args: { p_organisation_id: string; p_asset_id: string };
+        Returns: Json;
+      };
+      request_media_safe_delete: {
+        Args: { p_organisation_id: string; p_asset_id: string; p_idempotency_id: string };
+        Returns: Json;
+      };
+      record_media_cleanup_result: {
+        Args: { p_organisation_id: string; p_request_id: string; p_succeeded: boolean; p_error?: string | null };
+        Returns: Json;
+      };
       apply_engagement_recommendation: {
         Args: {
           p_organisation_id: string;

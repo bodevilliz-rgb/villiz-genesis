@@ -276,10 +276,15 @@ export function GenerationReadinessPanel({
             <Input id="tone" name="tone" maxLength={100} placeholder="Warm, direct, no jargon" />
           </Field>
 
+          {/* Stores content_generation_requests.content_pillar_category_id →
+              membrain_categories (taxonomy, not pillar entries), and no
+              generation path currently consumes it. Labelled truthfully as a
+              category emphasis until the field either gains an entry-level FK
+              or a consumer — never present taxonomy as pillar knowledge. */}
           <Field
             id="contentPillarCategoryId"
-            label="Content pillar"
-            hint="Optional"
+            label="MemBrain category emphasis"
+            hint="Optional — notes one MemBrain knowledge category for this request"
             errors={state.fieldErrors?.contentPillarCategoryId}
           >
             <Select id="contentPillarCategoryId" name="contentPillarCategoryId" defaultValue="">

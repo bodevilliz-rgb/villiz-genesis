@@ -11,6 +11,9 @@ import {
 } from "@/core/application/use-cases/review";
 import { errorState, successState, text, textOrEmpty, type ActionState } from "../action-result";
 import { routes } from "@/lib/routes";
+import { SOLO_OPERATOR_APPROVAL_MARKER } from "@/core/domain/entities/review";
+import { assessRecommendationDistributionEligibility } from "@/core/application/use-cases/engagement";
+import { ValidationError } from "@/core/domain/errors";
 
 function reviewDeps(context: RequestContext) {
   return {
@@ -145,11 +148,39 @@ export async function recordReviewDecisionAction(_prev: ActionState, formData: F
     let draft;
     let eventType = "";
     let description = "";
+    let soloOperatorApproval = false;
 
     if (decision === "approve") {
+      const [currentDraft, latestRecommendation, latestFeedback] = await Promise.all([
+        context.content.findDraft(organisationId, draftId),
+        context.engagement.findLatest(organisationId, draftId),
+        context.engagement.findLatestFeedback
+          ? context.engagement.findLatestFeedback(organisationId, draftId)
+          : Promise.resolve(null),
+      ]);
+      if (!currentDraft) throw new ValidationError("Draft not found.");
+      const distribution = assessRecommendationDistributionEligibility(
+        latestRecommendation,
+        currentDraft.version,
+        latestFeedback,
+      );
+      if (!distribution.eligible) {
+        throw new ValidationError(
+          `Approval blocked by the Audience Distribution Gate (${distribution.score}/100). ${distribution.blockers.join(" ")}`,
+        );
+      }
       draft = await approveDraft(deps, input);
+      const [decisionEntry] = await context.reviews.listHistory(organisationId, draftId);
+      soloOperatorApproval = Boolean(
+        decisionEntry?.action === "approved"
+        && decisionEntry.actor?.id === context.actor.id
+        && decisionEntry.assignedReviewer?.id === context.actor.id
+        && decisionEntry.comment?.includes(SOLO_OPERATOR_APPROVAL_MARKER),
+      );
       eventType = "approved";
-      description = `Approved draft "${draft.title}".`;
+      description = soloOperatorApproval
+        ? `Solo Operator Approval recorded for draft "${draft.title}"; creator and approver were the same Account Lead.`
+        : `Approved draft "${draft.title}".`;
       // Notify creator
       if (draft.createdBy) {
         await notifyUser(context, organisationId, draft.createdBy.id, "approval_granted", `Your draft "${draft.title}" has been approved!`);
@@ -175,11 +206,16 @@ export async function recordReviewDecisionAction(_prev: ActionState, formData: F
     }
 
     // Audit Log
-    await recordAudit(context, organisationId, draftId, eventType, description, { comment });
+    await recordAudit(context, organisationId, draftId, eventType, description, {
+      comment,
+      ...(soloOperatorApproval ? { reviewMode: "solo_operator", creatorId: context.actor.id, approverId: context.actor.id } : {}),
+    });
 
     revalidateReview(organisationId, draftId);
     return successState(
-      decision === "approve" ? "Approved." : decision === "reject" ? "Rejected." : "Sent back for changes.",
+      decision === "approve"
+        ? soloOperatorApproval ? "Solo Operator Approval recorded." : "Approved."
+        : decision === "reject" ? "Rejected." : "Sent back for changes.",
       draft.id
     );
   } catch (error) {

@@ -31,9 +31,14 @@ import {
   type CtaMode,
 } from "./awo-assist-logic";
 import { normalizeHashtags, parseHashtagInput } from "@/core/application/use-cases/content/hashtags";
-import { isPublishingPlatform, PUBLISHING_PLATFORM_LABELS } from "@/core/domain/entities/publishing";
+import { isPublishingPlatform, PUBLISHING_PLATFORM_LABELS, type PublishingPlatform } from "@/core/domain/entities/publishing";
 import { getPlatformPublishingPolicy } from "@/core/domain/entities/platform-policy";
 import { routes } from "@/lib/routes";
+import type { CommercialIntent, CulturalVoiceLevel } from "@/core/domain/entities/market-intelligence";
+import type { AwoGenerationAttribution, EngagementVisibilityPlan } from "@/core/domain/entities/engagement";
+import { MediaUploadZone } from "@/components/media/media-upload-zone";
+
+export interface GrowthBriefDestination { id: string; platform: PublishingPlatform; label: string }
 
 const AUTOSAVE_DEBOUNCE_MS = 2000;
 const SAVED_INDICATOR_MS = 4000;
@@ -88,6 +93,8 @@ export function DraftForm({
   attachedAssets = [],
   signedUrls = {},
   canDetachPublishedMedia = false,
+  contentPillars = [],
+  growthDestinations = [],
 }: {
   organisationId: string;
   categories: MembrainCategory[];
@@ -100,6 +107,8 @@ export function DraftForm({
   signedUrls?: Record<string, string>;
   /** Lead-only: allow detaching assets from a Published draft without reopening the review cycle. */
   canDetachPublishedMedia?: boolean;
+  contentPillars?: Array<{ id: string; title: string }>;
+  growthDestinations?: GrowthBriefDestination[];
 }) {
   const isEdit = Boolean(draft);
   const router = useRouter();
@@ -138,25 +147,34 @@ export function DraftForm({
   const [hashtagInput, setHashtagInput] = useState("");
   const [hashtagLoading, setHashtagLoading] = useState(false);
   const [hashtagSuggestions, setHashtagSuggestions] = useState<string[] | null>(null);
+  const [growthIntent, setGrowthIntent] = useState<CommercialIntent | "">("");
+  const [growthVoice, setGrowthVoice] = useState<CulturalVoiceLevel | "">("");
+  const [growthDestinationId, setGrowthDestinationId] = useState(growthDestinations[0]?.id ?? "");
+  const [growthPillar, setGrowthPillar] = useState("");
+  const [visibilityPlan, setVisibilityPlan] = useState<EngagementVisibilityPlan | null>(null);
+  const [resolvedGrowthVoice, setResolvedGrowthVoice] = useState<CulturalVoiceLevel | null>(null);
+  const [pendingAwoAttribution, setPendingAwoAttribution] = useState<AwoGenerationAttribution | null>(null);
+  const [acceptedAwoAttribution, setAcceptedAwoAttribution] = useState<AwoGenerationAttribution | null>(null);
 
   const effectiveAiAction = normaliseAiAction(aiAction, draftBody);
 
   const hasGuidedContext = guidedOpen && Boolean(
-    guidedTopic || guidedGoal || guidedServiceTreatment || guidedPromotionLevel || guidedCtaMode || guidedExtraDirection,
+    growthPillar || guidedTopic || guidedGoal || guidedServiceTreatment || guidedPromotionLevel || guidedCtaMode || guidedExtraDirection,
   );
 
   function buildGuidedCtx(): GenerationGuidedContext | undefined {
-    if (!guidedOpen) return undefined;
-    if (!guidedTopic && !guidedGoal && !guidedServiceTreatment && !guidedPromotionLevel && !guidedCtaMode && !guidedExtraDirection) return undefined;
+    if (!guidedOpen && !growthPillar) return undefined;
+    if (!growthPillar && !guidedTopic && !guidedGoal && !guidedServiceTreatment && !guidedPromotionLevel && !guidedCtaMode && !guidedExtraDirection) return undefined;
     return {
-      topic: guidedTopic || undefined,
-      goal: guidedGoal || undefined,
-      serviceTreatment: guidedServiceTreatment || undefined,
-      specificService: guidedServiceTreatment === "specific_service" && guidedSpecificService ? guidedSpecificService : undefined,
-      promotionLevel: guidedPromotionLevel || undefined,
-      ctaMode: guidedCtaMode || undefined,
-      customCta: guidedCtaMode === "custom" && guidedCustomCta ? guidedCustomCta : undefined,
-      extraDirection: guidedExtraDirection || undefined,
+      contentPillar: growthPillar || undefined,
+      topic: guidedOpen ? guidedTopic || undefined : undefined,
+      goal: guidedOpen ? guidedGoal || undefined : undefined,
+      serviceTreatment: guidedOpen ? guidedServiceTreatment || undefined : undefined,
+      specificService: guidedOpen && guidedServiceTreatment === "specific_service" && guidedSpecificService ? guidedSpecificService : undefined,
+      promotionLevel: guidedOpen ? guidedPromotionLevel || undefined : undefined,
+      ctaMode: guidedOpen ? guidedCtaMode || undefined : undefined,
+      customCta: guidedOpen && guidedCtaMode === "custom" && guidedCustomCta ? guidedCustomCta : undefined,
+      extraDirection: guidedOpen ? guidedExtraDirection || undefined : undefined,
     };
   }
 
@@ -204,7 +222,7 @@ export function DraftForm({
         return;
       }
 
-      const { hashtags: suggestions } = await generateHashtags(organisationId, draftBody, remaining);
+      const { hashtags: suggestions } = await generateHashtags(organisationId, draftBody, remaining, knownPlatform ?? "instagram");
       const normalized = normalizeHashtags(suggestions).slice(0, remaining);
       setHashtagSuggestions(normalized.filter((s) => !hashtags.map((h) => h.toLowerCase()).includes(s.toLowerCase())));
     } catch {
@@ -232,6 +250,7 @@ export function DraftForm({
       let suggestion = "";
 
       if (effectiveAiAction === "generate") {
+        const destination = growthDestinations.find((item) => item.id === growthDestinationId);
         const [orgId, prompt, platform, intentHints] = buildGenerateCaptionArgs(
           organisationId,
           aiPrompt,
@@ -239,12 +258,32 @@ export function DraftForm({
           draft?.scheduledPlatform,
           {
             hasCampaign: Boolean(draft?.campaign),
-            contentPillar: draft?.category?.label ?? null,
+            // Only a real MemBrain content-pillar ENTRY may act as the pillar
+            // hint. The previous fallback to draft?.category?.label leaked
+            // taxonomy labels ("Audience", "Rules & compliance") into the AI
+            // context as if they were the organisation's content pillars.
+            contentPillar: growthPillar || null,
             userPromptIsExplicit: aiPrompt.trim().length > 0,
           },
         );
-        const res = await generateCaption(orgId, prompt, platform, intentHints, buildGuidedCtx());
+        const selectedPlatform = destination?.platform ?? platform;
+        const res = await generateCaption(
+          orgId,
+          prompt,
+          selectedPlatform,
+          intentHints,
+          buildGuidedCtx(),
+          growthIntent || undefined,
+          growthVoice || undefined,
+          localAttachedAssets.map((asset) => asset.id),
+          destination?.id,
+        );
         suggestion = res.text;
+        setVisibilityPlan(res.visibilityPlan);
+        setResolvedGrowthVoice(res.culturalVoiceLevel);
+        const hashtagResult = await generateHashtags(organisationId, res.text, 5, isPublishingPlatform(selectedPlatform) ? selectedPlatform : "instagram", res.commercialIntent);
+        setHashtagSuggestions(normalizeHashtags(hashtagResult.hashtags));
+        setPendingAwoAttribution({ ...res.attribution, suggestedHashtags: normalizeHashtags(hashtagResult.hashtags) });
       } else {
         const instruction = rewriteInstructionForAction(effectiveAiAction);
         const res = await rewriteContent(organisationId, draftBody, instruction);
@@ -254,7 +293,10 @@ export function DraftForm({
       setAiSuggestion(suggestion);
       toast.success("AI suggestion generated.");
     } catch (e) {
-      toast.error("Failed to generate AI suggestion");
+      // Surface the real failure. A generic message hid a provider billing
+      // outage behind "Failed to generate AI suggestion" — the operator had
+      // no way to distinguish a transient blip from an exhausted account.
+      toast.error(e instanceof Error && e.message ? e.message : "Failed to generate AI suggestion");
       console.error(e);
     } finally {
       setAiLoading(false);
@@ -263,7 +305,15 @@ export function DraftForm({
 
   function acceptAiSuggestion() {
     if (!aiSuggestion) return;
+    if (!visibilityPlan || visibilityPlan.distributionGate !== "pass" || (visibilityPlan.distributionReadinessScore ?? 0) < 95 || (visibilityPlan.distributionBlockers?.length ?? 1) > 0) {
+      toast.error(`Awo Audience Distribution Gate blocked this post (${visibilityPlan?.distributionReadinessScore ?? 0}/100). Complete the listed strategy inputs and regenerate.`);
+      return;
+    }
     setDraftBody(aiSuggestion);
+    if (pendingAwoAttribution?.suggestedHashtags.length) {
+      setHashtags((current) => normalizeHashtags([...current, ...pendingAwoAttribution.suggestedHashtags]));
+    }
+    setAcceptedAwoAttribution(pendingAwoAttribution);
     setDirty(true);
     setAiSuggestion(null);
     toast.success("AI suggestion applied to draft.");
@@ -291,8 +341,15 @@ export function DraftForm({
 
     if (state.status === "success" && state.resourceId) {
       if (!isEdit) {
-        toast.success(state.message);
-        router.push(routes.organisations.content.draft(organisationId, state.resourceId));
+        const createdDraftId = state.resourceId;
+        void (async () => {
+          for (const asset of localAttachedAssets) {
+            const result = await attachAssetToDraftAction(createdDraftId, asset.id, organisationId);
+            if (result.status !== "success") toast.error(`Draft saved, but ${asset.title || asset.fileName} could not be linked.`);
+          }
+          toast.success(state.message);
+          router.push(routes.organisations.content.draft(organisationId, createdDraftId));
+        })();
         return;
       }
 
@@ -336,6 +393,7 @@ export function DraftForm({
       <input type="hidden" name="organisationId" value={organisationId} />
       {draft ? <input type="hidden" name="id" value={draft.id} /> : null}
       <input type="hidden" name="hashtags" value={JSON.stringify(hashtags)} />
+      <input type="hidden" name="awoAttribution" value={acceptedAwoAttribution ? JSON.stringify(acceptedAwoAttribution) : ""} />
 
       {locked ? (
         <p className="rounded-md border border-border-strong bg-muted px-3 py-2 text-[12px] text-muted-foreground">
@@ -382,6 +440,14 @@ export function DraftForm({
             <span className="text-[11px] font-mono uppercase tracking-wider text-primary">Awo AI Assist</span>
             {aiLoading && <Loader2 className="size-3.5 animate-spin text-primary" />}
           </div>
+
+          {!locked && !isEdit ? (
+            <details className="rounded-md border border-border bg-muted/10 p-3">
+              <summary className="cursor-pointer text-[12px] font-medium text-foreground">Upload media before generation</summary>
+              <div className="mt-3"><MediaUploadZone organisationId={organisationId} onSuccess={() => router.refresh()} /></div>
+              <p className="mt-2 text-[11px] text-muted-foreground">After upload, choose the registered asset from the Media Library below before asking Awo to generate.</p>
+            </details>
+          ) : null}
           <div className="flex flex-wrap gap-2 items-center">
             <Select
               value={effectiveAiAction}
@@ -431,6 +497,38 @@ export function DraftForm({
               Apply AI
             </Button>
           </div>
+
+          {effectiveAiAction === "generate" && (
+            <div className="rounded-md border border-border bg-muted/20 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-[11px] font-mono uppercase tracking-wider text-foreground">Awo Growth Brief</span>
+                <span className="text-[10px] text-muted-foreground">Optional · Awo uses safe defaults</span>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label className="text-[11px] text-muted-foreground">Goal
+                  <Select aria-label="Growth goal" value={growthIntent} onChange={(e) => setGrowthIntent(e.target.value as CommercialIntent | "")} className="mt-1 h-8 text-[12px]">
+                    <option value="">Awo recommends</option><option value="convert">Convert</option><option value="engage">Engage</option><option value="build_trust">Build Trust</option>
+                  </Select>
+                </label>
+                <label className="text-[11px] text-muted-foreground">Voice
+                  <Select aria-label="Growth voice" value={growthVoice} onChange={(e) => setGrowthVoice(e.target.value as CulturalVoiceLevel | "")} className="mt-1 h-8 text-[12px]">
+                    <option value="">Brand Default</option><option value="conversational">Conversational</option><option value="light_naija">Light Naija — authorised contexts only</option>
+                  </Select>
+                </label>
+                <label className="text-[11px] text-muted-foreground">Platform / destination
+                  <Select aria-label="Growth destination" value={growthDestinationId} onChange={(e) => setGrowthDestinationId(e.target.value)} className="mt-1 h-8 text-[12px]" disabled={growthDestinations.length === 0}>
+                    {growthDestinations.length === 0 ? <option value="">No connected destination</option> : growthDestinations.map((item) => <option key={item.id} value={item.id}>{PUBLISHING_PLATFORM_LABELS[item.platform]} · {item.label}</option>)}
+                  </Select>
+                </label>
+                <label className="text-[11px] text-muted-foreground">Content pillar
+                  <Select aria-label="Growth content pillar" value={growthPillar} onChange={(e) => setGrowthPillar(e.target.value)} className="mt-1 h-8 text-[12px]">
+                    <option value="">Awo chooses from MemBrain</option>{contentPillars.map((pillar) => <option key={pillar.id} value={pillar.title}>{pillar.title}</option>)}
+                  </Select>
+                </label>
+              </div>
+              {growthVoice === "light_naija" && resolvedGrowthVoice && resolvedGrowthVoice !== "light_naija" ? <p role="status" className="mt-2 text-[11px] text-warning">Light Naija was not authorised by this client’s Market Intelligence. Awo used the safe brand voice.</p> : null}
+            </div>
+          )}
 
           {effectiveAiAction === "generate" && (
             <div>
@@ -568,14 +666,43 @@ export function DraftForm({
               <span className="text-[11px] font-mono uppercase tracking-wider text-muted-foreground">AI Suggestion:</span>
               <p className="text-[13px] whitespace-pre-wrap font-mono text-muted-foreground">{aiSuggestion}</p>
               <div className="flex gap-2 justify-end">
-                <Button type="button" variant="secondary" size="sm" onClick={acceptAiSuggestion}>
-                  Accept Suggestion
+                <Button type="button" variant="secondary" size="sm" onClick={acceptAiSuggestion} disabled={!visibilityPlan || visibilityPlan.distributionGate !== "pass" || (visibilityPlan.distributionReadinessScore ?? 0) < 95 || (visibilityPlan.distributionBlockers?.length ?? 1) > 0}>
+                  {visibilityPlan?.distributionGate === "blocked" ? "Blocked by Distribution Gate" : "Accept Suggestion"}
                 </Button>
                 <Button type="button" variant="ghost" size="sm" onClick={() => setAiSuggestion(null)}>
                   Discard
                 </Button>
               </div>
             </div>
+          )}
+          {visibilityPlan && aiSuggestion && (
+            <details className="rounded border border-border bg-muted/20 p-3 text-[11px]" open>
+              <summary className="cursor-pointer font-medium text-foreground">Awo Growth Decision · {visibilityPlan.visibilityEvidenceLevel.replaceAll("_", " ")}</summary>
+              <dl className="mt-2 grid gap-2 sm:grid-cols-2 text-muted-foreground">
+                <div className="sm:col-span-2"><dt className="text-foreground">Audience Distribution Gate</dt><dd className={visibilityPlan.distributionGate === "pass" ? "text-positive" : "text-warning"}>{(visibilityPlan.distributionGate ?? "blocked").toUpperCase()} · {visibilityPlan.distributionReadinessScore ?? 0}/100 · minimum 95</dd></div>
+                {(visibilityPlan.distributionBlockers ?? ["This earlier recommendation predates the audience distribution gate. Regenerate it before acceptance."]).length > 0 && <div className="sm:col-span-2"><dt className="text-foreground">Required before acceptance</dt><dd><ul className="list-disc pl-4">{(visibilityPlan.distributionBlockers ?? ["This earlier recommendation predates the audience distribution gate. Regenerate it before acceptance."]).map((blocker) => <li key={blocker}>{blocker}</li>)}</ul></dd></div>}
+                <div><dt className="text-foreground">Goal</dt><dd>{visibilityPlan.goal?.replaceAll("_", " ") ?? "Not recorded on this earlier decision"}</dd></div>
+                <div><dt className="text-foreground">Why this goal</dt><dd>{visibilityPlan.goalRationale ?? "Not recorded"}</dd></div>
+                <div><dt className="text-foreground">Content job</dt><dd>{visibilityPlan.contentJob ?? "Not recorded"}</dd></div>
+                <div className="sm:col-span-2"><dt className="text-foreground">Audience</dt><dd>{visibilityPlan.targetAudience}</dd></div>
+                <div className="sm:col-span-2"><dt className="text-foreground">ACOR locality</dt><dd>{visibilityPlan.targetLocalities?.join(", ") || "None verified"}</dd></div>
+                <div className="sm:col-span-2"><dt className="text-foreground">Platform strategy</dt><dd>{visibilityPlan.platformStrategy ?? "Not recorded on this earlier decision"}</dd></div>
+                <div className="sm:col-span-2"><dt className="text-foreground">Discovery roles</dt><dd>{visibilityPlan.discoveryRoles?.join(", ") || "None configured"}</dd></div>
+                <div className="sm:col-span-2"><dt className="text-foreground">Media observation</dt><dd>{visibilityPlan.mediaObservation ?? "Not recorded on this earlier decision"}</dd></div>
+                <div><dt className="text-foreground">Pillar</dt><dd>{visibilityPlan.contentPillar ?? "Not recorded"}</dd></div>
+                <div><dt className="text-foreground">Pillar rationale</dt><dd>{visibilityPlan.contentPillarRationale ?? "Not recorded"}</dd></div>
+                <div><dt className="text-foreground">Format</dt><dd>{visibilityPlan.contentFormat.replaceAll("_", " ")}{visibilityPlan.formatRationale ? ` — ${visibilityPlan.formatRationale}` : ""}</dd></div>
+                <div><dt className="text-foreground">Attention</dt><dd>{visibilityPlan.attentionMechanism ?? "Not recorded"}</dd></div>
+                <div><dt className="text-foreground">Hook family</dt><dd>{visibilityPlan.hookStrategy.replaceAll("_", " ")}</dd></div>
+                <div className="sm:col-span-2"><dt className="text-foreground">Hook</dt><dd>{visibilityPlan.actualHook ?? "Not recorded"}</dd></div>
+                <div className="sm:col-span-2"><dt className="text-foreground">Discovery</dt><dd>{visibilityPlan.discoveryStrategy}</dd></div>
+                <div className="sm:col-span-2"><dt className="text-foreground">CTA</dt><dd>{visibilityPlan.ctaStrategy}</dd></div>
+                <div className="sm:col-span-2"><dt className="text-foreground">Hashtags</dt><dd>{hashtagSuggestions?.length ? hashtagSuggestions.map((tag) => `#${tag}`).join(" ") : "No supported suggestions returned."}</dd></div>
+                <div className="sm:col-span-2"><dt className="text-foreground">Supporting distribution</dt><dd>{visibilityPlan.supportingDistributionActions.join(" ")}</dd></div>
+                <div className="sm:col-span-2"><dt className="text-foreground">Measurement</dt><dd>{visibilityPlan.measurementPlan}</dd></div>
+                <div className="sm:col-span-2"><dt className="text-foreground">Evidence and rationale</dt><dd>{visibilityPlan.visibilityEvidenceLevel.replaceAll("_", " ")}{typeof visibilityPlan.confidence === "number" ? ` · confidence ${visibilityPlan.confidence}/100` : ""}{visibilityPlan.evidenceSources?.length ? ` · ${visibilityPlan.evidenceSources.join(", ")}` : ""}. {visibilityPlan.rationale}</dd></div>
+              </dl>
+            </details>
           )}
         </div>
       )}
@@ -681,7 +808,18 @@ export function DraftForm({
           </Select>
         </Field>
 
-        <Field id="categoryId" label="Content pillar" errors={state.fieldErrors?.categoryId}>
+        {/* This select stores content_drafts.category_id → membrain_categories:
+            it files the draft under a MemBrain TAXONOMY category. It was
+            previously labelled "Content pillar", which made the taxonomy list
+            (Brand description, Brand voice, Audience, …) masquerade as the
+            organisation's pillar knowledge. The real pillar control is the
+            entry-backed "Content pillar" in the Awo Growth Brief above. */}
+        <Field
+          id="categoryId"
+          label="MemBrain category"
+          hint="Files this draft in MemBrain's taxonomy. Generation pillars are chosen in the Awo Growth Brief."
+          errors={state.fieldErrors?.categoryId}
+        >
           <Select id="categoryId" name="categoryId" defaultValue={draft?.category?.id ?? ""} disabled={locked}>
             <option value="">None</option>
             {categories.map((category) => (
@@ -714,7 +852,7 @@ export function DraftForm({
         </Field>
       </div>
 
-      {isEdit && (
+      {(
         <div className="border-t border-border pt-6 mt-6 flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <h4 className="text-[13px] font-semibold text-foreground flex items-center gap-1.5">
@@ -756,7 +894,10 @@ export function DraftForm({
                         type="button"
                         onClick={() => {
                           startAssetTransition(async () => {
-                            if (!draft) return;
+                            if (!draft) {
+                              setLocalAttachedAssets((current) => current.filter((item) => item.id !== asset.id));
+                              return;
+                            }
                             const result = await detachAssetFromDraftAction(draft.id, asset.id, organisationId);
                             if (result.status === "success") {
                               toast.success(result.message);
@@ -790,7 +931,7 @@ export function DraftForm({
         </div>
       )}
 
-      {showAssetModal && draft && (
+      {showAssetModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-xl max-h-[70vh] flex flex-col animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-border pb-3 mb-4">
@@ -825,6 +966,11 @@ export function DraftForm({
                       type="button"
                       onClick={() => {
                         startAssetTransition(async () => {
+                          if (!draft) {
+                            setLocalAttachedAssets((current) => [...current, asset]);
+                            setShowAssetModal(false);
+                            return;
+                          }
                           const result = await attachAssetToDraftAction(draft.id, asset.id, organisationId);
                           if (result.status === "success") {
                             toast.success(result.message);

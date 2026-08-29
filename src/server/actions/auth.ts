@@ -1,12 +1,23 @@
 "use server";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { z } from "zod";
 import { createGenesisClient } from "@/infrastructure/supabase/server-client";
 import { isAllowedEmail, serverEnv, allowedEmailDomains } from "@/lib/env";
 import { routes } from "@/lib/routes";
+import { resolveSignInCallbackUrl } from "@/lib/auth-callback-url";
 import { errorState, successState, type ActionState } from "../action-result";
 
 const emailSchema = z.string().trim().email();
+
+async function signInCallbackUrl(): Promise<string> {
+  const requestHeaders = await headers();
+  return resolveSignInCallbackUrl({
+    requestOrigin: requestHeaders.get("origin"),
+    canonicalSiteUrl: serverEnv().NEXT_PUBLIC_SITE_URL,
+    nodeEnv: process.env.NODE_ENV,
+  });
+}
 
 /**
  * Passwordless sign-in.
@@ -37,18 +48,25 @@ export async function requestSignInLink(_prev: ActionState, formData: FormData):
     }
 
     const supabase = await createGenesisClient();
+    const emailRedirectTo = await signInCallbackUrl();
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
         shouldCreateUser: false,
-        emailRedirectTo: `${serverEnv().NEXT_PUBLIC_SITE_URL.replace(/\/$/, "")}${routes.authCallback}`,
+        // PKCE verification state is origin-bound. Return to the deployment
+        // where sign-in started so preview and production links both work.
+        emailRedirectTo,
       },
     });
 
     if (error) {
-      // Deliberately identical to the success path: revealing which addresses
-      // exist would leak the staff list to anyone who finds the login page.
       console.warn("[genesis] sign-in link not sent", error.message);
+      // Do not expose provider detail or say whether the staff account exists.
+      // The operator must still be told that no email was sent.
+      return {
+        status: "error",
+        message: "We could not send a sign-in link. Wait a few minutes and try once more. If it repeats, tell the Genesis administrator.",
+      };
     }
 
     return successState("Check your inbox. The link is valid for one hour.");

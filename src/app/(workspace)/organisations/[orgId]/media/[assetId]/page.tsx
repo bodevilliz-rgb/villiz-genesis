@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/common/page-header";
 import { Button } from "@/components/ui/button";
 import { routes } from "@/lib/routes";
 import { AssetDetailForm } from "./asset-detail-form";
+import type { MediaDeletionStatus } from "@/core/domain/entities/media";
 
 export default async function AssetDetailPage({
   params,
@@ -23,6 +24,14 @@ export default async function AssetDetailPage({
   ]);
 
   if (!asset) notFound();
+
+  let deletionStatus: MediaDeletionStatus;
+  try {
+    deletionStatus = await context.media.getDeletionStatus(orgId, assetId);
+  } catch {
+    // Deletion is fail-closed: a status outage must never expose the control.
+    deletionStatus = { eligibility: "BLOCKED", reasons: [{ code: "UNKNOWN_DEPENDENCY", count: 1 }] };
+  }
 
   // 2. Generate signed URLs for previews
   let signedUrl = "";
@@ -65,6 +74,7 @@ export default async function AssetDetailPage({
         versions={versions}
         signedUrl={signedUrl}
         versionUrls={versionUrls}
+        deletionStatus={deletionStatus}
       />
     </div>
   );

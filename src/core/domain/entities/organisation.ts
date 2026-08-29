@@ -41,9 +41,7 @@ export interface OrganisationMember {
     /**
      * Optional: the platform-wide role (owner/admin/member), distinct from
      * this member's organisation-scoped `role` above (lead/contributor/
-     * reviewer). Undefined for any caller not fetching it (existing test
-     * fixtures, older call sites) — only the cloud pilot's self-approval
-     * bypass check (isSoleOwnerPilotOrganisation, review.ts) reads it.
+     * reviewer). Undefined for callers that do not fetch platform identity.
      */
     platformRole?: PlatformRole;
   };

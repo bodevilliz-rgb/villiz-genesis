@@ -80,6 +80,13 @@ export function PostPerformanceDashboard({ snapshots }: { snapshots: EngagementM
   }
 
   const latest = performance.latest;
+  const learningMessage = performance.attributionStatus === "unverified"
+    ? "Attribution unverified. Metrics remain visible, but this post is excluded from recommendation learning."
+    : performance.evidenceStatus === "awaiting_7d"
+      ? `Attribution verified. Learning remains pending until the seven-day checkpoint reaches at least ${performance.minimumLearningExposure.toLocaleString("en-GB")} reach/views.`
+      : performance.evidenceStatus === "insufficient_exposure"
+        ? `Attribution verified, but the seven-day sample is below ${performance.minimumLearningExposure.toLocaleString("en-GB")} reach/views. It is excluded from model learning as low-sample noise.`
+        : "Attribution and seven-day exposure verified. This post is eligible for comparable learning; results remain observational, not causal.";
   return (
     <section className="grid gap-3 rounded-md border border-border p-3" aria-label="Post performance">
       <div className="flex items-start justify-between gap-3">
@@ -116,13 +123,16 @@ export function PostPerformanceDashboard({ snapshots }: { snapshots: EngagementM
         </div>
       </div>
 
-      <div className={`flex items-start gap-2 rounded-md p-2.5 text-[11px] ${performance.exactRecommendationMatch ? "bg-positive/5 text-positive" : "bg-warning-soft text-warning"}`}>
-        {performance.exactRecommendationMatch
+      <div className={`flex items-start gap-2 rounded-md p-2.5 text-[11px] ${performance.learningStatus === "eligible" ? "bg-positive/5 text-positive" : "bg-warning-soft text-warning"}`}>
+        {performance.learningStatus === "eligible"
           ? <CheckCircle2 className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-          : <Link2Off className="mt-0.5 size-3.5 shrink-0" aria-hidden />}
-        <p>{performance.exactRecommendationMatch
-          ? "Exact applied recommendation match. This post can contribute to comparable learning at seven days."
-          : "Metrics are visible, but no exact applied recommendation match was verified. This post is excluded from recommendation learning."}</p>
+          : performance.attributionStatus === "unverified"
+            ? <Link2Off className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+            : <Clock3 className="mt-0.5 size-3.5 shrink-0" aria-hidden />}
+        <div>
+          <p className="font-medium">{performance.attributionStatus === "verified" ? "Attribution verified" : "Attribution unverified"} · {performance.learningStatus === "eligible" ? "Learning eligible" : "Learning not eligible"}</p>
+          <p className="mt-0.5">{learningMessage}</p>
+        </div>
       </div>
 
       <p className="text-[10px] text-subtle-foreground">Source: Blotato/provider analytics. Results are observational and do not prove that a caption caused performance.</p>

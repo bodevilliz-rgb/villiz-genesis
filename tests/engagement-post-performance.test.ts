@@ -48,6 +48,8 @@ describe("per-post performance view", () => {
     expect(result.checkpoints["72h"]?.id).toBe(at72h.id);
     expect(result.checkpoints["7d"]).toBeUndefined();
     expect(result.exactRecommendationMatch).toBe(true);
+    expect(result.evidenceStatus).toBe("awaiting_7d");
+    expect(result.learningStatus).toBe("not_eligible");
   });
 
   it("labels metrics as unattributed when the exact recommendation link is absent", () => {
@@ -55,5 +57,22 @@ describe("per-post performance view", () => {
       snapshot("24h", "2026-08-11T10:00:00Z", { recommendationId: null, feedbackEventId: null }),
     ]);
     expect(result.exactRecommendationMatch).toBe(false);
+    expect(result.attributionStatus).toBe("unverified");
+    expect(result.learningStatus).toBe("not_eligible");
+  });
+
+  it("does not treat a tiny seven-day sample as learning evidence", () => {
+    const result = buildPostPerformanceView([
+      snapshot("7d", "2026-08-18T10:00:00Z", { metrics: { reach: 11, views: 8, likes: 0, comments: 0, shares: 0, saves: 0 } }),
+    ]);
+    expect(result.exposure).toBe(11);
+    expect(result.evidenceStatus).toBe("insufficient_exposure");
+    expect(result.learningStatus).toBe("not_eligible");
+  });
+
+  it("marks an attributed seven-day post eligible only above the exposure floor", () => {
+    const result = buildPostPerformanceView([snapshot("7d", "2026-08-18T10:00:00Z")]);
+    expect(result.evidenceStatus).toBe("sufficient");
+    expect(result.learningStatus).toBe("eligible");
   });
 });

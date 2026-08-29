@@ -7,6 +7,7 @@ import { MediaUploadZone } from "@/components/media/media-upload-zone";
 import { MediaGrid, MEDIA_LIBRARY_PAGE_SIZE } from "@/components/media/media-grid";
 import { CollectionsPanel } from "@/components/media/collections-panel";
 import { BrandKitsPanel } from "@/components/media/brand-kits-panel";
+import { MediaCleanupStatus } from "@/components/media/media-cleanup-status";
 import { loadMediaLibraryPage } from "@/core/application/use-cases/media/list-media-library-page";
 import type { MediaAsset, MediaCollection } from "@/core/domain/entities/media";
 import type { BrandKit } from "@/core/domain/entities/brand";
@@ -16,7 +17,7 @@ export default async function MediaDashboardPage({
   searchParams,
 }: {
   params: Promise<{ orgId: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; cleanupRequest?: string }>;
 }) {
   const { orgId } = await params;
   const filters = await searchParams;
@@ -26,6 +27,12 @@ export default async function MediaDashboardPage({
   if (!organisation) notFound();
 
   const activeTab = filters.tab || "assets";
+  const cleanupRequestId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(filters.cleanupRequest ?? "")
+    ? filters.cleanupRequest!
+    : null;
+  const cleanupRequest = cleanupRequestId
+    ? await context.media.getDeletionRequest(orgId, cleanupRequestId).catch(() => null)
+    : null;
 
   // The stats board always shows org-wide counts, but only as cheap
   // aggregates (COUNT/SUM) — never by fetching every asset row.
@@ -81,6 +88,8 @@ export default async function MediaDashboardPage({
         title="Asset Catalog & Brand Kits"
         description="Organise client brand assets, color guidelines, logos, and campaign copy mockups in a centralised media dashboard."
       />
+
+      {cleanupRequest ? <MediaCleanupStatus request={cleanupRequest} /> : null}
 
       {/* Stats Board */}
       <div className="grid gap-3 sm:grid-cols-4">

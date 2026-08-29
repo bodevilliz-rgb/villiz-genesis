@@ -66,6 +66,8 @@ export type CtaMode = "auto" | "soft_enquiry" | "book" | "custom" | "none";
  * existing prompt-only generation with no regression.
  */
 export interface GenerationGuidedContext {
+  /** Existing active MemBrain content-pillar entry selected by the operator. */
+  contentPillar?: string;
   topic?: string;
   goal?: string;
   serviceTreatment?: ServiceTreatment;
@@ -93,6 +95,126 @@ export interface GenerationIntentHints {
   contentPillar?: string | null;
   /** True when the operator typed an explicit prompt (vs just using the draft title). */
   userPromptIsExplicit?: boolean;
+}
+
+export const PILLAR_CHOICE_CONTRACT_VERSION = "awo-pillar-choice-v1";
+
+export interface ApprovedPillarChoice {
+  choiceId: `P${number}`;
+  sourceEntryId: string;
+  sourceEntryVersion: number | null;
+  label: string;
+  context: string;
+}
+
+type PillarChoiceEntry = {
+  id: string;
+  title: string;
+  body: string;
+  version?: number;
+  status?: string;
+};
+
+const STRUCTURAL_ONLY_HEADINGS = new Set([
+  "purpose",
+  "overview",
+  "introduction",
+  "content pillars",
+  "additional content pillars",
+  "core areas",
+  "key points",
+]);
+
+function cleanStructuredHeading(line: string): string | null {
+  const numbered = line.trim().match(/^\d{1,2}[.)]\s+(.+)$/);
+  const value = (numbered?.[1] ?? line).trim();
+  if (value.length < 3 || value.length > 160) return null;
+  if (STRUCTURAL_ONLY_HEADINGS.has(value.toLocaleLowerCase())) return null;
+  return value;
+}
+
+function legacySemanticSections(entry: PillarChoiceEntry): Array<{ label: string; context: string }> {
+  const lines = entry.body.split(/\r?\n/);
+  const numbered = lines.flatMap((line, index) => {
+    const label = /^\d{1,2}[.)]\s+/.test(line.trim()) ? cleanStructuredHeading(line) : null;
+    return label ? [{ label, index }] : [];
+  });
+  if (numbered.length) return numbered.map((heading, index) => ({
+    label: heading.label,
+    context: lines.slice(heading.index, numbered[index + 1]?.index ?? lines.length).join("\n").trim(),
+  }));
+
+  const firstLine = lines.find((line) => line.trim().length > 0)?.trim() ?? "";
+  const firstHeading = firstLine === firstLine.toLocaleUpperCase() && /[A-Z]/.test(firstLine)
+    ? cleanStructuredHeading(firstLine)
+    : null;
+  return firstHeading ? [{ label: firstHeading, context: entry.body.trim() }] : [];
+}
+
+/**
+ * Builds the only pillar options a model may select during this request.
+ * Choice IDs are positional and request-scoped; MemBrain ids never enter the
+ * model response contract and free text is never used for resolution.
+ */
+export function buildApprovedPillarChoices(entries: PillarChoiceEntry[]): ApprovedPillarChoice[] {
+  const activeEntries = entries.filter((entry) => entry.status === undefined || entry.status === "active");
+  const titleCounts = new Map<string, number>();
+  for (const entry of activeEntries) {
+    const title = entry.title.trim().toLocaleLowerCase();
+    titleCounts.set(title, (titleCounts.get(title) ?? 0) + 1);
+  }
+
+  const pending = activeEntries.flatMap((entry) => {
+    const normalTitle = entry.title.trim().toLocaleLowerCase();
+    const isLegacyContainer = titleCounts.get(normalTitle)! > 1 || /^(additional\s+)?content pillars?$/.test(normalTitle);
+    const semantic = isLegacyContainer ? legacySemanticSections(entry) : [];
+    const choices = semantic.length ? semantic : [{ label: entry.title.trim(), context: entry.body.trim() }];
+    return choices.map((choice) => ({
+      sourceEntryId: entry.id,
+      sourceEntryVersion: entry.version ?? null,
+      label: choice.label,
+      context: choice.context,
+    }));
+  });
+
+  return pending.map((choice, index) => ({ ...choice, choiceId: `P${index + 1}` as const }));
+}
+
+export function resolveApprovedPillarChoice(
+  choices: ApprovedPillarChoice[],
+  selectedChoiceId: string,
+): ApprovedPillarChoice | null {
+  return choices.find((choice) => choice.choiceId === selectedChoiceId) ?? null;
+}
+
+/**
+ * Reconciles the model's pillar selection with the authoritative active
+ * MemBrain options. Gemini can echo the prompt's `title: body` line even when
+ * asked for the title alone, so accept that delimiter-bound form without ever
+ * accepting a title that is not present in the approved option set.
+ */
+function approvedPillarAliases(entry: { title: string; body?: string }): string[] {
+  const bodyHeadings = (entry.body ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length >= 3 && line.length <= 200)
+    .filter((line) => /^\d+\.\s+\S/.test(line) || (/[A-Z]/.test(line) && line === line.toLocaleUpperCase()))
+    .map((line) => line.replace(/^\d+\.\s+/, "").trim());
+
+  return [entry.title, ...bodyHeadings]
+    .map((value) => value.toLocaleLowerCase())
+    .filter((value, index, values) => values.indexOf(value) === index);
+}
+
+export function resolveActivePillarSelection<T extends { title: string; body?: string }>(
+  entries: T[],
+  selectedPillarTitle: string,
+): T | null {
+  const selection = selectedPillarTitle.trim().toLocaleLowerCase();
+  const matches = entries.filter((entry) => approvedPillarAliases(entry).some((alias) =>
+    selection === alias || selection.startsWith(`${alias}:`),
+  ));
+  return matches.length === 1 ? matches[0]! : null;
 }
 
 function activeBodiesForKey(membrain: MembrainOverview, key: string): string[] {
@@ -232,6 +354,7 @@ const CTA_INSTRUCTIONS: Record<CtaMode, string> = {
 export function buildGuidedContextBlock(ctx: GenerationGuidedContext): string | null {
   const lines: string[] = [];
 
+  if (ctx.contentPillar) lines.push(`Selected MemBrain content pillar: ${ctx.contentPillar}`);
   if (ctx.topic) lines.push(`Topic: ${ctx.topic}`);
   if (ctx.goal) lines.push(`Goal: ${ctx.goal}`);
 

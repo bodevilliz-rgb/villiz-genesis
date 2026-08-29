@@ -39,6 +39,10 @@ export function canEditOrganisation(actor: Actor, role: OrganisationRole | null)
   return actor.isPlatformAdmin || role === "lead";
 }
 
+export function canManagePlatformStaff(actor: Actor): boolean {
+  return actor.isActive && actor.isPlatformAdmin && (actor.role === "owner" || actor.role === "admin");
+}
+
 export function canWriteContent(actor: Actor, role: OrganisationRole | null): boolean {
   return actor.isPlatformAdmin || role === "lead" || role === "contributor";
 }

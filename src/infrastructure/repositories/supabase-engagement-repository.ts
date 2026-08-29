@@ -36,6 +36,7 @@ export class SupabaseEngagementRepository implements EngagementRepository {
         performance_confidence: input.performanceConfidence,
         performance_summary: input.performanceSummary as unknown as Json,
         evidence: input.evidence as unknown as Json,
+        strategy_metadata: input.strategyMetadata as unknown as Json,
         created_by: input.createdBy,
       })
       .select("*")
@@ -124,6 +125,14 @@ export class SupabaseEngagementRepository implements EngagementRepository {
       .eq("organisation_id", organisationId).eq("draft_id", draftId)
       .order("observed_at", { ascending: false }).limit(100);
     if (error) translateError(error, "Engagement draft metrics");
+    return (data ?? []).map(toEngagementMetricSnapshot);
+  }
+
+  async listMetricSnapshotsForOrganisation(organisationId: string, limit = 500) {
+    const { data, error } = await this.client.from("engagement_metric_snapshots").select("*")
+      .eq("organisation_id", organisationId)
+      .order("observed_at", { ascending: false }).limit(Math.min(Math.max(limit, 1), 500));
+    if (error) translateError(error, "Organisation engagement metrics");
     return (data ?? []).map(toEngagementMetricSnapshot);
   }
 

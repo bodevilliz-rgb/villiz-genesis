@@ -4,8 +4,9 @@ import { canApproveContent, canEditOrganisation, canWriteContent } from "@/core/
 import { CONTENT_DRAFT_STATUS_LABELS, type ContentDraft, type ContentDraftStatus } from "@/core/domain/entities/content";
 import {
   canApproveOwnAuthorship,
+  eligibleActiveApprovers,
   findReviewTransition,
-  isSoleOwnerPilotOrganisation,
+  SOLO_OPERATOR_APPROVAL_MARKER,
   type ReviewActionType,
   type ReviewHistoryEntry,
   type ReviewQueueFilters,
@@ -23,7 +24,6 @@ import {
   requestDraftChangesSchema,
   submitForReviewSchema,
 } from "@/core/application/dto/review-dto";
-import { isCloudEnvironment, isCloudPilotSelfApprovalEnabled } from "@/lib/cloud-pilot-config";
 
 interface ReviewDeps {
   actor: Actor;
@@ -45,29 +45,19 @@ const blank = (value: string | undefined | null): string | null => {
 };
 
 /**
- * The single source of truth for the CLOUD_PILOT_SELF_APPROVAL bypass —
- * applyTransition's self-approval check below calls this directly (it is
- * the actual security boundary), and the draft detail page calls the exact
- * same function to compute the `canSelfApproveInCloudPilot` prop it passes
- * to ReviewPanel (which only controls whether the UI reveals the decision
- * buttons). One implementation means the UI can never drift from what the
- * server will actually allow — there is nowhere else this logic is
- * duplicated.
- *
- * All four conditions must hold: the flag is on, this is genuinely the
- * cloud environment, the current actor's platform role is owner, and the
- * organisation has no one else who could approve instead
- * (isSoleOwnerPilotOrganisation). Ordered cheapest-first so the one I/O call
- * (listMembers) only runs once the first three already passed.
+ * Organisation-scoped Solo Operator Approval policy. The authenticated actor
+ * must be this account's Lead and its only active Lead/Reviewer. Re-evaluating
+ * membership for every approval makes the exception disappear automatically
+ * when a second eligible operator becomes active.
  */
-export async function canBypassSelfApprovalForCloudPilot(
+export async function canUseSoloOperatorApproval(
   deps: { actor: Actor; organisations: OrganisationRepository },
   organisationId: string,
 ): Promise<boolean> {
-  if (!isCloudPilotSelfApprovalEnabled()) return false;
-  if (!isCloudEnvironment()) return false;
-  if (deps.actor.role !== "owner") return false;
-  return isSoleOwnerPilotOrganisation(await deps.organisations.listMembers(organisationId));
+  const role = await deps.organisations.viewerRole(organisationId);
+  if (role !== "lead") return false;
+  const eligible = eligibleActiveApprovers(await deps.organisations.listMembers(organisationId));
+  return eligible.length === 1 && eligible[0]?.profileId === deps.actor.id && eligible[0].role === "lead";
 }
 
 async function requireRole(
@@ -119,9 +109,10 @@ async function applyTransition(
       : canApproveContent;
   await requireRole(deps, input.organisationId, check);
 
+  let soloOperatorApproval = false;
   if (opts.checkSelfApproval && !canApproveOwnAuthorship(deps.actor.id, draft.createdBy?.id ?? null)) {
-    const cloudPilotBypass = await canBypassSelfApprovalForCloudPilot(deps, input.organisationId);
-    if (!cloudPilotBypass) {
+    soloOperatorApproval = await canUseSoloOperatorApproval(deps, input.organisationId);
+    if (!soloOperatorApproval) {
       throw new ForbiddenError("You cannot approve your own draft. Ask another Lead or Reviewer to make this decision.");
     }
   }
@@ -134,8 +125,10 @@ async function applyTransition(
     draftId: draft.id,
     action: transition.action,
     newStatus: to,
-    assignedReviewerId: draft.assignedReviewer?.id ?? null,
-    comment: blank(input.comment),
+    assignedReviewerId: soloOperatorApproval ? deps.actor.id : draft.assignedReviewer?.id ?? null,
+    comment: soloOperatorApproval
+      ? [SOLO_OPERATOR_APPROVAL_MARKER, blank(input.comment)].filter(Boolean).join("\n\n")
+      : blank(input.comment),
   });
 }
 

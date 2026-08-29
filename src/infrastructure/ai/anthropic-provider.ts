@@ -1,7 +1,7 @@
 import { generateText as aiGenerateText, generateObject as aiGenerateObject } from "ai";
 import { anthropic } from "@ai-sdk/anthropic";
 import { z } from "zod";
-import type { AIProviderPort, AIGenerationOptions } from "@/core/application/ports/ai-provider-port";
+import type { AIProviderPort, AIGenerationOptions, AIImageInput } from "@/core/application/ports/ai-provider-port";
 
 export class AnthropicProvider implements AIProviderPort {
   private defaultModel = "claude-3-5-sonnet-20240620";
@@ -24,6 +24,11 @@ export class AnthropicProvider implements AIProviderPort {
       schema,
       temperature: options?.temperature ?? 0.1,
     });
+    return object;
+  }
+
+  async analyzeImage<T>(prompt: string, image: AIImageInput, schema: z.ZodType<T>, options?: AIGenerationOptions): Promise<T> {
+    const { object } = await aiGenerateObject({ model: anthropic(options?.model || this.defaultModel), system: options?.systemPrompt, prompt: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image", image: image.data, mediaType: image.mediaType }] }], schema, temperature: options?.temperature ?? 0.1 });
     return object;
   }
 }

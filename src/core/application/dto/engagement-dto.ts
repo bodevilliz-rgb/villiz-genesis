@@ -17,6 +17,8 @@ export const generateEngagementRecommendationSchema = z.object({
   platform: engagementPlatformSchema,
   objectiveType: z.enum(["awareness", "engagement", "enquiries", "bookings"]).default("engagement"),
   objective: z.string().trim().max(300).optional().or(z.literal("")),
+  commercialIntent: z.enum(["convert", "engage", "build_trust"]).default("engage"),
+  culturalVoiceLevel: z.enum(["neutral", "conversational", "light_naija"]).optional(),
 });
 
 const hashtagSchema = z
@@ -36,6 +38,9 @@ export const engagementRecommendationModelSchema = z.object({
     local: z.array(hashtagSchema).max(5),
     service: z.array(hashtagSchema).max(5),
     audience: z.array(hashtagSchema).max(5),
+    audienceCultural: z.array(hashtagSchema).max(5).default([]),
+    occasionTopic: z.array(hashtagSchema).max(5).default([]),
+    campaign: z.array(hashtagSchema).max(5).default([]),
   }),
   rationale: z.string().trim().min(1).max(2000),
   predictedStrengths: z.array(z.string().trim().min(1).max(500)).min(1).max(5),
@@ -108,4 +113,4 @@ export const recordCommercialOutcomeSchema = z.object({
 });
 
 export type GenerateEngagementRecommendationInput = z.infer<typeof generateEngagementRecommendationSchema>;
-export type EngagementRecommendationModelOutput = z.infer<typeof engagementRecommendationModelSchema>;
+export type EngagementRecommendationModelOutput = z.output<typeof engagementRecommendationModelSchema>;

@@ -5,12 +5,15 @@
 export const routes = {
   login: "/login",
   authCallback: "/auth/callback",
+  authAccept: "/auth/accept",
   dashboard: "/dashboard",
+  awo: "/awo",
   publishing: "/publishing",
   review: "/review",
   reviewWorkspace: (id: string) => `/review/${id}`,
   reviewCompare: (id: string) => `/review/${id}/compare`,
   settings: "/settings",
+  team: "/team",
   settingsPublishing: "/settings/publishing",
   organisations: {
     index: "/organisations",
@@ -18,6 +21,8 @@ export const routes = {
     detail: (id: string) => `/organisations/${id}`,
     settings: (id: string) => `/organisations/${id}/settings`,
     team: (id: string) => `/organisations/${id}/team`,
+    marketIntelligence: (id: string) => `/organisations/${id}/market-intelligence`,
+    growth: (id: string) => `/organisations/${id}/growth`,
     membrain: {
       index: (id: string) => `/organisations/${id}/membrain`,
       new: (id: string) => `/organisations/${id}/membrain/new`,

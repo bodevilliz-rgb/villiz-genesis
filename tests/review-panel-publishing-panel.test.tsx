@@ -135,6 +135,46 @@ describe("ReviewPanel — decision buttons on a freshly submitted (needs_review)
     expect(screen.queryByText("Reject")).toBeNull();
     expect(screen.getByText(/waiting on a lead or reviewer/i)).toBeInTheDocument();
   });
+
+  it("blocks approval when the Audience Distribution Gate is below 95 while preserving the other review decisions", () => {
+    render(
+      <ReviewPanel
+        organisationId="00000000-0000-4000-8000-000000000001"
+        draft={needsReviewDraft("reviewer-1")}
+        eligibleReviewers={[]}
+        actorId="reviewer-1"
+        canWrite={false}
+        canLead={false}
+        distributionApproval={{
+          eligible: false,
+          score: 85,
+          blockers: ["Configure both local and service discovery/hashtag roles."],
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Request changes" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Reject" })).toBeEnabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Audience Distribution Gate 85/100");
+    expect(screen.getByRole("alert")).toHaveTextContent("Configure both local and service discovery/hashtag roles.");
+  });
+
+  it("allows approval only when the current recommendation passes the distribution gate", () => {
+    render(
+      <ReviewPanel
+        organisationId="00000000-0000-4000-8000-000000000001"
+        draft={needsReviewDraft("reviewer-1")}
+        eligibleReviewers={[]}
+        actorId="reviewer-1"
+        canWrite={false}
+        canLead={false}
+        distributionApproval={{ eligible: true, score: 95, blockers: [] }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled();
+  });
 });
 
 /**
@@ -147,8 +187,8 @@ describe("ReviewPanel — decision buttons on a freshly submitted (needs_review)
  * exact function and passed down as a plain boolean prop; ReviewPanel does
  * not re-derive or duplicate any of the four bypass conditions itself.
  */
-describe("ReviewPanel — canSelfApproveInCloudPilot prop", () => {
-  it("self-authored + canSelfApproveInCloudPilot=true: shows DecisionForm, not the warning", () => {
+describe("ReviewPanel — Solo Operator Approval", () => {
+  it("labels the sole Account Lead's self-review distinctly", () => {
     render(
       <ReviewPanel
         organisationId="00000000-0000-4000-8000-000000000001"
@@ -157,17 +197,17 @@ describe("ReviewPanel — canSelfApproveInCloudPilot prop", () => {
         actorId="author-1"
         canWrite={true}
         canLead={true}
-        canSelfApproveInCloudPilot={true}
+        soloOperatorApproval={true}
       />,
     );
 
-    expect(screen.getByText("Approve")).toBeInTheDocument();
+    expect(screen.getAllByText("Solo Operator Approval").length).toBeGreaterThan(0);
     expect(screen.getByText("Request changes")).toBeInTheDocument();
     expect(screen.getByText("Reject")).toBeInTheDocument();
     expect(screen.queryByText(/you cannot approve, request changes on, or archive your own draft/i)).toBeNull();
   });
 
-  it("self-authored + canSelfApproveInCloudPilot=false (the default, and every local-development case): shows the warning, not DecisionForm", () => {
+  it("blocks ordinary self-approval when solo-operator eligibility is false", () => {
     render(
       <ReviewPanel
         organisationId="00000000-0000-4000-8000-000000000001"
@@ -176,8 +216,7 @@ describe("ReviewPanel — canSelfApproveInCloudPilot prop", () => {
         actorId="author-1"
         canWrite={true}
         canLead={true}
-        // canSelfApproveInCloudPilot omitted — defaults to false, matching
-        // every existing caller and local dev, which never sets the flag.
+        // soloOperatorApproval omitted — secure default false.
       />,
     );
 
@@ -195,7 +234,7 @@ describe("ReviewPanel — canSelfApproveInCloudPilot prop", () => {
         actorId="reviewer-1"
         canWrite={false}
         canLead={false}
-        canSelfApproveInCloudPilot={false}
+        soloOperatorApproval={false}
       />,
     );
 

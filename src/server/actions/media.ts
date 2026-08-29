@@ -11,6 +11,8 @@ import {
   storagePathBelongsToOrganisation,
   validateMediaUpload,
 } from "@/core/domain/entities/media-upload";
+import { createAdminClient } from "@/infrastructure/supabase/admin-client";
+import { SupabaseMediaRepository } from "@/infrastructure/repositories/supabase-media-repository";
 
 function revalidateMedia(organisationId: string, assetId?: string) {
   revalidatePath(routes.organisations.media.index(organisationId));
@@ -232,69 +234,92 @@ export async function archiveMediaAction(organisationId: string, assetId: string
 export async function deleteMediaAction(organisationId: string, assetId: string): Promise<ActionState> {
   try {
     const context = await requireContext();
-
-    // 1. Verify asset exists and belongs to this organisation.
-    //    getAsset scopes by org_id so a forged assetId from another org returns null here.
-    const asset = await context.media.getAsset(organisationId, assetId);
-    if (!asset) {
-      return { status: "error", message: "Asset not found or does not belong to this organisation." };
+    const role = await context.organisations.viewerRole(organisationId);
+    if (!canEditOrganisation(context.actor, role)) {
+      return { status: "error", message: "Only an account lead or platform administrator can permanently delete media." };
     }
 
-    // 2. Check for blocking references.
-    //    campaign_assets and content_draft_assets use ON DELETE RESTRICT — a raw DB
-    //    delete would silently fail with an opaque FK violation error.  Checking first
-    //    lets us return a user-readable message instead.
-    const [draftRefs, campaignRefs, versions] = await Promise.all([
-      context.media.listDraftsReferencingAsset(assetId),
-      context.media.listCampaignsReferencingAsset(assetId),
-      context.media.getAssetVersions(assetId),
-    ]);
-
-    if (draftRefs.length > 0 || campaignRefs.length > 0) {
-      const parts: string[] = [];
-      if (draftRefs.length > 0)
-        parts.push(`${draftRefs.length} content draft${draftRefs.length > 1 ? "s" : ""}`);
-      if (campaignRefs.length > 0)
-        parts.push(`${campaignRefs.length} campaign${campaignRefs.length > 1 ? "s" : ""}`);
-      return {
-        status: "error",
-        message: `Cannot delete: this asset is referenced by ${parts.join(" and ")}. Remove it from those first, then delete.`,
-      };
+    // This RPC is the only DB deletion path. It locks the asset, recalculates
+    // eligibility, records the immutable cleanup work, and deletes atomically.
+    const deletion = await context.media.requestSafeDeletion(organisationId, assetId, crypto.randomUUID());
+    if (deletion.outcome === "BLOCKED") {
+      return { status: "error", message: "Cannot delete — this media is currently or historically used by Genesis." };
     }
 
-    // 3. Collect every storage path that must be cleaned up:
-    //    - the active storagePath on the asset record
-    //    - all historical version paths stored in media_asset_versions
-    const allStoragePaths = [
-      asset.storagePath,
-      ...versions.map((v) => v.storagePath),
-    ];
-
-    // 4. Delete the database record.  The CASCADE on media_asset_versions,
-    //    media_collection_assets, and brand_kit_assets removes child rows automatically.
-    await context.media.deleteAsset(organisationId, assetId);
-
-    // 5. Delete all storage objects (active + all historical versions).
-    //    This happens after the DB delete so the asset is always removed from the
-    //    catalogue even if storage cleanup partially fails.
-    let storageCleanupFailed = false;
-    try {
-      await context.storage.deleteMediaFiles(allStoragePaths);
-    } catch {
-      storageCleanupFailed = true;
+    if (deletion.cleanupState === "complete") {
+      revalidateMedia(organisationId);
+      return successState(`Media deleted permanently. Storage recovered: ${formatMediaBytes(deletion.totalBytes)}.`);
     }
 
+    const cleanup = await runRecordedMediaCleanup(context, organisationId, deletion.requestId);
     revalidateMedia(organisationId);
-
-    if (storageCleanupFailed) {
-      return successState(
-        "Asset removed from library. Storage cleanup encountered an error — the file(s) may remain in the bucket and will need manual removal.",
-      );
+    if (!cleanup) {
+      return successState("Media removed from Genesis. Storage cleanup pending.", deletion.requestId);
     }
-    return successState("Asset deleted permanently.");
+    return successState(`Media deleted permanently. Storage recovered: ${formatMediaBytes(deletion.totalBytes)}.`);
   } catch (error) {
     return errorState(error);
   }
+}
+
+export async function retryMediaCleanupAction(organisationId: string, requestId: string): Promise<ActionState> {
+  try {
+    const context = await requireContext();
+    const role = await context.organisations.viewerRole(organisationId);
+    if (!canEditOrganisation(context.actor, role)) {
+      return { status: "error", message: "Only an account lead or platform administrator can retry Storage cleanup." };
+    }
+    const complete = await runRecordedMediaCleanup(context, organisationId, requestId);
+    return complete
+      ? successState("Storage cleanup complete.")
+      : successState("Storage cleanup remains pending. Genesis can safely retry it later.", requestId);
+  } catch (error) {
+    return errorState(error);
+  }
+}
+
+function formatMediaBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+async function runRecordedMediaCleanup(
+  context: Awaited<ReturnType<typeof requireContext>>,
+  organisationId: string,
+  requestId: string,
+): Promise<boolean> {
+  const request = await context.media.getDeletionRequest(organisationId, requestId);
+  if (!request) throw new Error("Recorded media cleanup request was not found.");
+  if (request.cleanupState === "complete") return true;
+
+  // Paths come only from the committed server-side ledger. Validate again so a
+  // corrupted ledger fails closed before any Storage call.
+  if (request.objectPaths.length === 0 || request.objectPaths.some((path: string) => !storagePathBelongsToOrganisation(path, organisationId))) {
+    await recordCleanupResult(organisationId, requestId, false, "Recorded path inventory failed organisation validation.");
+    return false;
+  }
+
+  try {
+    await context.storage.deleteMediaFiles(request.objectPaths);
+    await recordCleanupResult(organisationId, requestId, true);
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Storage cleanup failed.";
+    await recordCleanupResult(organisationId, requestId, false, message).catch(() => undefined);
+    return false;
+  }
+}
+
+/** Cleanup completion is privileged because it authoritatively unlocks recovered-byte reporting. */
+async function recordCleanupResult(
+  organisationId: string,
+  requestId: string,
+  succeeded: boolean,
+  error?: string,
+) {
+  const repository = new SupabaseMediaRepository(createAdminClient());
+  await repository.recordCleanupResult(organisationId, requestId, succeeded, error);
 }
 
 // Collections Actions

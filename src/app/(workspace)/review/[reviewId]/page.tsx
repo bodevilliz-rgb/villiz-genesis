@@ -4,6 +4,7 @@ import { requireContext } from "@/server/container";
 import { DRAFT_SELECT } from "@/infrastructure/repositories/supabase-content-repository";
 import { toDraft, type DraftRowWithRelations } from "@/infrastructure/mappers/content-mapper";
 import { ReviewWorkspaceClient } from "./workspace-client";
+import { canUseSoloOperatorApproval } from "@/core/application/use-cases/review";
 
 export const metadata: Metadata = { title: "Review Workspace" };
 
@@ -49,6 +50,10 @@ export default async function ReviewWorkspacePage({
   const organisations = await context.organisations.listForActor();
   const currentOrg = organisations.find((o) => o.id === draft.organisationId);
   const viewerRole = currentOrg?.viewerRole || "viewer";
+  const soloOperatorApproval = await canUseSoloOperatorApproval(
+    { actor: context.actor, organisations: context.organisations },
+    draft.organisationId,
+  );
 
   return (
     <ReviewWorkspaceClient
@@ -59,6 +64,7 @@ export default async function ReviewWorkspacePage({
       members={mappedMembers}
       viewerRole={viewerRole}
       actorId={context.actor.id}
+      soloOperatorApproval={soloOperatorApproval}
     />
   );
 }

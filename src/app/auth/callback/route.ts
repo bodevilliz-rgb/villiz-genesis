@@ -15,7 +15,13 @@ export async function GET(request: NextRequest) {
   const next = resolveSafeNextPath(searchParams.get("next"));
 
   if (!code) {
-    return NextResponse.redirect(`${origin}/auth/error?reason=missing_code`);
+    // Supabase Admin invitations use the implicit invite flow: after GoTrue
+    // verifies the one-time token it redirects with the session in the URL
+    // fragment. Fragments never reach a server route, so hand this request to
+    // the client-only acceptance page. Browsers preserve the fragment across
+    // this same-origin redirect. Ordinary Genesis magic links still arrive
+    // with a PKCE `code` and continue through the unchanged path below.
+    return NextResponse.redirect(`${origin}/auth/accept`);
   }
 
   const supabase = await createGenesisClient();

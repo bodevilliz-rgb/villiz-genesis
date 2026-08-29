@@ -7,20 +7,22 @@ import type {
 
 export const MINIMUM_PERFORMANCE_SAMPLE = 10;
 export const STRONG_PERFORMANCE_SAMPLE = 30;
+/** Below this reach/views floor, zero engagement is too noisy for learning. */
+export const MINIMUM_LEARNING_EXPOSURE = 100;
 
 const ALIASES = {
-  views: ["views", "viewCount", "videoViews", "mediaViews"],
-  reach: ["reach", "uniqueViews", "accountsReached"],
-  impressions: ["impressions", "impressionCount"],
-  likes: ["likes", "likeCount"],
-  comments: ["comments", "commentCount"],
-  shares: ["shares", "shareCount", "sends"],
-  saves: ["saves", "saveCount", "bookmarks"],
-  clicks: ["clicks", "clickCount", "linkClicks"],
-  profileVisits: ["profileVisits", "profileVisitCount"],
+  views: ["views", "viewCount", "viewsCount", "videoViews", "mediaViews"],
+  reach: ["reach", "reachCount", "uniqueViews", "accountsReached"],
+  impressions: ["impressions", "impressionCount", "impressionsCount"],
+  likes: ["likes", "likeCount", "likesCount"],
+  comments: ["comments", "commentCount", "commentsCount"],
+  shares: ["shares", "shareCount", "sharesCount", "sends"],
+  saves: ["saves", "saveCount", "savesCount", "bookmarks"],
+  clicks: ["clicks", "clickCount", "clicksCount", "linkClicks", "linkClicksCount"],
+  profileVisits: ["profileVisits", "profileVisitCount", "profileVisitsCount"],
   enquiries: ["enquiries", "inquiries", "leads"],
   bookings: ["bookings", "conversions"],
-  watchTimeMs: ["watchTimeMs", "watchTime", "totalWatchTimeMs"],
+  watchTimeMs: ["watchTimeMs", "watchTime", "totalWatchTimeMs", "viewTimeMsSum"],
 } as const;
 
 export type CanonicalEngagementMetrics = { [K in keyof typeof ALIASES]: number | null };
@@ -47,6 +49,19 @@ export function normaliseEngagementMetrics(raw: unknown): CanonicalEngagementMet
       return [canonical, match];
     }),
   ) as CanonicalEngagementMetrics;
+}
+
+export function learningExposure(metrics: Record<string, number | null>): number | null {
+  const canonical = metrics as CanonicalEngagementMetrics;
+  return canonical.reach ?? canonical.views;
+}
+
+export function hasSufficientLearningExposure(
+  metrics: Record<string, number | null>,
+  minimum = MINIMUM_LEARNING_EXPOSURE,
+): boolean {
+  const exposure = learningExposure(metrics);
+  return exposure !== null && exposure >= minimum;
 }
 
 export function objectiveDirectionalScore(
@@ -79,20 +94,28 @@ export function performanceSummary(
   objective: EngagementObjectiveType,
   commercialOutcomes: EngagementCommercialOutcome[] = [],
 ): EngagementPerformanceSummary & { performanceConfidence: number | null } {
-  // Only fixed seven-day checkpoints are comparable. Earlier checkpoints remain
-  // visible operationally but can never unlock performance-informed language.
-  const comparableSnapshots = snapshots.filter((snapshot) => snapshot.measurementWindow === "7d");
+  const latestOutcomeByAttempt = new Map<string, EngagementCommercialOutcome>();
+  for (const outcome of commercialOutcomes) {
+    const current = latestOutcomeByAttempt.get(outcome.publishingAttemptId);
+    if (!current || outcome.createdAt > current.createdAt) latestOutcomeByAttempt.set(outcome.publishingAttemptId, outcome);
+  }
+  // Comparable learning requires a fixed seven-day checkpoint, exact applied
+  // recommendation attribution, and enough exposure to interpret a zero. A
+  // recorded enquiry/booking is retained even below the floor because it is a
+  // real commercial outcome rather than an inferred engagement signal.
+  const comparableSnapshots = snapshots.filter((snapshot) => {
+    const outcome = latestOutcomeByAttempt.get(snapshot.publishingAttemptId);
+    const hasCommercialOutcome = Boolean(outcome && (outcome.enquiries > 0 || outcome.bookings > 0));
+    return snapshot.measurementWindow === "7d"
+      && Boolean(snapshot.recommendationId && snapshot.feedbackEventId)
+      && (hasSufficientLearningExposure(snapshot.metrics) || hasCommercialOutcome);
+  });
   const latestByPost = new Map<string, EngagementMetricSnapshot>();
   for (const snapshot of comparableSnapshots) {
     const current = latestByPost.get(snapshot.externalPostId);
     if (!current || snapshot.observedAt > current.observedAt) latestByPost.set(snapshot.externalPostId, snapshot);
   }
   const latest = [...latestByPost.values()];
-  const latestOutcomeByAttempt = new Map<string, EngagementCommercialOutcome>();
-  for (const outcome of commercialOutcomes) {
-    const current = latestOutcomeByAttempt.get(outcome.publishingAttemptId);
-    if (!current || outcome.createdAt > current.createdAt) latestOutcomeByAttempt.set(outcome.publishingAttemptId, outcome);
-  }
   const scoredMetrics = (snapshot: EngagementMetricSnapshot): CanonicalEngagementMetrics => {
     const metrics = snapshot.metrics as CanonicalEngagementMetrics;
     const outcome = latestOutcomeByAttempt.get(snapshot.publishingAttemptId);

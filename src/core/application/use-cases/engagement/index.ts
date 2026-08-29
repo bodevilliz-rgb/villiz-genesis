@@ -9,6 +9,7 @@ import type { MembrainRepository } from "@/core/application/ports/membrain-port"
 import type { MediaRepository } from "@/core/application/ports/media-port";
 import type { OrganisationRepository } from "@/core/application/ports/organisation-port";
 import type { PublishingRepository } from "@/core/application/ports/publishing-port";
+import type { MarketIntelligenceRepository } from "@/core/application/ports/market-intelligence-port";
 import {
   engagementRecommendationModelSchema,
   generateEngagementRecommendationSchema,
@@ -26,6 +27,7 @@ import type {
   EngagementApplicationResult,
   EngagementCommercialOutcome,
 } from "@/core/domain/entities/engagement";
+import type { MembrainContextItem, MembrainEntry } from "@/core/domain/entities/membrain";
 import type { CampaignPlatform } from "@/core/domain/entities/campaign";
 import { isSimulatedPublishingAttempt, type PublishingPlatform } from "@/core/domain/entities/publishing";
 import { toBlotatoPlatform } from "@/core/domain/entities/blotato";
@@ -46,6 +48,8 @@ import {
   assessEngagementDraftInput,
   ENGAGEMENT_CONTENT_BRIEF_MESSAGE,
 } from "./draft-input";
+import { assembleMarketGenerationContext, rejectsCompetitorImitation } from "@/core/application/use-cases/market-intelligence/context";
+import { buildVisibilityPlan, deriveClientVisibilityEvidence, DISTRIBUTION_READINESS_THRESHOLD, visibilityPlanPrompt, VISIBILITY_STRATEGY_VERSION } from "@/core/application/use-cases/market-intelligence/visibility";
 
 interface EngagementDeps {
   actor: Actor;
@@ -57,6 +61,7 @@ interface EngagementDeps {
   blotatoAccounts: BlotatoAccountRepository;
   media?: MediaRepository;
   ai: AIProviderPort;
+  marketIntelligence?: MarketIntelligenceRepository;
 }
 
 const BRAND_ONLY_CONFIDENCE_CAP = 70;
@@ -66,6 +71,36 @@ const BRAND_ONLY_LIMITATION =
 const PUBLISHABLE_ENGAGEMENT_PLATFORMS = new Set<CampaignPlatform>([
   "instagram", "facebook", "linkedin", "x", "tiktok",
 ]);
+
+export function assessRecommendationDistributionEligibility(
+  recommendation: EngagementRecommendation | null,
+  currentDraftVersion: number,
+  latestFeedback: EngagementFeedbackEvent | null = null,
+): { eligible: boolean; score: number; blockers: string[] } {
+  if (!recommendation) {
+    return { eligible: false, score: 0, blockers: ["Generate an Awo recommendation before approval."] };
+  }
+  // Applying a recommendation atomically creates the next draft version. That
+  // version remains covered only when the recorded application points to this
+  // exact recommendation and exact current version. Any later edit invalidates it.
+  const appliedToCurrentVersion = latestFeedback?.action === "selected"
+    && latestFeedback.recommendationId === recommendation.id
+    && latestFeedback.appliedDraftVersion === currentDraftVersion;
+  if (recommendation.draftVersion !== currentDraftVersion && !appliedToCurrentVersion) {
+    return { eligible: false, score: 0, blockers: ["Generate a new recommendation for the current draft version before approval."] };
+  }
+  const plan = recommendation.creativeGuidance.visibilityPlan;
+  if (!plan || !Array.isArray(plan.distributionBlockers)) {
+    return { eligible: false, score: 0, blockers: ["This recommendation predates the Audience Distribution Gate. Generate a new recommendation before approval."] };
+  }
+  const score = plan.distributionReadinessScore ?? 0;
+  const blockers = plan.distributionBlockers;
+  return {
+    eligible: plan.distributionGate === "pass" && score >= DISTRIBUTION_READINESS_THRESHOLD && blockers.length === 0,
+    score,
+    blockers,
+  };
+}
 
 async function resolveLearningAccount(
   blotatoAccounts: BlotatoAccountRepository,
@@ -89,7 +124,52 @@ function nonBlank(value: string | undefined | null): string | null {
   return trimmed ? trimmed : null;
 }
 
-function uniqueHashtags(groups: EngagementHashtagGroups): EngagementHashtagGroups {
+function searchableTerms(value: string): Set<string> {
+  return new Set(value.toLocaleLowerCase().match(/[a-z0-9]{3,}/g) ?? []);
+}
+
+/**
+ * Resolve, rather than invent, the pillar used by the deterministic
+ * distribution plan. Only active entries in MemBrain's content-pillar
+ * category are eligible. A pillar already selected by ranked retrieval wins;
+ * otherwise the closest active pillar to the saved draft and objective wins.
+ * Importance and recency are deterministic tie-breakers, not evidence of
+ * predicted reach.
+ */
+function resolveApprovedContentPillar(input: {
+  entries: MembrainEntry[];
+  contextItems: MembrainContextItem[];
+  draftTitle: string;
+  draftBody: string;
+  objective: string;
+}): MembrainEntry | null {
+  const eligible = input.entries.filter((entry) =>
+    entry.status === "active"
+    && entry.category?.key === "content_pillars"
+    && Boolean(entry.title.trim()),
+  );
+  if (eligible.length === 0) return null;
+
+  const eligibleById = new Map(eligible.map((entry) => [entry.id, entry]));
+  for (const item of input.contextItems) {
+    const retrievedPillar = eligibleById.get(item.id);
+    if (retrievedPillar) return retrievedPillar;
+  }
+
+  const requestTerms = searchableTerms(`${input.draftTitle} ${input.draftBody} ${input.objective}`);
+  const relevance = (entry: MembrainEntry) => {
+    const pillarTerms = searchableTerms(`${entry.title} ${entry.summary ?? ""} ${entry.body}`);
+    return [...pillarTerms].reduce((score, term) => score + (requestTerms.has(term) ? 1 : 0), 0);
+  };
+  return [...eligible].sort((left, right) =>
+    relevance(right) - relevance(left)
+    || right.importance - left.importance
+    || right.updatedAt.localeCompare(left.updatedAt)
+    || left.id.localeCompare(right.id),
+  )[0] ?? null;
+}
+
+function uniqueHashtags(groups: EngagementHashtagGroups): EngagementRecommendationModelOutput["hashtags"] {
   const seen = new Set<string>();
   const clean = (values: string[]) =>
     values.filter((value) => {
@@ -104,15 +184,18 @@ function uniqueHashtags(groups: EngagementHashtagGroups): EngagementHashtagGroup
     local: clean(groups.local),
     service: clean(groups.service),
     audience: clean(groups.audience),
+    audienceCultural: clean(groups.audienceCultural ?? []),
+    occasionTopic: clean(groups.occasionTopic ?? []),
+    campaign: clean(groups.campaign ?? []),
   };
 }
 
-function emptyHashtags(): EngagementHashtagGroups {
-  return { brand: [], local: [], service: [], audience: [] };
+function emptyHashtags(): EngagementRecommendationModelOutput["hashtags"] {
+  return { brand: [], local: [], service: [], audience: [], audienceCultural: [], occasionTopic: [], campaign: [] };
 }
 
 function hasHashtags(groups: EngagementHashtagGroups): boolean {
-  return groups.brand.length + groups.local.length + groups.service.length + groups.audience.length > 0;
+  return Object.values(groups).flat().length > 0;
 }
 
 function guidanceWithoutGeneratorScores(output: EngagementRecommendationModelOutput): Record<string, unknown> {
@@ -161,6 +244,7 @@ function buildSystemPrompt(input: {
   performancePrompt: string;
   mediaPrompt: string;
   platformRules: string;
+  marketPrompt?: string;
 }) {
   return `You are AWO Engagement Intelligence for ${input.organisationName}.
 
@@ -173,6 +257,8 @@ ${input.contextPrompt}
 Historical performance context (directional, never causal):
 ${input.performancePrompt}
 
+${input.marketPrompt ?? ""}
+
 Attached-media metadata (not pixel-level visual analysis):
 ${input.mediaPrompt}
 
@@ -180,14 +266,20 @@ Platform-specific mode:
 ${input.platformRules}
 
 Rules:
+- Apply this precedence: platform safety and policy; MemBrain facts and restrictions; configured commercial objective; approved client Market Intelligence; sufficiently reliable client evidence; approved vertical hypotheses; general platform guidance.
+- Never let growth, market, vertical or performance guidance override platform policy, asset compatibility, or a MemBrain fact or restriction.
 - Treat MemBrain as the only source of brand facts, claims, location, services, audience, CTA rules and hashtag strategy.
 - Never invent an offer, statistic, testimonial, price, location, trend or platform rule.
 - Do not claim or imply that engagement is guaranteed.
 - Optimise for clarity, relevance, a strong opening hook and a truthful CTA.
-- Suggest only relevant hashtags. Group them as brand, local, service and audience; use an empty array when the context cannot support a group.
+- Suggest only relevant hashtags. Group them as local, service, audienceCultural, occasionTopic, campaign and brand; keep legacy audience empty unless needed for compatibility. Empty groups are valid.
+- Never copy, closely paraphrase, or imitate a named competitor or stored source wording. Reject any request to write in a competitor's style.
 - Do not put reasoning or confidence claims inside the caption.
 - Creative guidance must be actionable and must not claim to have visually inspected media. Set mediaBasis to metadata_only when metadata is present, otherwise none.
 - Treat historical scores as directional evidence, not proof that a caption caused an outcome.
+- Reach/views are visibility metrics; comments/shares/saves are engagement metrics; clicks/profile visits are intent metrics. Claim commercial outcomes only from explicit outcome records.
+- Never promise or guarantee reach, visibility, virality, engagement, enquiries, bookings or sales. Recommendations can only improve the opportunity for discovery.
+- Never recommend engagement pods, fake or purchased engagement, follow/unfollow tactics, mass unsolicited DMs, automated comment spam, scraping-based outreach, or manipulative platform behaviour. Supporting distribution must contain at most three legitimate operator actions.
 - Return structured data matching the supplied schema.`;
 }
 
@@ -254,6 +346,19 @@ export async function generateEngagementRecommendation(
     throw new ValidationError("Add active MemBrain knowledge before requesting engagement intelligence.");
   }
 
+  const approvedContentPillar = resolveApprovedContentPillar({
+    entries: await deps.membrain.listRecent(input.organisationId, 500),
+    contextItems: contextPack.items,
+    draftTitle: draft.title,
+    draftBody: draft.body,
+    objective,
+  });
+
+  if (rejectsCompetitorImitation(draft.body) || rejectsCompetitorImitation(input.objective ?? "")) {
+    throw new ValidationError("Awo can apply approved market patterns, but cannot imitate or copy a named competitor.");
+  }
+  const marketContext = await assembleMarketGenerationContext({ marketIntelligence: deps.marketIntelligence, organisationId: input.organisationId, platform: input.platform, commercialIntent: input.commercialIntent, culturalVoiceLevel: input.culturalVoiceLevel });
+
   const account = await resolveLearningAccount(deps.blotatoAccounts, input.organisationId, input.platform);
   const [snapshots, mediaAssets] = await Promise.all([
     account.providerAccountId
@@ -262,6 +367,11 @@ export async function generateEngagementRecommendation(
     deps.media?.listAssetsForDraft(input.draftId) ?? Promise.resolve([]),
   ]);
   const performance = performanceSummary(snapshots, input.objectiveType);
+  const attributedRecommendationIds = [...new Set(snapshots.map((snapshot) => snapshot.recommendationId).filter((id): id is string => Boolean(id)))].slice(0, 20);
+  const attributedRecommendations = deps.engagement.findById
+    ? (await Promise.all(attributedRecommendationIds.map((id) => deps.engagement.findById!(input.organisationId, id)))).filter((item): item is EngagementRecommendation => Boolean(item))
+    : [];
+  const clientVisibilityEvidence = account.providerAccountId ? deriveClientVisibilityEvidence({ snapshots, recommendations: attributedRecommendations, organisationId: input.organisationId, platform: input.platform, providerAccountId: account.providerAccountId, objective: input.objectiveType }) : null;
   const hasPerformanceContext = performance.sampleSize >= performance.minimumSampleSize;
   const isPerformanceInformed = performance.label === "performance_informed";
   const mediaPrompt = mediaAssets.length === 0
@@ -278,6 +388,25 @@ export async function generateEngagementRecommendation(
   const performancePrompt = hasPerformanceContext
     ? `${performance.sampleSize} comparable ${input.platform} posts for the ${input.objectiveType} objective; mean directional score ${performance.directionalScore ?? "unavailable"} per 1,000 reach/views. Performance confidence ${performance.performanceConfidence}%. ${performance.championVariant ? `Current champion variant: ${performance.championVariant}; challenger: ${performance.challengerVariant}. Treat this as a testable pattern, not causal proof.` : "No champion/challenger comparison has enough attributed observations yet."}`
     : `${performance.sampleSize}/${performance.minimumSampleSize} comparable posts. Insufficient data for performance-informed claims.`;
+  const visibilityPlan = buildVisibilityPlan({
+    platform: input.platform,
+    objectiveType: input.objectiveType,
+    commercialIntent: input.commercialIntent,
+    targetAudience: nonBlank(campaign?.targetAudience) ?? marketContext.targetAudience,
+    industry: organisation.industry,
+    mediaMimeTypes: mediaAssets.map((asset) => asset.mimeType),
+    selectedMarketPatternIds: marketContext.selectedPatternIds,
+    targetGeographies: marketContext.targetGeographies,
+    serviceAreas: marketContext.serviceAreas,
+    conversionActions: marketContext.conversionActions,
+    platformStrategy: marketContext.platformStrategy,
+    hashtagStrategyRoles: marketContext.hashtagStrategyRoles,
+    contentPillar: approvedContentPillar?.title ?? null,
+    contentPillarRationale: approvedContentPillar
+      ? `Resolved from active MemBrain content pillar "${approvedContentPillar.title}" (v${approvedContentPillar.version}).`
+      : "No active MemBrain content pillar could be resolved for this draft.",
+    clientEvidence: clientVisibilityEvidence,
+  });
 
   const prompt = `Draft title: ${draft.title}\nDraft version: ${draft.version}\nCurrent draft:\n${draft.body}`;
   const systemPrompt = buildSystemPrompt({
@@ -290,11 +419,13 @@ export async function generateEngagementRecommendation(
     platformRules: input.platform === "linkedin"
       ? LINKEDIN_PERSONAL_PROFILE_RULES
       : "This is not LinkedIn. Set creativeGuidance.linkedinPersonalProfile to null.",
+    marketPrompt: [marketContext.prompt, visibilityPlanPrompt(visibilityPlan)].filter(Boolean).join("\n\n"),
   });
-  let modelOutput = await deps.ai.generateObject(prompt, engagementRecommendationModelSchema, {
+  const generatedOutput = await deps.ai.generateObject(prompt, engagementRecommendationModelSchema, {
     systemPrompt,
     temperature: 0.25,
   });
+  let modelOutput: EngagementRecommendationModelOutput = { ...generatedOutput, hashtags: uniqueHashtags(generatedOutput.hashtags) };
   if (input.platform === "linkedin") {
     modelOutput = {
       ...modelOutput,
@@ -325,12 +456,12 @@ export async function generateEngagementRecommendation(
     let findings = auditValidationFindings(audit, allowedEvidenceIds);
     if (findings.length > 0) {
       auditAttempts = 2;
-      modelOutput = await deps.ai.generateObject(
+      const repairedOutput = await deps.ai.generateObject(
         `${prompt}\n\nThe independent LinkedIn audit rejected the previous candidate for these reasons:\n- ${findings.join("\n- ")}\nRegenerate the recommendation and resolve every finding. Preserve only MemBrain-supported claims, remove invented credentials or performance promises, and use short paragraphs separated by blank lines.`,
         engagementRecommendationModelSchema,
         { systemPrompt, temperature: 0.15 },
       );
-      modelOutput = { ...modelOutput, hashtags: emptyHashtags() };
+      modelOutput = { ...repairedOutput, hashtags: emptyHashtags() };
       guidance = modelOutput.creativeGuidance.linkedinPersonalProfile;
       if (!guidance) throw new ValidationError("LinkedIn personal-profile guidance was incomplete after repair.");
       audit = await deps.ai.generateObject(
@@ -374,6 +505,15 @@ export async function generateEngagementRecommendation(
     categoryKey: item.categoryKey,
     version: item.version,
   }));
+  if (approvedContentPillar && !evidence.some((item) => item.sourceType === "membrain_entry" && item.sourceId === approvedContentPillar.id)) {
+    evidence.push({
+      sourceType: "membrain_entry",
+      sourceId: approvedContentPillar.id,
+      title: approvedContentPillar.title,
+      categoryKey: approvedContentPillar.category?.key ?? null,
+      version: approvedContentPillar.version,
+    });
+  }
   evidence.push(...mediaAssets.map((asset) => ({
     sourceType: "media_asset" as const,
     sourceId: asset.id,
@@ -404,11 +544,26 @@ export async function generateEngagementRecommendation(
     creativeGuidance: {
       ...recommendation.creativeGuidance,
       mediaBasis: mediaAssets.length > 0 ? "metadata_only" : "none",
+      visibilityPlan,
     },
     confidence: recommendation.confidence,
     performanceConfidence: performance.performanceConfidence,
     performanceSummary: performance,
     evidence,
+    strategyMetadata: {
+      commercialIntent: input.commercialIntent,
+      hookFamily: visibilityPlan.hookStrategy,
+      ctaType: input.commercialIntent === "convert" ? "conversion" : input.commercialIntent === "build_trust" ? "trust_step" : "conversation",
+      contentPillar: approvedContentPillar?.title ?? null,
+      marketPatternIds: marketContext.selectedPatternIds,
+      hashtagRoleMix: (Object.entries(recommendation.hashtags).filter(([, values]) => (values ?? []).length > 0).map(([role]) => role === "audienceCultural" ? "audience_cultural" : role === "occasionTopic" ? "occasion_topic" : role) as import("@/core/domain/entities/market-intelligence").MarketHashtagRole[]),
+      culturalVoiceLevel: marketContext.culturalVoiceLevel,
+      contentFormat: visibilityPlan.contentFormat,
+      visibilityStrategyVersion: VISIBILITY_STRATEGY_VERSION,
+      visibilityEvidenceLevel: visibilityPlan.visibilityEvidenceLevel,
+      foundationVersion: visibilityPlan.foundationVersion,
+      growthDecisionEvidenceSources: visibilityPlan.evidenceSources,
+    },
     createdBy: deps.actor.id,
   });
 }
@@ -449,6 +604,13 @@ export async function applyEngagementRecommendation(
   if (!deps.engagement.applyRecommendation) throw new ValidationError("Atomic recommendation application is not available.");
   const recommendation = await deps.engagement.findById?.(input.organisationId, input.recommendationId);
   if (!recommendation || recommendation.draftId !== input.draftId) throw new NotFoundError("Engagement recommendation");
+  const visibilityPlan = recommendation.creativeGuidance.visibilityPlan;
+  if (!visibilityPlan
+    || visibilityPlan.distributionGate !== "pass"
+    || visibilityPlan.distributionReadinessScore < DISTRIBUTION_READINESS_THRESHOLD
+    || visibilityPlan.distributionBlockers.length > 0) {
+    throw new ValidationError(`Awo Audience Distribution Gate blocked this recommendation. ${visibilityPlan?.distributionBlockers.join(" ") || "Generate a new recommendation with complete audience, locality and discovery strategy."}`);
+  }
   if (recommendation.platform === "linkedin"
     && recommendation.creativeGuidance.linkedinPersonalProfile?.auditStatus !== "passed") {
     throw new ValidationError("This LinkedIn recommendation predates independent grounding. Generate a new recommendation before applying it.");

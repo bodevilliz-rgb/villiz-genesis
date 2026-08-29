@@ -118,7 +118,7 @@ const DECISION_COMMENT_REQUIRED: Record<ReviewDecision, boolean> = {
   reject: true,
 };
 
-function DecisionForm({ organisationId, draftId }: { organisationId: string; draftId: string }) {
+function DecisionForm({ organisationId, draftId, soloOperatorApproval = false, approvalBlocked = false }: { organisationId: string; draftId: string; soloOperatorApproval?: boolean; approvalBlocked?: boolean }) {
   const [state, formAction] = useActionState(recordReviewDecisionAction, idleState);
   useActionToast(state);
   const [decision, setDecision] = useState<ReviewDecision | null>(null);
@@ -138,8 +138,8 @@ function DecisionForm({ organisationId, draftId }: { organisationId: string; dra
   if (!decision) {
     return (
       <div className="flex flex-wrap gap-2">
-        <Button variant="primary" size="sm" onClick={() => setDecision("approve")}>
-          {REVIEW_DECISION_LABELS.approve}
+        <Button variant="primary" size="sm" onClick={() => setDecision("approve")} disabled={approvalBlocked}>
+          {soloOperatorApproval ? "Solo Operator Approval" : REVIEW_DECISION_LABELS.approve}
         </Button>
         <Button variant="secondary" size="sm" onClick={() => setDecision("request_changes")}>
           {REVIEW_DECISION_LABELS.request_changes}
@@ -174,7 +174,7 @@ function DecisionForm({ organisationId, draftId }: { organisationId: string; dra
           size="sm"
           pendingLabel="Saving…"
         >
-          Confirm {REVIEW_DECISION_LABELS[decision].toLowerCase()}
+          {decision === "approve" && soloOperatorApproval ? "Confirm Solo Operator Approval" : `Confirm ${REVIEW_DECISION_LABELS[decision].toLowerCase()}`}
         </SubmitButton>
         <Button type="button" variant="ghost" size="sm" onClick={() => setDecision(null)}>
           Cancel
@@ -191,7 +191,8 @@ export function ReviewPanel({
   actorId,
   canWrite,
   canLead,
-  canSelfApproveInCloudPilot = false,
+  soloOperatorApproval = false,
+  distributionApproval,
 }: {
   organisationId: string;
   draft: ContentDraft;
@@ -199,22 +200,14 @@ export function ReviewPanel({
   actorId: string;
   canWrite: boolean;
   canLead: boolean;
-  /**
-   * Computed server-side by canBypassSelfApprovalForCloudPilot
-   * (use-cases/review/index.ts) — the exact same function
-   * applyTransition uses to actually enforce the CLOUD_PILOT_SELF_APPROVAL
-   * bypass. This prop only controls whether this component reveals
-   * DecisionForm; the server remains the real authority, so a stale or
-   * wrong value here can only ever hide a control the server would allow,
-   * never grant one the server would reject. Defaults to false so every
-   * existing caller (and local development, which never sets the flag)
-   * is completely unaffected.
-   */
-  canSelfApproveInCloudPilot?: boolean;
+  /** Server-derived display hint. The approval use-case independently
+   * rechecks organisation membership before accepting the decision. */
+  soloOperatorApproval?: boolean;
+  distributionApproval?: { eligible: boolean; score: number; blockers: string[] };
 }) {
   const isSelfAuthored = draft.createdBy?.id === actorId;
-  /** The one place isSelfAuthored's ordinary block is relaxed — see the canSelfApproveInCloudPilot prop doc above. */
-  const blocksSelfApproval = isSelfAuthored && !canSelfApproveInCloudPilot;
+  /** The one place the ordinary self-authorship block is visibly relaxed. */
+  const blocksSelfApproval = isSelfAuthored && !soloOperatorApproval;
   const isAssignedReviewer = draft.assignedReviewer?.id === actorId;
   /**
    * submitForReview() lands a fresh submission on "needs_review", not
@@ -265,7 +258,21 @@ export function ReviewPanel({
                 You cannot approve, request changes on, or archive your own draft. Ask another Lead or Reviewer.
               </p>
             ) : (
-              <DecisionForm organisationId={organisationId} draftId={draft.id} />
+              <div className="flex flex-col gap-2">
+                {isSelfAuthored && soloOperatorApproval ? (
+                  <div className="rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-[12px] text-muted-foreground">
+                    <p className="font-semibold text-foreground">Solo Operator Approval</p>
+                    <p>This account has one eligible active operator. Your approval remains a recorded review decision and will be labelled in its immutable history.</p>
+                  </div>
+                ) : null}
+                {distributionApproval && !distributionApproval.eligible ? (
+                  <div className="rounded-md border border-danger/40 bg-danger-soft p-3 text-[12px] text-danger" role="alert">
+                    <p className="font-semibold">Approval blocked · Audience Distribution Gate {distributionApproval.score}/100</p>
+                    <ul className="mt-2 grid gap-1 pl-4">{distributionApproval.blockers.map((blocker) => <li className="list-disc" key={blocker}>{blocker}</li>)}</ul>
+                  </div>
+                ) : null}
+                <DecisionForm organisationId={organisationId} draftId={draft.id} soloOperatorApproval={isSelfAuthored && soloOperatorApproval} approvalBlocked={Boolean(distributionApproval && !distributionApproval.eligible)} />
+              </div>
             )
           ) : (
             <p className="text-[12px] text-subtle-foreground">Waiting on a Lead or Reviewer.</p>

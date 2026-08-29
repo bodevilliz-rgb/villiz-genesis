@@ -24,6 +24,7 @@ export function toEngagementRecommendation(row: EngagementRecommendationRow): En
     performanceConfidence: row.performance_confidence,
     performanceSummary: row.performance_summary as unknown as EngagementRecommendation["performanceSummary"],
     evidence: row.evidence as unknown as EngagementRecommendation["evidence"],
+    strategyMetadata: row.strategy_metadata as unknown as EngagementRecommendation["strategyMetadata"],
     createdBy: row.created_by,
     createdAt: row.created_at,
   };

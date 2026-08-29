@@ -47,4 +47,19 @@ describe("SidebarNav orientation", () => {
     expect(link?.className).toContain("shrink-0");
     expect(link?.className).toContain("whitespace-nowrap");
   });
+
+  it("keeps hidden roadmap items out of production navigation and omits an empty group", () => {
+    const { rerender } = render(<SidebarNav label="Operations" items={[
+      ...ITEMS,
+      { href: "#projects", label: "Projects", icon: "folders", showInPrimaryNavigation: false },
+    ]} />);
+    expect(screen.getByText("Clients")).toBeInTheDocument();
+    expect(screen.queryByText("Projects")).not.toBeInTheDocument();
+
+    rerender(<SidebarNav label="Business" items={[
+      { href: "#reports", label: "Reports", icon: "bar-chart", showInPrimaryNavigation: false },
+    ]} />);
+    expect(screen.queryByRole("navigation", { name: "Business" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Business")).not.toBeInTheDocument();
+  });
 });
