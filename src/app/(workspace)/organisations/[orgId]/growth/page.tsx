@@ -23,7 +23,7 @@ type Recommendation = {
   objective_type: string;
   confidence: number;
   performance_confidence: number | null;
-  creative_guidance: Record<string, unknown>;
+  creative_guidance: {\n    visibilityPlan?: { distributionReadinessScore?: number; distributionGate?: "pass" | "blocked" };\n  } | null;
 };
 type Metric = {
   draft_id: string;
@@ -99,7 +99,16 @@ export default async function GrowthPage({ params }: { params: Promise<{ orgId: 
       .limit(500),
   ]);
 
-  const experiments = (experimentsResult.data ?? []) as Experiment[];
+  const rawExperiments = (experimentsResult.data ?? []) as Experiment[];
+  // Applying or re-applying guidance can create more than one immutable
+  // feedback event. Growth shows one current learning record per draft.
+  const experimentByDraft = new Map<string, Experiment>();
+  for (const experiment of rawExperiments) {
+    if (!experimentByDraft.has(experiment.draft_id)) {
+      experimentByDraft.set(experiment.draft_id, experiment);
+    }
+  }
+  const experiments = [...experimentByDraft.values()];
   const drafts = new Map(((draftsResult.data ?? []) as Draft[]).map((item) => [item.id, item]));
   const recommendations = new Map(
     ((recommendationsResult.data ?? []) as Recommendation[]).map((item) => [item.id, item]),
@@ -213,7 +222,8 @@ export default async function GrowthPage({ params }: { params: Promise<{ orgId: 
                     </Link>
                     <p className="mt-1 text-[12px] text-muted-foreground">
                       Goal: {recommendation ? titleCase(recommendation.objective_type) : "Not set"}
-                      {" · "}Evidence: {GROWTH_EVIDENCE_LABELS[evidence]}\n                      {" · "}Readiness {recommendation?.confidence ?? 0}/100
+                      {" · "}Evidence: {GROWTH_EVIDENCE_LABELS[evidence]}
+                      {" · "}Readiness {recommendation?.creative_guidance?.visibilityPlan?.distributionReadinessScore ?? 0}/100
                     </p>
                   </div>
                   <div>
