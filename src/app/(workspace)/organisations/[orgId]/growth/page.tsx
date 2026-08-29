@@ -56,6 +56,10 @@ function sum(values: Array<number | null | undefined>) {
   return values.reduce<number>((total, value) => total + (value ?? 0), 0);
 }
 
+function reportedReach(metric: Metric | undefined) {
+  return metric?.reach ?? metric?.views ?? metric?.impressions ?? 0;
+}
+
 function titleCase(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
@@ -121,7 +125,15 @@ export default async function GrowthPage({ params }: { params: Promise<{ orgId: 
   const metrics = (metricsResult.data ?? []) as Metric[];
   const outcomes = (outcomesResult.data ?? []) as Outcome[];
 
-  const totalReach = sum(metrics.map((item) => item.reach ?? item.views ?? item.impressions));
+  // Provider snapshots are cumulative checkpoints. Counting every checkpoint
+  // would inflate reach, so Growth uses only the latest snapshot per draft.
+  const latestMetricByDraft = new Map<string, Metric>();
+  for (const metric of metrics) {
+    if (!latestMetricByDraft.has(metric.draft_id)) {
+      latestMetricByDraft.set(metric.draft_id, metric);
+    }
+  }
+  const totalReach = sum([...latestMetricByDraft.values()].map((item) => reportedReach(item)));
   const totalEnquiries = sum(outcomes.map((item) => item.enquiries));
   const totalBookings = sum(outcomes.map((item) => item.bookings));
   const measuredDrafts = new Set(metrics.map((item) => item.draft_id));
@@ -147,10 +159,10 @@ export default async function GrowthPage({ params }: { params: Promise<{ orgId: 
         <div className="rounded-lg border border-border bg-card p-5">
           <div className="flex items-center gap-2 text-muted-foreground">
             <BarChart3 className="size-4 text-primary" />
-            <span className="text-[12px] font-medium uppercase tracking-wide">People reached</span>
+            <span className="text-[12px] font-medium uppercase tracking-wide">Latest confirmed reach</span>
           </div>
           <p className="mt-3 text-3xl font-semibold">{number.format(totalReach)}</p>
-          <p className="mt-1 text-[13px] text-muted-foreground">Provider-confirmed reach or closest available measure.</p>
+          <p className="mt-1 text-[13px] text-muted-foreground">Latest provider-confirmed reach per measured post; checkpoints are not added together.</p>
         </div>
         <div className="rounded-lg border border-border bg-card p-5">
           <div className="flex items-center gap-2 text-muted-foreground">
@@ -193,7 +205,7 @@ export default async function GrowthPage({ params }: { params: Promise<{ orgId: 
               const recommendation = recommendations.get(experiment.recommendation_id);
               const draftMetrics = metrics.filter((item) => item.draft_id === experiment.draft_id);
               const draftOutcomes = outcomes.filter((item) => item.draft_id === experiment.draft_id);
-              const reach = sum(draftMetrics.map((item) => item.reach ?? item.views ?? item.impressions));
+              const reach = reportedReach(latestMetricByDraft.get(experiment.draft_id));
               const enquiries = sum(draftOutcomes.map((item) => item.enquiries));
               const bookings = sum(draftOutcomes.map((item) => item.bookings));
               const checkpoints = new Set(draftMetrics.map((item) => item.measurement_window).filter(Boolean));
@@ -207,6 +219,7 @@ export default async function GrowthPage({ params }: { params: Promise<{ orgId: 
                 : draft?.status === "published"
                   ? "Measuring"
                   : "Ready to publish";
+              const readiness = recommendation?.creative_guidance?.visibilityPlan?.distributionReadinessScore;
 
               return (
                 <article key={experiment.id} className="grid gap-4 p-5 lg:grid-cols-[minmax(0,1.5fr)_repeat(3,minmax(110px,0.5fr))] lg:items-center">
@@ -228,7 +241,7 @@ export default async function GrowthPage({ params }: { params: Promise<{ orgId: 
                     <p className="mt-1 text-[12px] text-muted-foreground">
                       Goal: {recommendation ? titleCase(recommendation.objective_type) : "Not set"}
                       {" · "}Evidence: {GROWTH_EVIDENCE_LABELS[evidence]}
-                      {" · "}Readiness {recommendation?.creative_guidance?.visibilityPlan?.distributionReadinessScore ?? 0}/100
+                      {" · "}Readiness {readiness === undefined ? "Not recorded (legacy post)" : `${readiness}/100`}
                     </p>
                   </div>
                   <div>
