@@ -37,6 +37,7 @@ describe("render.yaml (Render Background Worker configuration)", () => {
       "NEXT_PUBLIC_SUPABASE_URL",
       "NEXT_PUBLIC_SUPABASE_ANON_KEY",
       "SUPABASE_SERVICE_ROLE_KEY",
+      "NEXT_PUBLIC_SITE_URL",
       "BLOTATO_API_KEY",
     ]) {
       const keyIndex = raw.indexOf(`key: ${secretKey}`);
