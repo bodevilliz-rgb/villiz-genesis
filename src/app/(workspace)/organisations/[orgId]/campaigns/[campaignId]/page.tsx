@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CalendarClock, CheckCircle2, ChevronRight, Pencil, Sparkles, TrendingUp, WandSparkles } from "lucide-react";
+import { CalendarClock, CheckCircle2, ChevronRight, Pencil, Sparkles, TrendingUp } from "lucide-react";
 import { requireContext } from "@/server/container";
 import { getCampaignOverview } from "@/core/application/use-cases/campaigns";
 import { getMembrainOverview } from "@/core/application/use-cases/membrain";
@@ -11,9 +11,10 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CampaignArchiveButton } from "@/components/campaigns/campaign-archive-button";
 import { CampaignBulkScheduler } from "@/components/campaigns/campaign-bulk-scheduler";
+import { CampaignAssetsPanel } from "@/components/campaigns/campaign-assets-panel";
+import { CampaignAwoActions } from "@/components/campaigns/campaign-awo-actions";
 import { canEditOrganisation, canWriteContent } from "@/core/domain/entities/identity";
 import { CAMPAIGN_PLATFORM_LABELS, CAMPAIGN_STATUS_LABELS, CAMPAIGN_STATUS_TONE } from "@/core/domain/entities/campaign";
-import { CampaignAssetsPanel } from "@/components/campaigns/campaign-assets-panel";
 import { routes } from "@/lib/routes";
 
 export default async function CampaignDetailPage({ params }: { params: Promise<{ orgId: string; campaignId: string }> }) {
@@ -42,52 +43,48 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
   const canWrite = canWriteContent(context.actor, viewerRole);
   const canArchive = canEditOrganisation(context.actor, viewerRole);
   const weeks = new Set(schedule.map(s => s.weekNumber)).size;
-  const readySlots = schedule.filter(s => s.draftId).length;
+  const preparedSlots = schedule.filter(s => s.draftId).length;
+  const campaignDrafts = await Promise.all(schedule.filter(s => s.draftId).map(s => context.content.findDraft(orgId, s.draftId!)));
+  const optimisedCount = campaignDrafts.filter(draft => draft && draft.body.trim().length > 0 && draft.hashtags.length > 0).length;
   const approved = draftCounts.approved;
   const nextSlot = schedule[0] ?? null;
   const weekOne = schedule.filter(s => s.weekNumber === 1);
   const weekGroups = Array.from(new Set(schedule.map(s => s.weekNumber))).map(weekNumber => ({
     weekNumber,
     slots: schedule.filter(s => s.weekNumber === weekNumber),
-    asset: attachedAssets[weekNumber - 1] ?? null,
+    asset: attachedAssets.find(asset => {
+      const name = asset.title || asset.fileName;
+      return new RegExp(`week[\\s_-]*0*${weekNumber}(?:\\D|$)`, "i").test(name);
+    }) ?? attachedAssets[weekNumber - 1] ?? null,
   }));
 
   return <div className="flex flex-col gap-6">
-    <PageHeader
-      eyebrow="Campaign command centre"
-      title={campaign.name}
-      description={campaign.objective ?? "Plan, optimise, approve and publish this campaign from one workspace."}
-      actions={<div className="flex flex-wrap items-center gap-2">
-        <Badge tone={CAMPAIGN_STATUS_TONE[campaign.status]}>{CAMPAIGN_STATUS_LABELS[campaign.status]}</Badge>
-        {canWrite ? <Button asChild variant="secondary" size="sm"><Link href={routes.organisations.campaigns.edit(orgId, campaignId)}><Pencil aria-hidden />Edit</Link></Button> : null}
-        {canArchive && campaign.status !== "archived" ? <CampaignArchiveButton organisationId={orgId} campaignId={campaignId} name={campaign.name} /> : null}
-      </div>}
-    />
+    <PageHeader eyebrow="Campaign command centre" title={campaign.name} description={campaign.objective ?? "Plan, optimise, approve and publish this campaign from one workspace."} actions={<div className="flex flex-wrap items-center gap-2">
+      <Badge tone={CAMPAIGN_STATUS_TONE[campaign.status]}>{CAMPAIGN_STATUS_LABELS[campaign.status]}</Badge>
+      {canWrite ? <Button asChild variant="secondary" size="sm"><Link href={routes.organisations.campaigns.edit(orgId, campaignId)}><Pencil aria-hidden />Edit</Link></Button> : null}
+      {canArchive && campaign.status !== "archived" ? <CampaignArchiveButton organisationId={orgId} campaignId={campaignId} name={campaign.name} /> : null}
+    </div>} />
 
     <section className="overflow-hidden rounded-xl border border-border bg-card">
-      <div className="grid gap-0 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,.55fr)]">
+      <div className="grid xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,.55fr)]">
         <div className="border-b border-border p-6 xl:border-b-0 xl:border-r">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge tone="positive">Live campaign</Badge>
-                {campaign.platforms.map(p => <Badge key={p} tone="muted">{CAMPAIGN_PLATFORM_LABELS[p]}</Badge>)}
-              </div>
+              <div className="flex flex-wrap items-center gap-2"><Badge tone="positive">Live campaign</Badge>{campaign.platforms.map(p => <Badge key={p} tone="muted">{CAMPAIGN_PLATFORM_LABELS[p]}</Badge>)}</div>
               <h2 className="mt-4 text-2xl font-semibold tracking-tight">{weeks || attachedAssets.length} weeks · {schedule.length || attachedAssets.length * Math.max(campaign.platforms.length, 1)} platform posts</h2>
-              <p className="mt-2 max-w-2xl text-sm text-muted-foreground">Upload once, let Awo prepare platform-specific content, review exceptions, approve and publish from one campaign workspace.</p>
+              <p className="mt-2 max-w-2xl text-sm text-muted-foreground">Upload once. Awo generates platform-specific captions, hooks, CTAs and discovery hashtags from MemBrain and campaign intelligence.</p>
             </div>
-            <div className="grid min-w-[260px] grid-cols-2 gap-2">
+            <div className="grid min-w-[280px] grid-cols-2 gap-2">
               <Metric label="Assets" value={String(attachedAssets.length)} detail="linked" />
               <Metric label="Slots" value={String(schedule.length)} detail="scheduled" />
-              <Metric label="Awo ready" value={`${readySlots}/${schedule.length || 0}`} detail="drafts" />
-              <Metric label="Approved" value={String(approved)} detail="posts" />
+              <Metric label="Prepared" value={`${preparedSlots}/${schedule.length || 0}`} detail="for Awo" />
+              <Metric label="Optimised" value={`${optimisedCount}/${schedule.length || 0}`} detail="caption + hashtags" />
             </div>
           </div>
-
           <div className="mt-6 grid gap-3 md:grid-cols-3">
-            <StatusStep title="1. Prepare" detail={`${attachedAssets.length} campaign assets linked`} complete={attachedAssets.length > 0} />
-            <StatusStep title="2. Optimise" detail={`${readySlots} drafts prepared for Awo`} complete={readySlots === schedule.length && schedule.length > 0} />
-            <StatusStep title="3. Approve & publish" detail={`${approved} approved`} complete={approved === schedule.length && schedule.length > 0} />
+            <StatusStep title="1. Prepare" detail={`${preparedSlots}/${schedule.length || 0} drafts prepared for Awo`} complete={preparedSlots === schedule.length && schedule.length > 0} />
+            <StatusStep title="2. Optimise" detail={`${optimisedCount}/${schedule.length || 0} generated by Awo`} complete={optimisedCount === schedule.length && schedule.length > 0} />
+            <StatusStep title="3. Approve & publish" detail={`${approved}/${schedule.length || 0} approved`} complete={approved === schedule.length && schedule.length > 0} />
           </div>
         </div>
 
@@ -95,51 +92,20 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-subtle-foreground">Next publication</p>
           {nextSlot ? <>
             <p className="mt-3 text-xl font-semibold">Week {nextSlot.weekNumber} · {CAMPAIGN_PLATFORM_LABELS[nextSlot.platform]}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{nextSlot.scheduledDate} · {nextSlot.scheduledTime.slice(0,5)} · {nextSlot.timezone}</p>
-            <div className="mt-5 flex flex-wrap gap-2">
-              <Button size="sm" disabled><WandSparkles aria-hidden />Awo optimise all</Button>
-              <Button size="sm" variant="secondary" disabled>Approve all</Button>
-            </div>
-            <p className="mt-3 text-[11px] text-muted-foreground">Bulk optimisation becomes active when the Awo execution layer is connected. The campaign schedule and intelligence context are already ready.</p>
+            <p className="mt-1 text-sm text-muted-foreground">{nextSlot.scheduledDate} · {nextSlot.scheduledTime.slice(0, 5)} · {nextSlot.timezone}</p>
+            <div className="mt-5"><CampaignAwoActions organisationId={orgId} campaignId={campaignId} totalSlots={schedule.length} optimisedCount={optimisedCount} canWrite={canWrite} /></div>
+            <Button size="sm" variant="secondary" className="mt-3" disabled={optimisedCount !== schedule.length || schedule.length === 0}>Approve all</Button>
+            <p className="mt-3 text-[11px] text-muted-foreground">Approve All unlocks after Awo optimisation is complete and the quality gate has evaluated every post.</p>
           </> : <p className="mt-3 text-sm text-muted-foreground">Build the campaign schedule to activate publishing.</p>}
         </div>
       </div>
     </section>
 
-    {weekOne.length ? <section className="rounded-xl border border-primary/30 bg-primary/5 p-5">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-primary">Today · Week 1</p>
-          <h3 className="mt-1 text-lg font-semibold">Publishing at {weekOne[0]?.scheduledTime.slice(0,5)} · {weekOne[0]?.timezone}</h3>
-          <p className="mt-1 text-sm text-muted-foreground">{weekOne.map(s => CAMPAIGN_PLATFORM_LABELS[s.platform]).join(" + ")} · {weekOne.every(s => s.draftId) ? "Awo preparation ready" : "Preparation in progress"}</p>
-        </div>
-        <Badge tone={weekOne.every(s => s.draftId) ? "positive" : "muted"}>{weekOne.every(s => s.draftId) ? "Awo ready" : "Preparing"}</Badge>
-      </div>
-    </section> : null}
+    {weekOne.length ? <section className="rounded-xl border border-primary/30 bg-primary/5 p-5"><div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-[11px] font-medium uppercase tracking-[0.16em] text-primary">Today · Week 1</p><h3 className="mt-1 text-lg font-semibold">Publishing at {weekOne[0]?.scheduledTime.slice(0,5)} · {weekOne[0]?.timezone}</h3><p className="mt-1 text-sm text-muted-foreground">{weekOne.map(s => CAMPAIGN_PLATFORM_LABELS[s.platform]).join(" + ")} · {optimisedCount ? "Awo optimisation in progress / ready for review" : "Prepared for Awo"}</p></div><Badge tone={optimisedCount >= weekOne.length ? "positive" : "muted"}>{optimisedCount >= weekOne.length ? "Optimised" : "Awo prepared"}</Badge></div></section> : null}
 
     <section className="rounded-xl border border-border bg-card">
-      <div className="flex flex-col gap-3 border-b border-border p-5 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h3 className="text-base font-semibold">Campaign visual timeline</h3>
-          <p className="mt-1 text-xs text-muted-foreground">See all campaign weeks, artwork and platform readiness at a glance.</p>
-        </div>
-        <span className="text-xs text-muted-foreground">{weekGroups.length} weeks · {schedule.length} platform slots</span>
-      </div>
-      <div className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-5">
-        {weekGroups.map(group => {
-          const asset = group.asset;
-          const src = asset ? signedUrls[asset.storagePath] : undefined;
-          const allReady = group.slots.every(s => s.draftId);
-          return <div key={group.weekNumber} className="overflow-hidden rounded-lg border border-border bg-muted/10">
-            <div className="aspect-square bg-muted/30">{src ? <img src={src} alt={`Week ${group.weekNumber}`} className="h-full w-full object-cover" /> : null}</div>
-            <div className="p-3">
-              <div className="flex items-center justify-between gap-2"><p className="text-xs font-semibold">Week {group.weekNumber}</p><span className={`size-2 rounded-full ${allReady ? "bg-emerald-500" : "bg-muted-foreground/40"}`} /></div>
-              <p className="mt-1 truncate text-[11px] text-muted-foreground">{asset?.title || asset?.fileName || "No asset"}</p>
-              <p className="mt-2 text-[11px] text-muted-foreground">{group.slots.map(s => CAMPAIGN_PLATFORM_LABELS[s.platform]).join(" · ")}</p>
-            </div>
-          </div>;
-        })}
-      </div>
+      <div className="flex flex-col gap-3 border-b border-border p-5 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="text-base font-semibold">Campaign visual timeline</h3><p className="mt-1 text-xs text-muted-foreground">Artwork, platforms and operational status for every campaign week.</p></div><span className="text-xs text-muted-foreground">{weekGroups.length} weeks · {schedule.length} platform slots</span></div>
+      <div className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-5">{weekGroups.map(group => { const asset = group.asset; const src = asset ? signedUrls[asset.storagePath] : undefined; const groupDrafts = group.slots.map(slot => campaignDrafts.find(d => d?.id === slot.draftId)).filter(Boolean); const groupOptimised = groupDrafts.length === group.slots.length && groupDrafts.every(d => d!.body.trim() && d!.hashtags.length); return <div key={group.weekNumber} className="overflow-hidden rounded-lg border border-border bg-muted/10"><div className="aspect-square bg-muted/30">{src ? <img src={src} alt={`Week ${group.weekNumber}`} className="h-full w-full object-cover" /> : null}</div><div className="p-3"><div className="flex items-center justify-between gap-2"><p className="text-xs font-semibold">Week {group.weekNumber}</p><Badge tone={groupOptimised ? "positive" : "muted"}>{groupOptimised ? "Optimised" : "Prepared"}</Badge></div><p className="mt-1 truncate text-[11px] text-muted-foreground">{asset?.title || asset?.fileName || "No asset"}</p><p className="mt-2 text-[11px] text-muted-foreground">{group.slots.map(s => CAMPAIGN_PLATFORM_LABELS[s.platform]).join(" · ")}</p></div></div>; })}</div>
     </section>
 
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,.65fr)]">
@@ -148,10 +114,9 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
         <CampaignAssetsPanel organisationId={orgId} campaignId={campaignId} allAssets={allAssets} attachedAssets={attachedAssets} signedUrls={signedUrls} canWrite={canWrite}/>
         <CampaignBulkScheduler organisationId={orgId} campaignId={campaignId} campaignPlatforms={campaign.platforms} campaignStartDate={campaign.startDate} attachedAssets={attachedAssets} signedUrls={signedUrls} canWrite={canWrite}/>
       </div>
-
       <div className="flex flex-col gap-4">
-        <Card><CardHeader><CardTitle className="flex items-center gap-2"><CalendarClock className="size-4 text-primary"/>Live schedule</CardTitle></CardHeader><CardContent className="flex flex-col gap-3">{schedule.slice(0,6).map(slot => <div key={slot.id} className="rounded-md border border-border p-3"><div className="flex items-center justify-between gap-2"><span className="text-[12px] font-medium">Week {slot.weekNumber} · {CAMPAIGN_PLATFORM_LABELS[slot.platform]}</span><Badge tone={slot.draftId?"positive":"muted"}>{slot.draftId?"Awo ready":slot.status}</Badge></div><p className="mt-1 text-[11px] text-muted-foreground">{slot.scheduledDate} · {slot.scheduledTime.slice(0,5)}</p></div>)}</CardContent></Card>
-        <Card><CardHeader><CardTitle className="flex items-center gap-2"><Sparkles className="size-4 text-primary"/>Intelligence pipeline</CardTitle></CardHeader><CardContent className="space-y-3 text-[12px]"><Pipeline label="MemBrain" value={`${membrainOverview.readiness.percentage}% ready`} complete={membrainOverview.readiness.percentage === 100}/><Pipeline label="Market Intelligence" value="Connected to Awo requests" complete/><Pipeline label="Distribution Gate" value="Required before publishing"/><Button asChild variant="secondary" size="sm"><Link href={routes.organisations.membrain.index(orgId)}>Open intelligence <ChevronRight className="size-3.5"/></Link></Button></CardContent></Card>
+        <Card><CardHeader><CardTitle className="flex items-center gap-2"><CalendarClock className="size-4 text-primary"/>Live schedule</CardTitle></CardHeader><CardContent className="flex flex-col gap-3">{schedule.slice(0,6).map(slot => { const draft = campaignDrafts.find(d => d?.id === slot.draftId); const generated = Boolean(draft?.body.trim() && draft?.hashtags.length); return <div key={slot.id} className="rounded-md border border-border p-3"><div className="flex items-center justify-between gap-2"><span className="text-[12px] font-medium">Week {slot.weekNumber} · {CAMPAIGN_PLATFORM_LABELS[slot.platform]}</span><Badge tone={generated ? "positive" : "muted"}>{generated ? "Optimised" : slot.draftId ? "Prepared" : slot.status}</Badge></div><p className="mt-1 text-[11px] text-muted-foreground">{slot.scheduledDate} · {slot.scheduledTime.slice(0,5)}</p></div>; })}</CardContent></Card>
+        <Card><CardHeader><CardTitle className="flex items-center gap-2"><Sparkles className="size-4 text-primary"/>Intelligence pipeline</CardTitle></CardHeader><CardContent className="space-y-3 text-[12px]"><Pipeline label="MemBrain" value={`${membrainOverview.readiness.percentage}% ready`} complete={membrainOverview.readiness.percentage === 100}/><Pipeline label="Market Intelligence" value="Included in Awo campaign requests" complete/><Pipeline label="Awo execution" value={`${optimisedCount}/${schedule.length || 0} generated`} complete={optimisedCount === schedule.length && schedule.length > 0}/><Pipeline label="Distribution Gate" value="Required before approval"/><Button asChild variant="secondary" size="sm"><Link href={routes.organisations.membrain.index(orgId)}>Open intelligence <ChevronRight className="size-3.5"/></Link></Button></CardContent></Card>
         <Card><CardHeader><CardTitle className="flex items-center gap-2"><TrendingUp className="size-4 text-primary"/>Growth loop</CardTitle></CardHeader><CardContent><p className="text-[12px] text-muted-foreground">Published campaign performance feeds Growth so later content can improve from reach, engagement, enquiries and bookings.</p></CardContent></Card>
       </div>
     </div>
