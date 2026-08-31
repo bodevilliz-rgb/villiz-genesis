@@ -75,16 +75,22 @@ async function optimiseSlot(job: Job, slot: Awaited<ReturnType<typeof getCampaig
         ? `${basePrompt}\n\nYour previous output failed deterministic validation for these reasons:\n- ${validationErrors.join("\n- ")}\nRegenerate from scratch and correct every failure.`
         : basePrompt;
       const generated = await ai.generateObject(repairPrompt, generatedSocialPostSchema, { systemPrompt: "Create evidence-grounded, search-aware social content. Apply the distribution intelligence gate. Follow supplied brand context and campaign objective. Never invent offers, prices, locations, testimonials, credentials, facts, or guarantees of algorithmic reach. Hashtag tokens must contain only ASCII letters, digits and underscores.", temperature: attempt === 1 ? 0.45 : 0.25 });
-      const validation = validateDistributionOutput(generated);
+      const validation = validateDistributionOutput(generated, {
+        campaignName,
+        brief: request.brief,
+        targetAudience: request.targetAudience ?? "",
+        evidenceText: request.memBrainContextPrompt,
+      });
       if (!validation.ok) {
         validationErrors = validation.errors;
-        logAwo("distribution_validation_rejected", { jobId: job.id, draftId: draft.id, weekNumber: slot.weekNumber, platform: slot.platform, attempt, errors: validation.errors });
+        logAwo("distribution_validation_rejected", { jobId: job.id, draftId: draft.id, weekNumber: slot.weekNumber, platform: slot.platform, attempt, portfolioScore: validation.portfolioScore, errors: validation.errors });
         continue;
       }
 
       const body = `${generated.hook}\n\n${generated.caption}\n\n${generated.cta}`.trim();
-      await updateDraft(deps, { organisationId: job.organisation_id, id: draft.id, title: draft.title, contentType: draft.contentType, categoryId: draft.category?.id ?? "", campaignId: job.campaign_id, summary: draft.summary ?? "", body, dueAt: draft.dueAt ?? "", reviewerIds: draft.reviewerIds, priority: draft.priority, reviewDeadline: draft.reviewDeadline ?? "", hashtags: validation.hashtags, changeSummary: `${force ? "Awo Distribution Intelligence v2 re-optimised" : "Awo distribution-intelligence optimised"} Week ${slot.weekNumber} for ${slot.platform}; deterministic output validation passed.` });
+      await updateDraft(deps, { organisationId: job.organisation_id, id: draft.id, title: draft.title, contentType: draft.contentType, categoryId: draft.category?.id ?? "", campaignId: job.campaign_id, summary: draft.summary ?? "", body, dueAt: draft.dueAt ?? "", reviewerIds: draft.reviewerIds, priority: draft.priority, reviewDeadline: draft.reviewDeadline ?? "", hashtags: validation.hashtags, changeSummary: `${force ? "Awo Distribution Intelligence v2 re-optimised" : "Awo distribution-intelligence optimised"} Week ${slot.weekNumber} for ${slot.platform}; deterministic output validation passed at discovery portfolio ${validation.portfolioScore}/100.` });
       await deps.content.updateStatus(job.organisation_id, draft.id, "needs_review", job.requested_by);
+      logAwo("distribution_validation_passed", { jobId: job.id, draftId: draft.id, weekNumber: slot.weekNumber, platform: slot.platform, attempt, portfolioScore: validation.portfolioScore });
       if (attempt > 1) logAwo("distribution_validation_recovered", { jobId: job.id, draftId: draft.id, weekNumber: slot.weekNumber, platform: slot.platform, attempt });
       return { skipped: false, error: null as string | null };
     }
