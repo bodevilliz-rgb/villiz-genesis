@@ -13,6 +13,7 @@ import { CampaignArchiveButton } from "@/components/campaigns/campaign-archive-b
 import { CampaignBulkScheduler } from "@/components/campaigns/campaign-bulk-scheduler";
 import { CampaignAssetsPanel } from "@/components/campaigns/campaign-assets-panel";
 import { CampaignAwoActions } from "@/components/campaigns/campaign-awo-actions";
+import { CampaignPublicationLiveCard } from "@/components/campaigns/campaign-publication-live-card";
 import { canEditOrganisation, canWriteContent } from "@/core/domain/entities/identity";
 import { CAMPAIGN_PLATFORM_LABELS, CAMPAIGN_STATUS_LABELS, CAMPAIGN_STATUS_TONE } from "@/core/domain/entities/campaign";
 import { routes } from "@/lib/routes";
@@ -47,7 +48,11 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
   const campaignDrafts = await Promise.all(schedule.filter(s => s.draftId).map(s => context.content.findDraft(orgId, s.draftId!)));
   const optimisedCount = campaignDrafts.filter(draft => draft && draft.body.trim().length > 0 && draft.hashtags.length > 0).length;
   const approved = draftCounts.approved;
-  const nextSlot = schedule[0] ?? null;
+  const nextSlot = schedule.find(slot => slot.status !== "published" && slot.status !== "cancelled") ?? null;
+  const nextSlots = nextSlot ? schedule.filter(slot => slot.weekNumber === nextSlot.weekNumber && slot.scheduledDate === nextSlot.scheduledDate && slot.scheduledTime === nextSlot.scheduledTime && slot.timezone === nextSlot.timezone) : [];
+  const nextDrafts = nextSlots.map(slot => campaignDrafts.find(draft => draft?.id === slot.draftId) ?? null);
+  const nextOptimisedCount = nextDrafts.filter(draft => draft && draft.body.trim().length > 0 && draft.hashtags.length > 0).length;
+  const nextApprovedCount = nextDrafts.filter(draft => draft && ["approved", "scheduled", "publishing", "published"].includes(draft.status)).length;
   const weekOne = schedule.filter(s => s.weekNumber === 1);
   const weekGroups = Array.from(new Set(schedule.map(s => s.weekNumber))).map(weekNumber => ({
     weekNumber,
@@ -88,16 +93,16 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
           </div>
         </div>
 
-        <div className="bg-muted/20 p-6">
-          <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-subtle-foreground">Next publication</p>
-          {nextSlot ? <>
-            <p className="mt-3 text-xl font-semibold">Week {nextSlot.weekNumber} · {CAMPAIGN_PLATFORM_LABELS[nextSlot.platform]}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{nextSlot.scheduledDate} · {nextSlot.scheduledTime.slice(0, 5)} · {nextSlot.timezone}</p>
-            <div className="mt-5"><CampaignAwoActions organisationId={orgId} campaignId={campaignId} totalSlots={schedule.length} optimisedCount={optimisedCount} canWrite={canWrite} /></div>
-            <Button size="sm" variant="secondary" className="mt-3" disabled={optimisedCount !== schedule.length || schedule.length === 0}>Approve all</Button>
-            <p className="mt-3 text-[11px] text-muted-foreground">Approve All unlocks after Awo optimisation is complete and the quality gate has evaluated every post.</p>
-          </> : <p className="mt-3 text-sm text-muted-foreground">Build the campaign schedule to activate publishing.</p>}
-        </div>
+        {nextSlot ? <CampaignPublicationLiveCard
+          weekNumber={nextSlot.weekNumber}
+          scheduledDate={nextSlot.scheduledDate}
+          scheduledTime={nextSlot.scheduledTime}
+          timezone={nextSlot.timezone}
+          optimisedCount={nextOptimisedCount}
+          approvedCount={nextApprovedCount}
+          slots={nextSlots.map((slot, index) => ({ platformLabel: CAMPAIGN_PLATFORM_LABELS[slot.platform], status: slot.status, draftStatus: nextDrafts[index]?.status ?? null }))}
+          onOptimise={<CampaignAwoActions organisationId={orgId} campaignId={campaignId} totalSlots={schedule.length} optimisedCount={optimisedCount} canWrite={canWrite} />}
+        /> : <div className="bg-muted/20 p-6"><p className="text-sm text-muted-foreground">No pending publication event.</p></div>}
       </div>
     </section>
 
