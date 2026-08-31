@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireContext } from "../container";
 import { errorState, successState, type ActionState } from "../action-result";
 import { getCampaignSchedule } from "@/server/queries/campaign-schedule";
+import { getLatestCampaignAwoJob, type CampaignAwoJobView } from "@/server/queries/campaign-awo-job";
 import { canWriteContent } from "@/core/domain/entities/identity";
 import { routes } from "@/lib/routes";
 
@@ -15,6 +16,16 @@ type JobWriter = {
     };
   };
 };
+
+export async function getCampaignAwoJobStatusAction(
+  organisationId: string,
+  campaignId: string,
+): Promise<CampaignAwoJobView | null> {
+  const context = await requireContext();
+  const campaign = await context.campaigns.findCampaign(organisationId, campaignId);
+  if (!campaign) return null;
+  return getLatestCampaignAwoJob(campaignId);
+}
 
 export async function optimiseCampaignWithAwoAction(
   organisationId: string,
@@ -53,9 +64,9 @@ export async function optimiseCampaignWithAwoAction(
 
     if (error) {
       if (error.code === "23505") {
-        return successState(`Awo is already working on this campaign. Progress will update automatically.`);
+        return successState("Awo is already working on this campaign. Progress will update automatically.");
       }
-      if (error.code === "42P01" || /awo_campaign_jobs/i.test(error.message) && /does not exist|schema cache/i.test(error.message)) {
+      if (error.code === "42P01" || (/awo_campaign_jobs/i.test(error.message) && /does not exist|schema cache/i.test(error.message))) {
         throw new Error("The Awo background queue is not activated in production yet. Engineering must apply the Awo campaign jobs migration.");
       }
       throw new Error(`Could not queue Awo optimisation: ${error.message}`);
