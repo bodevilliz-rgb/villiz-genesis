@@ -8,11 +8,13 @@ import { getAIProvider } from "../src/infrastructure/ai/provider-factory";
 import { getCampaignSchedule } from "../src/server/queries/campaign-schedule";
 import { getDraft, getLatestGenerationRequest, updateDraft } from "../src/core/application/use-cases/content";
 import type { Actor } from "../src/core/domain/entities/identity";
+import { validateDistributionOutput } from "./awo-distribution-validator";
 
 const POLL_INTERVAL_MS = Number(process.env.AWO_WORKER_POLL_INTERVAL_MS ?? 2000);
 const STALE_RECOVERY_INTERVAL_MS = Number(process.env.AWO_WORKER_STALE_RECOVERY_INTERVAL_MS ?? 60000);
 const STALE_AFTER_SECONDS = Number(process.env.AWO_WORKER_STALE_AFTER_SECONDS ?? 900);
 const CONCURRENCY = Math.max(1, Math.min(Number(process.env.AWO_WORKER_CONCURRENCY ?? 3), 6));
+const MAX_VALIDATION_ATTEMPTS = Math.max(1, Math.min(Number(process.env.AWO_DISTRIBUTION_VALIDATION_ATTEMPTS ?? 3), 5));
 const WORKER_ID = `awo-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 
 const generatedSocialPostSchema = z.object({
@@ -52,9 +54,9 @@ Build discovery deliberately; never treat hashtags as decoration. Infer ONLY fro
 3. Audience intent: reflect the supplied target audience and the problem, desire or occasion driving discovery.
 4. Locality: when a location/service area is explicitly present in supplied evidence, include useful city/area/region search language and local hashtags. NEVER invent a location.
 5. Platform search: make the caption itself searchable with natural-language keywords; hashtags supplement the caption rather than substitute for it.
-6. Hashtag portfolio: return 5–20 unique, genuinely relevant hashtags spanning brand, service/niche, audience/intent and verified locality when available. Avoid generic high-volume stuffing (#viral, #fyp, #explorepage, #trending) unless the campaign brief explicitly requires one and it is strategically justified.
+6. Hashtag portfolio: return 5–20 unique, genuinely relevant hashtags spanning brand, service/niche, audience/intent and verified locality when available. Use only ASCII letters, digits and underscores in hashtag tokens. Avoid generic high-volume stuffing (#viral, #fyp, #explorepage, #trending) unless the campaign brief explicitly requires one and it is strategically justified.
 7. Conversion: CTA must match the campaign objective and must not invent an offer, price, booking method or availability.
-8. Quality gate: before returning, silently reject and rewrite any output whose discovery terms could fit almost any business, whose locality is fabricated, or whose hashtags are mostly generic.
+8. Quality gate: before returning, silently reject and rewrite any output whose discovery terms could fit almost any business, whose locality is fabricated, whose hashtag token contains unexpected scripts/symbols, or whose hashtags are mostly generic.
 The goal is qualified discoverability and conversion probability, not vanity reach. Do not claim or imply guaranteed reach, ranking or algorithmic distribution.`;
 
 async function optimiseSlot(job: Job, slot: Awaited<ReturnType<typeof getCampaignSchedule>>[number], deps: ReturnType<typeof buildContentDeps>, campaignName: string, force: boolean) {
@@ -64,14 +66,30 @@ async function optimiseSlot(job: Job, slot: Awaited<ReturnType<typeof getCampaig
     if (!force && draft.body.trim() && draft.hashtags.length) return { skipped: true, error: null as string | null };
     const request = await getLatestGenerationRequest(deps, job.organisation_id, draft.id);
     if (!request) throw new Error("No Awo generation request exists for this draft.");
-    const prompt = [`You are Awo, the campaign intelligence writer for ${campaignName}.`, `Week ${slot.weekNumber}. Platform: ${slot.platform}.`, platformInstruction(slot.platform), distributionInstruction, request.brief, request.targetAudience ? `Target audience: ${request.targetAudience}.` : "", request.tone ? `Tone: ${request.tone}.` : "", `Brand and MemBrain context:\n${request.memBrainContextPrompt}`, force ? "This is an explicit Distribution Intelligence v2 re-optimisation. Improve the existing strategy rather than merely paraphrasing it." : "", "Return a platform-ready caption, unique hashtags, a hook and CTA. Every discovery choice must be traceable to supplied campaign or MemBrain context. Avoid fabricated claims."].filter(Boolean).join("\n\n");
+    const basePrompt = [`You are Awo, the campaign intelligence writer for ${campaignName}.`, `Week ${slot.weekNumber}. Platform: ${slot.platform}.`, platformInstruction(slot.platform), distributionInstruction, request.brief, request.targetAudience ? `Target audience: ${request.targetAudience}.` : "", request.tone ? `Tone: ${request.tone}.` : "", `Brand and MemBrain context:\n${request.memBrainContextPrompt}`, force ? "This is an explicit Distribution Intelligence v2 re-optimisation. Improve the existing strategy rather than merely paraphrasing it." : "", "Return a platform-ready caption, unique hashtags, a hook and CTA. Every discovery choice must be traceable to supplied campaign or MemBrain context. Avoid fabricated claims."].filter(Boolean).join("\n\n");
     const ai = getAIProvider();
-    const generated = await ai.generateObject(prompt, generatedSocialPostSchema, { systemPrompt: "Create evidence-grounded, search-aware social content. Apply the distribution intelligence gate. Follow supplied brand context and campaign objective. Never invent offers, prices, locations, testimonials, credentials, facts, or guarantees of algorithmic reach.", temperature: 0.45 });
-    const hashtags = [...new Set(generated.hashtags.map((tag) => tag.trim().replace(/^#+/, "")).filter(Boolean))];
-    const body = `${generated.hook}\n\n${generated.caption}\n\n${generated.cta}`.trim();
-    await updateDraft(deps, { organisationId: job.organisation_id, id: draft.id, title: draft.title, contentType: draft.contentType, categoryId: draft.category?.id ?? "", campaignId: job.campaign_id, summary: draft.summary ?? "", body, dueAt: draft.dueAt ?? "", reviewerIds: draft.reviewerIds, priority: draft.priority, reviewDeadline: draft.reviewDeadline ?? "", hashtags, changeSummary: `${force ? "Awo Distribution Intelligence v2 re-optimised" : "Awo distribution-intelligence optimised"} Week ${slot.weekNumber} for ${slot.platform}.` });
-    await deps.content.updateStatus(job.organisation_id, draft.id, "needs_review", job.requested_by);
-    return { skipped: false, error: null as string | null };
+    let validationErrors: string[] = [];
+
+    for (let attempt = 1; attempt <= MAX_VALIDATION_ATTEMPTS; attempt += 1) {
+      const repairPrompt = validationErrors.length
+        ? `${basePrompt}\n\nYour previous output failed deterministic validation for these reasons:\n- ${validationErrors.join("\n- ")}\nRegenerate from scratch and correct every failure.`
+        : basePrompt;
+      const generated = await ai.generateObject(repairPrompt, generatedSocialPostSchema, { systemPrompt: "Create evidence-grounded, search-aware social content. Apply the distribution intelligence gate. Follow supplied brand context and campaign objective. Never invent offers, prices, locations, testimonials, credentials, facts, or guarantees of algorithmic reach. Hashtag tokens must contain only ASCII letters, digits and underscores.", temperature: attempt === 1 ? 0.45 : 0.25 });
+      const validation = validateDistributionOutput(generated);
+      if (!validation.ok) {
+        validationErrors = validation.errors;
+        logAwo("distribution_validation_rejected", { jobId: job.id, draftId: draft.id, weekNumber: slot.weekNumber, platform: slot.platform, attempt, errors: validation.errors });
+        continue;
+      }
+
+      const body = `${generated.hook}\n\n${generated.caption}\n\n${generated.cta}`.trim();
+      await updateDraft(deps, { organisationId: job.organisation_id, id: draft.id, title: draft.title, contentType: draft.contentType, categoryId: draft.category?.id ?? "", campaignId: job.campaign_id, summary: draft.summary ?? "", body, dueAt: draft.dueAt ?? "", reviewerIds: draft.reviewerIds, priority: draft.priority, reviewDeadline: draft.reviewDeadline ?? "", hashtags: validation.hashtags, changeSummary: `${force ? "Awo Distribution Intelligence v2 re-optimised" : "Awo distribution-intelligence optimised"} Week ${slot.weekNumber} for ${slot.platform}; deterministic output validation passed.` });
+      await deps.content.updateStatus(job.organisation_id, draft.id, "needs_review", job.requested_by);
+      if (attempt > 1) logAwo("distribution_validation_recovered", { jobId: job.id, draftId: draft.id, weekNumber: slot.weekNumber, platform: slot.platform, attempt });
+      return { skipped: false, error: null as string | null };
+    }
+
+    throw new Error(`Distribution output failed validation after ${MAX_VALIDATION_ATTEMPTS} attempts: ${validationErrors.join("; ")}`);
   } catch (error) { return { skipped: false, error: error instanceof Error ? error.message : String(error) }; }
 }
 
@@ -89,7 +107,7 @@ async function processJob(job: Job, client: ReturnType<typeof createAdminClient>
   let failed = 0;
   const failures: string[] = [];
   await setJob(db, job.id, { total_posts: schedule.length, completed_posts: completed, failed_posts: 0, locked_at: new Date().toISOString() });
-  logAwo("job_started", { jobId: job.id, campaignId: job.campaign_id, mode: job.mode ?? "unfinished", total: schedule.length, alreadyCompleted: completed, concurrency: CONCURRENCY });
+  logAwo("job_started", { jobId: job.id, campaignId: job.campaign_id, mode: job.mode ?? "unfinished", total: schedule.length, alreadyCompleted: completed, concurrency: CONCURRENCY, validationAttempts: MAX_VALIDATION_ATTEMPTS });
 
   const pending = force ? schedule : schedule.filter((slot, index) => { const draft = currentDrafts[index]; return !(draft && draft.body.trim() && draft.hashtags.length); });
   for (let offset = 0; offset < pending.length && !shuttingDown; offset += CONCURRENCY) {
