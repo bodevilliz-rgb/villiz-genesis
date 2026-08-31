@@ -26,15 +26,28 @@ type Row = {
   finished_at: string | null;
 };
 
+type QueryResult = { data: Row | null; error: { message: string } | null };
+type Reader = {
+  from: (table: "awo_campaign_jobs") => {
+    select: (columns: string) => {
+      eq: (column: "campaign_id", value: string) => {
+        order: (column: "created_at", options: { ascending: boolean }) => {
+          limit: (count: number) => { maybeSingle: () => PromiseLike<QueryResult> };
+        };
+      };
+    };
+  };
+};
+
 export async function getLatestCampaignAwoJob(campaignId: string): Promise<CampaignAwoJobView | null> {
-  const db = createAdminClient();
+  const db = createAdminClient() as unknown as Reader;
   const { data, error } = await db
     .from("awo_campaign_jobs")
     .select("id,campaign_id,status,total_posts,completed_posts,failed_posts,last_error,created_at,started_at,finished_at")
     .eq("campaign_id", campaignId)
     .order("created_at", { ascending: false })
     .limit(1)
-    .maybeSingle<Row>();
+    .maybeSingle();
 
   if (error || !data) return null;
   return {
