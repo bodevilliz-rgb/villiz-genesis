@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireContext } from "../container";
 import { createAdminClient } from "@/infrastructure/supabase/admin-client";
 import { canWriteContent } from "@/core/domain/entities/identity";
+import { createDraft, createGenerationRequest } from "@/core/application/use-cases/content";
 import { errorState, successState, type ActionState } from "../action-result";
 import { routes } from "@/lib/routes";
 import type { CampaignPlatform } from "@/core/domain/entities/campaign";
@@ -44,12 +45,22 @@ type CampaignScheduleRow = {
   updated_at: string;
 };
 
+type SavedScheduleSlot = CampaignScheduleRow & {
+  id: string;
+  draft_id: string | null;
+};
+
 type ScheduleTableWriter = {
   from: (relation: "campaign_schedule_slots") => {
     upsert: (
       rows: CampaignScheduleRow[],
       options: { onConflict: string },
-    ) => PromiseLike<{ error: { message: string } | null }>;
+    ) => {
+      select: (columns: string) => PromiseLike<{ data: SavedScheduleSlot[] | null; error: { message: string } | null }>;
+    };
+    update: (values: { draft_id: string; status: "ready"; updated_at: string }) => {
+      eq: (column: "id", value: string) => PromiseLike<{ error: { message: string } | null }>;
+    };
   };
 };
 
@@ -116,16 +127,69 @@ export async function buildCampaignScheduleAction(input: CampaignBuilderInput): 
     }
 
     // The migration in this branch introduces campaign_schedule_slots. The generated
-    // database contract is refreshed only after the migration is applied, so this
-    // narrow structural writer keeps CI type-safe without weakening the global client.
+    // database contract is refreshed after migration application; keep the escape hatch
+    // narrow to this table so the rest of Genesis remains fully generated/type-checked.
     const scheduleWriter = createAdminClient() as unknown as ScheduleTableWriter;
-    const { error } = await scheduleWriter
+    const { data: slots, error } = await scheduleWriter
       .from("campaign_schedule_slots")
-      .upsert(rows, { onConflict: "campaign_id,week_number,platform" });
+      .upsert(rows, { onConflict: "campaign_id,week_number,platform" })
+      .select("id,organisation_id,campaign_id,asset_id,week_number,platform,scheduled_date,scheduled_time,timezone,status,created_by,updated_at,draft_id");
     if (error) throw new Error(`Campaign schedule could not be saved: ${error.message}`);
+    if (!slots) throw new Error("Campaign schedule was saved but could not be prepared for Awo.");
+
+    const contentDeps = {
+      actor: context.actor,
+      content: context.content,
+      membrain: context.membrain,
+      organisations: context.organisations,
+    };
+
+    let preparedDrafts = 0;
+    for (const slot of slots) {
+      if (slot.draft_id) continue;
+
+      const draft = await createDraft(contentDeps, {
+        organisationId: input.organisationId,
+        title: `${campaign.name} — Week ${slot.week_number} — ${slot.platform}`,
+        contentType: "social_post",
+        campaignId: input.campaignId,
+        summary: `Campaign Builder slot for ${slot.platform}, week ${slot.week_number}, scheduled ${slot.scheduled_date} ${slot.scheduled_time} ${slot.timezone}.`,
+        body: "",
+        hashtags: [],
+      });
+
+      if (slot.asset_id) {
+        await context.media.attachToDraft(draft.id, slot.asset_id, context.actor.id);
+      }
+
+      await createGenerationRequest(contentDeps, {
+        organisationId: input.organisationId,
+        draftId: draft.id,
+        brief: [
+          `Prepare Week ${slot.week_number} of the campaign “${campaign.name}” for ${slot.platform}.`,
+          campaign.objective ? `Campaign objective: ${campaign.objective}.` : "",
+          campaign.primaryCTA ? `Primary CTA: ${campaign.primaryCTA}.` : "",
+          "Use the organisation MemBrain and current Market Intelligence evidence when Awo generates the platform-specific caption, hook, CTA and discovery strategy.",
+          "The post must pass the Audience Distribution Gate before approval or scheduling.",
+        ].filter(Boolean).join(" "),
+        targetAudience: campaign.targetAudience ?? "",
+        tone: "Use the approved brand voice and platform-appropriate delivery.",
+        contentPillarCategoryId: "",
+      });
+
+      const updateResult = await scheduleWriter
+        .from("campaign_schedule_slots")
+        .update({ draft_id: draft.id, status: "ready", updated_at: new Date().toISOString() })
+        .eq("id", slot.id);
+      if (updateResult.error) throw new Error(`Campaign slot could not be linked to its Awo draft: ${updateResult.error.message}`);
+      preparedDrafts += 1;
+    }
 
     revalidatePath(routes.organisations.campaigns.detail(input.organisationId, input.campaignId));
-    return successState(`${input.weeks}-week schedule created across ${input.platforms.length} platform${input.platforms.length === 1 ? "" : "s"}.`);
+    revalidatePath(routes.organisations.content.index(input.organisationId));
+    return successState(
+      `${input.weeks}-week schedule created across ${input.platforms.length} platform${input.platforms.length === 1 ? "" : "s"}. ${preparedDrafts} platform-specific draft${preparedDrafts === 1 ? "" : "s"} prepared for Awo, Market Intelligence and Growth tracking.`,
+    );
   } catch (error) {
     return errorState(error);
   }
