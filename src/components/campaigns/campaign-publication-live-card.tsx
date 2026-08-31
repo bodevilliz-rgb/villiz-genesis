@@ -41,7 +41,9 @@ export function CampaignPublicationLiveCard({ weekNumber, scheduledDate, schedul
 function formatDuration(ms:number){ const total=Math.floor(ms/60000); const h=Math.floor(total/60); const m=total%60; return h>0?`${h}h ${m}m`:`${Math.max(m,0)}m`; }
 
 function zonedWallTimeToUtc(date:string,time:string,timeZone:string){
-  const [y,mo,d]=date.split("-").map(Number); const [h,mi,s=0]=time.split(":").map(Number); let guess=Date.UTC(y,mo-1,d,h,mi,s);
+  const [y=1970, mo=1, d=1] = date.split("-").map(Number);
+  const [h=0, mi=0, s=0] = time.split(":").map(Number);
+  let guess=Date.UTC(y,mo-1,d,h,mi,s);
   for(let i=0;i<3;i++){ const parts=new Intl.DateTimeFormat("en-GB",{timeZone,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"}).formatToParts(new Date(guess)); const get=(t:string)=>Number(parts.find(p=>p.type===t)?.value ?? 0); const rendered=Date.UTC(get("year"),get("month")-1,get("day"),get("hour"),get("minute"),get("second")); const wanted=Date.UTC(y,mo-1,d,h,mi,s); guess += wanted-rendered; }
   return guess;
 }
