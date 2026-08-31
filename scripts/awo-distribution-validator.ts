@@ -10,6 +10,16 @@ const GENERIC_VANITY_TAGS = new Set([
 ]);
 
 const HASHTAG_PATTERN = /^[A-Za-z0-9_]+$/;
+const STOP_WORDS = new Set([
+  "about", "after", "again", "also", "and", "are", "brand", "business", "campaign", "client", "content", "from", "have", "into", "more", "only", "posts", "that", "the", "their", "them", "this", "tone", "using", "with", "your"
+]);
+
+export type DistributionValidationContext = {
+  campaignName?: string;
+  brief?: string;
+  targetAudience?: string;
+  evidenceText?: string;
+};
 
 export type DistributionValidationInput = {
   caption: string;
@@ -22,13 +32,49 @@ export type DistributionValidationResult = {
   ok: boolean;
   errors: string[];
   hashtags: string[];
+  portfolioScore: number;
 };
 
 function normaliseHashtag(value: string): string {
   return value.trim().replace(/^#+/, "");
 }
 
-export function validateDistributionOutput(input: DistributionValidationInput): DistributionValidationResult {
+function compact(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function significantTokens(value: string): string[] {
+  return [...new Set(value.toLowerCase().match(/[a-z0-9]+/g)?.filter((token) => token.length >= 4 && !STOP_WORDS.has(token)) ?? [])];
+}
+
+function tagMatchesAny(tag: string, tokens: string[]): boolean {
+  const value = compact(tag);
+  return tokens.some((token) => value.includes(compact(token)));
+}
+
+function extractLabelValues(text: string, labels: string[]): string[] {
+  const values: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    for (const label of labels) {
+      const match = line.match(new RegExp(`^\\s*${label}\\s*[:=-]\\s*(.+)$`, "i"));
+      if (match?.[1]) values.push(match[1].trim());
+    }
+  }
+  return values;
+}
+
+function deriveLocalityTokens(evidence: string): string[] {
+  const labelled = extractLabelValues(evidence, ["location", "locations", "service area", "service areas", "geography", "market", "markets", "based in"]);
+  const explicit: string[] = [];
+  if (/\b(?:uk|u\.k\.|united kingdom)\b/i.test(evidence)) explicit.push("uk", "unitedkingdom");
+  return [...new Set([...labelled.flatMap(significantTokens), ...explicit])];
+}
+
+function deriveBrandTokens(evidence: string): string[] {
+  return [...new Set(extractLabelValues(evidence, ["brand", "brand name", "business name", "client"]).flatMap(significantTokens))];
+}
+
+export function validateDistributionOutput(input: DistributionValidationInput, context: DistributionValidationContext = {}): DistributionValidationResult {
   const errors: string[] = [];
   const hashtags = input.hashtags.map(normaliseHashtag).filter(Boolean);
 
@@ -53,5 +99,35 @@ export function validateDistributionOutput(input: DistributionValidationInput): 
     errors.push("Copy implies guaranteed algorithmic or performance results.");
   }
 
-  return { ok: errors.length === 0, errors, hashtags };
+  const evidence = context.evidenceText ?? "";
+  const briefTokens = significantTokens(context.brief ?? "");
+  const audienceTokens = significantTokens(context.targetAudience ?? "");
+  const brandTokens = deriveBrandTokens(evidence);
+  const localityTokens = deriveLocalityTokens(evidence);
+  const evidenceTokens = significantTokens(`${context.brief ?? ""} ${context.targetAudience ?? ""} ${evidence}`);
+
+  const evidenceAligned = hashtags.filter((tag) => tagMatchesAny(tag, evidenceTokens)).length;
+  const serviceAligned = briefTokens.length === 0 || hashtags.some((tag) => tagMatchesAny(tag, briefTokens));
+  const audienceAligned = audienceTokens.length === 0 || hashtags.some((tag) => tagMatchesAny(tag, audienceTokens));
+  const brandAligned = brandTokens.length === 0 || hashtags.some((tag) => tagMatchesAny(tag, brandTokens));
+  const localityAligned = localityTokens.length === 0 || hashtags.some((tag) => tagMatchesAny(tag, localityTokens));
+
+  if (evidenceTokens.length > 0 && evidenceAligned < Math.min(3, hashtags.length)) {
+    errors.push("Discovery portfolio is too weakly grounded in supplied campaign/MemBrain evidence.");
+  }
+  if (!serviceAligned) errors.push("Discovery portfolio is missing a service/topic-intent hashtag grounded in the brief.");
+  if (!audienceAligned) errors.push("Discovery portfolio is missing an audience/problem-intent hashtag grounded in the target audience.");
+  if (!brandAligned) errors.push("Discovery portfolio is missing a verified brand/owned discovery term.");
+  if (!localityAligned) errors.push("Verified locality exists in MemBrain evidence but the discovery portfolio contains no locality signal.");
+
+  const applicable = [brandTokens.length > 0, briefTokens.length > 0, audienceTokens.length > 0, localityTokens.length > 0];
+  const passed = [brandAligned, serviceAligned, audienceAligned, localityAligned];
+  const applicableCount = applicable.filter(Boolean).length;
+  const passedCount = applicable.reduce((count, isApplicable, index) => count + (isApplicable && passed[index] ? 1 : 0), 0);
+  const groundingScore = evidenceTokens.length === 0 ? 100 : Math.min(100, Math.round((evidenceAligned / Math.max(3, Math.min(hashtags.length, 6))) * 100));
+  const portfolioScore = applicableCount === 0 ? groundingScore : Math.round((((passedCount / applicableCount) * 70) + (groundingScore * 0.3)));
+
+  if (portfolioScore < 85) errors.push(`Discovery portfolio score ${portfolioScore}/100 is below the 85/100 generation gate.`);
+
+  return { ok: errors.length === 0, errors, hashtags, portfolioScore };
 }
