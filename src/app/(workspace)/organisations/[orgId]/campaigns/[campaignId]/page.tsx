@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CampaignTimeline } from "@/components/campaigns/campaign-timeline";
 import { CampaignArchiveButton } from "@/components/campaigns/campaign-archive-button";
+import { CampaignBulkScheduler } from "@/components/campaigns/campaign-bulk-scheduler";
 import { canEditOrganisation, canWriteContent } from "@/core/domain/entities/identity";
 import {
   CAMPAIGN_PLATFORM_LABELS,
@@ -140,6 +141,16 @@ export default async function CampaignDetailPage({
             organisationId={orgId}
             campaignId={campaignId}
             allAssets={allAssets}
+            attachedAssets={attachedAssets}
+            signedUrls={signedUrls}
+            canWrite={canWrite}
+          />
+
+          <CampaignBulkScheduler
+            organisationId={orgId}
+            campaignId={campaignId}
+            campaignPlatforms={campaign.platforms}
+            campaignStartDate={campaign.startDate}
             attachedAssets={attachedAssets}
             signedUrls={signedUrls}
             canWrite={canWrite}
