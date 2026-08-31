@@ -30,6 +30,29 @@ export interface CampaignBuilderInput {
   timezone: string;
 }
 
+type CampaignScheduleRow = {
+  organisation_id: string;
+  campaign_id: string;
+  asset_id: string | undefined;
+  week_number: number;
+  platform: CampaignPlatform;
+  scheduled_date: string;
+  scheduled_time: string;
+  timezone: string;
+  status: "planned";
+  created_by: string;
+  updated_at: string;
+};
+
+type ScheduleTableWriter = {
+  from: (relation: "campaign_schedule_slots") => {
+    upsert: (
+      rows: CampaignScheduleRow[],
+      options: { onConflict: string },
+    ) => PromiseLike<{ error: { message: string } | null }>;
+  };
+};
+
 function addDays(dateOnly: string, days: number): string {
   const [year, month, day] = dateOnly.split("-").map(Number);
   if (!year || !month || !day) throw new Error("Choose a valid first publishing date.");
@@ -71,7 +94,7 @@ export async function buildCampaignScheduleAction(input: CampaignBuilderInput): 
       throw new Error("Every scheduled image must already be linked to this campaign.");
     }
 
-    const rows = [];
+    const rows: CampaignScheduleRow[] = [];
     for (let week = 1; week <= input.weeks; week += 1) {
       const assetId = input.assetIds[week - 1];
       const scheduledDate = addDays(input.firstDate, (week - 1) * 7);
@@ -92,8 +115,11 @@ export async function buildCampaignScheduleAction(input: CampaignBuilderInput): 
       }
     }
 
-    const admin = createAdminClient();
-    const { error } = await admin
+    // The migration in this branch introduces campaign_schedule_slots. The generated
+    // database contract is refreshed only after the migration is applied, so this
+    // narrow structural writer keeps CI type-safe without weakening the global client.
+    const scheduleWriter = createAdminClient() as unknown as ScheduleTableWriter;
+    const { error } = await scheduleWriter
       .from("campaign_schedule_slots")
       .upsert(rows, { onConflict: "campaign_id,week_number,platform" });
     if (error) throw new Error(`Campaign schedule could not be saved: ${error.message}`);
