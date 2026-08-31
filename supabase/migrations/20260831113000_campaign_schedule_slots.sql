@@ -1,5 +1,5 @@
 create table if not exists public.campaign_schedule_slots (
-  id uuid primary key default gen_random_uuid(),
+  id uuid primary key default extensions.gen_random_uuid(),
   organisation_id uuid not null references public.organisations(id) on delete cascade,
   campaign_id uuid not null references public.campaigns(id) on delete cascade,
   asset_id uuid references public.media_assets(id) on delete set null,
@@ -22,18 +22,18 @@ create index if not exists campaign_schedule_slots_campaign_idx
 create index if not exists campaign_schedule_slots_org_idx
   on public.campaign_schedule_slots(organisation_id, scheduled_date);
 
+drop trigger if exists campaign_schedule_slots_touch_updated_at on public.campaign_schedule_slots;
+create trigger campaign_schedule_slots_touch_updated_at
+  before update on public.campaign_schedule_slots
+  for each row execute function app.touch_updated_at();
+
 alter table public.campaign_schedule_slots enable row level security;
 
-create policy "campaign schedule members can read"
-on public.campaign_schedule_slots for select
-to authenticated
-using (
-  exists (
-    select 1 from public.organisation_members om
-    where om.organisation_id = campaign_schedule_slots.organisation_id
-      and om.profile_id = auth.uid()
-  )
-  or exists (
-    select 1 from public.profiles p where p.id = auth.uid() and p.is_platform_admin = true
-  )
-);
+create policy campaign_schedule_slots_select on public.campaign_schedule_slots
+  for select to authenticated
+  using (app.is_org_member(organisation_id));
+
+create policy campaign_schedule_slots_write on public.campaign_schedule_slots
+  for all to authenticated
+  using (app.can_write_org(organisation_id))
+  with check (app.can_write_org(organisation_id));
