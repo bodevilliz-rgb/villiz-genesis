@@ -26,7 +26,6 @@ services:
         sync: false
       - key: BLOTATO_API_KEY
         sync: false
-      # Awo campaign generation. Use the same provider credential as Genesis.
       - key: OPENAI_API_KEY
         sync: false
 
@@ -36,7 +35,7 @@ services:
       - key: BLOTATO_LIVE_PUBLISHING_ENABLED
         value: "false"
       - key: AI_PROVIDER
-        value: "openai"
+        value: "gemini"
       - key: AWO_WORKER_CONCURRENCY
         value: "3"
       - key: AWO_WORKER_POLL_INTERVAL_MS
