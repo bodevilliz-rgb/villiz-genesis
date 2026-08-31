@@ -14,6 +14,7 @@ import { CampaignBulkScheduler } from "@/components/campaigns/campaign-bulk-sche
 import { CampaignAssetsPanel } from "@/components/campaigns/campaign-assets-panel";
 import { CampaignAwoActions } from "@/components/campaigns/campaign-awo-actions";
 import { CampaignPublicationLiveCard } from "@/components/campaigns/campaign-publication-live-card";
+import { CampaignReviewGrid } from "@/components/campaigns/campaign-review-grid";
 import { canEditOrganisation, canWriteContent } from "@/core/domain/entities/identity";
 import { CAMPAIGN_PLATFORM_LABELS, CAMPAIGN_STATUS_LABELS, CAMPAIGN_STATUS_TONE } from "@/core/domain/entities/campaign";
 import { routes } from "@/lib/routes";
@@ -62,6 +63,27 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
       return new RegExp(`week[\\s_-]*0*${weekNumber}(?:\\D|$)`, "i").test(name);
     }) ?? attachedAssets[weekNumber - 1] ?? null,
   }));
+  const reviewWeeks = weekGroups.map(group => {
+    const asset = group.asset;
+    const slots = group.slots.map(slot => {
+      const draft = campaignDrafts.find(item => item?.id === slot.draftId) ?? null;
+      return {
+        id: slot.id,
+        platformLabel: CAMPAIGN_PLATFORM_LABELS[slot.platform],
+        draftId: slot.draftId,
+        draftStatus: draft?.status ?? null,
+        body: draft?.body ?? "",
+        hashtags: draft?.hashtags ?? [],
+      };
+    });
+    return {
+      weekNumber: group.weekNumber,
+      assetLabel: asset?.title || asset?.fileName || "No asset",
+      imageUrl: asset ? signedUrls[asset.storagePath] : undefined,
+      optimised: slots.length === group.slots.length && slots.every(slot => slot.body.trim() && slot.hashtags.length),
+      slots,
+    };
+  });
 
   return <div className="flex flex-col gap-6">
     <PageHeader eyebrow="Campaign command centre" title={campaign.name} description={campaign.objective ?? "Plan, optimise, approve and publish this campaign from one workspace."} actions={<div className="flex flex-wrap items-center gap-2">
@@ -108,10 +130,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
 
     {weekOne.length ? <section className="rounded-xl border border-primary/30 bg-primary/5 p-5"><div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-[11px] font-medium uppercase tracking-[0.16em] text-primary">Today · Week 1</p><h3 className="mt-1 text-lg font-semibold">Publishing at {weekOne[0]?.scheduledTime.slice(0,5)} · {weekOne[0]?.timezone}</h3><p className="mt-1 text-sm text-muted-foreground">{weekOne.map(s => CAMPAIGN_PLATFORM_LABELS[s.platform]).join(" + ")} · {optimisedCount ? "Awo optimisation in progress / ready for review" : "Prepared for Awo"}</p></div><Badge tone={optimisedCount >= weekOne.length ? "positive" : "muted"}>{optimisedCount >= weekOne.length ? "Optimised" : "Awo prepared"}</Badge></div></section> : null}
 
-    <section className="rounded-xl border border-border bg-card">
-      <div className="flex flex-col gap-3 border-b border-border p-5 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="text-base font-semibold">Campaign visual timeline</h3><p className="mt-1 text-xs text-muted-foreground">Artwork, platforms and operational status for every campaign week.</p></div><span className="text-xs text-muted-foreground">{weekGroups.length} weeks · {schedule.length} platform slots</span></div>
-      <div className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-5">{weekGroups.map(group => { const asset = group.asset; const src = asset ? signedUrls[asset.storagePath] : undefined; const groupDrafts = group.slots.map(slot => campaignDrafts.find(d => d?.id === slot.draftId)).filter(Boolean); const groupOptimised = groupDrafts.length === group.slots.length && groupDrafts.every(d => d!.body.trim() && d!.hashtags.length); return <div key={group.weekNumber} className="overflow-hidden rounded-lg border border-border bg-muted/10"><div className="aspect-square bg-muted/30">{src ? <img src={src} alt={`Week ${group.weekNumber}`} className="h-full w-full object-cover" /> : null}</div><div className="p-3"><div className="flex items-center justify-between gap-2"><p className="text-xs font-semibold">Week {group.weekNumber}</p><Badge tone={groupOptimised ? "positive" : "muted"}>{groupOptimised ? "Optimised" : "Prepared"}</Badge></div><p className="mt-1 truncate text-[11px] text-muted-foreground">{asset?.title || asset?.fileName || "No asset"}</p><p className="mt-2 text-[11px] text-muted-foreground">{group.slots.map(s => CAMPAIGN_PLATFORM_LABELS[s.platform]).join(" · ")}</p></div></div>; })}</div>
-    </section>
+    <CampaignReviewGrid organisationId={orgId} weeks={reviewWeeks} />
 
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,.65fr)]">
       <div className="flex flex-col gap-6">

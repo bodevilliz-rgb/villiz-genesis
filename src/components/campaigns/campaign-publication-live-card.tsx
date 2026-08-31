@@ -33,8 +33,8 @@ export function CampaignPublicationLiveCard({ weekNumber, scheduledDate, schedul
     <p className="mt-3 text-xs font-medium">{detail}</p>
     <div className="mt-4 grid grid-cols-2 gap-2">{slots.map(slot => <div key={slot.platformLabel} className="rounded-md border border-border bg-background/60 p-3"><p className="text-xs font-semibold">{slot.platformLabel}</p><p className="mt-1 text-[11px] text-muted-foreground">{slot.draftStatus ?? slot.status}</p></div>)}</div>
     <div className="mt-5">{onOptimise}</div>
-    <Button size="sm" variant="secondary" className="mt-3" disabled={!fullyOptimised}>Approve all</Button>
-    <p className="mt-3 text-[11px] text-muted-foreground">This panel updates every second and refreshes server publication state every 15 seconds.</p>
+    {fullyApproved ? <Button size="sm" variant="secondary" className="mt-3" disabled>Week approved</Button> : <Button size="sm" variant="secondary" className="mt-3" asChild><a href="#campaign-review">Review posts before approval</a></Button>}
+    <p className="mt-3 text-[11px] text-muted-foreground">Approval is completed per platform post in the campaign review workspace. This panel refreshes publication state every 15 seconds.</p>
   </div>;
 }
 
