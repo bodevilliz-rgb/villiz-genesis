@@ -16,6 +16,8 @@ const STALE_RECOVERY_INTERVAL_MS = Number(process.env.AWO_WORKER_STALE_RECOVERY_
 const STALE_AFTER_SECONDS = Number(process.env.AWO_WORKER_STALE_AFTER_SECONDS ?? 900);
 const CONCURRENCY = Math.max(1, Math.min(Number(process.env.AWO_WORKER_CONCURRENCY ?? 3), 6));
 const MAX_VALIDATION_ATTEMPTS = Math.max(1, Math.min(Number(process.env.AWO_DISTRIBUTION_VALIDATION_ATTEMPTS ?? 3), 5));
+const MAX_PROVIDER_ATTEMPTS = Math.max(1, Math.min(Number(process.env.AWO_PROVIDER_RETRY_ATTEMPTS ?? 4), 6));
+const PROVIDER_RETRY_BASE_MS = Math.max(250, Math.min(Number(process.env.AWO_PROVIDER_RETRY_BASE_MS ?? 1500), 15000));
 const WORKER_ID = `awo-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 
 const generatedSocialPostSchema = z.object({
@@ -47,9 +49,34 @@ async function setJob(db: JobDb, id: string, values: Record<string, unknown>) { 
 async function claimNext(db: JobDb): Promise<Job | null> { const result = await db.rpc("claim_next_awo_campaign_job", { p_worker_id: WORKER_ID }); if (result.error) throw new Error(result.error.message); const rows = Array.isArray(result.data) ? result.data as Job[] : []; return rows[0] ?? null; }
 async function recoverStale(db: JobDb) { const result = await db.rpc("recover_stale_awo_campaign_jobs", { p_stale_seconds: STALE_AFTER_SECONDS }); if (result.error) throw new Error(result.error.message); const count = typeof result.data === "number" ? result.data : 0; if (count > 0) logAwo("stale_jobs_recovered", { count }); }
 function platformInstruction(platform: string): string { if (platform === "tiktok") return "TikTok: lead with a searchable natural-language hook; use terms a local customer would type into search; favour relevance and specificity over hashtag volume."; if (platform === "instagram") return "Instagram: strong opening line, skimmable caption, searchable service/location language and a deliberate discovery hashtag mix."; return `Write specifically for ${platform}, using its native search and discovery behaviour.`; }
+function sleep(ms: number) { return new Promise<void>((resolve) => setTimeout(resolve, ms)); }
 
 export function shouldInvalidateReoptimisationOutput(force: boolean, body: string, hashtags: string[]): boolean {
   return force && Boolean(body.trim() || hashtags.length);
+}
+
+export function isRetryableProviderError(error: unknown): boolean {
+  const message = (error instanceof Error ? `${error.name}: ${error.message}` : String(error)).toLowerCase();
+  return [
+    "high demand",
+    "temporarily",
+    "try again later",
+    "rate limit",
+    "429",
+    "503",
+    "502",
+    "504",
+    "timeout",
+    "timed out",
+    "no object generated",
+    "response did not match schema",
+    "ai_apicallerror",
+  ].some((token) => message.includes(token));
+}
+
+export function providerRetryDelayMs(attempt: number, baseMs = PROVIDER_RETRY_BASE_MS): number {
+  const exponent = Math.max(0, attempt - 1);
+  return Math.min(baseMs * (2 ** exponent), 30000);
 }
 
 const distributionInstruction = `DISTRIBUTION INTELLIGENCE GATE — mandatory:
@@ -100,7 +127,32 @@ async function optimiseSlot(job: Job, slot: Awaited<ReturnType<typeof getCampaig
       const repairPrompt = validationErrors.length
         ? `${basePrompt}\n\nYour previous output failed deterministic validation for these reasons:\n- ${validationErrors.join("\n- ")}\nRegenerate from scratch and correct every failure. The Campaign Distribution Profile is authoritative.`
         : basePrompt;
-      const generated = await ai.generateObject(repairPrompt, generatedSocialPostSchema, { systemPrompt: "Create evidence-grounded, search-aware social content. Apply the distribution intelligence gate and shared Campaign Distribution Profile. Follow supplied brand context and campaign objective. Never invent offers, prices, locations, testimonials, credentials, facts, or guarantees of algorithmic reach. Hashtag tokens must contain only ASCII letters, digits and underscores.", temperature: attempt === 1 ? 0.45 : 0.25 });
+
+      let generated: z.infer<typeof generatedSocialPostSchema> | null = null;
+      let lastProviderError: unknown = null;
+      for (let providerAttempt = 1; providerAttempt <= MAX_PROVIDER_ATTEMPTS; providerAttempt += 1) {
+        try {
+          const schemaReminder = providerAttempt > 1
+            ? "\n\nSTRUCTURED OUTPUT RECOVERY: Return exactly the requested object fields: caption (string), hashtags (array of strings), hook (string), cta (string). Do not wrap the object in prose or markdown."
+            : "";
+          generated = await ai.generateObject(`${repairPrompt}${schemaReminder}`, generatedSocialPostSchema, {
+            systemPrompt: "Create evidence-grounded, search-aware social content. Apply the distribution intelligence gate and shared Campaign Distribution Profile. Follow supplied brand context and campaign objective. Never invent offers, prices, locations, testimonials, credentials, facts, or guarantees of algorithmic reach. Hashtag tokens must contain only ASCII letters, digits and underscores.",
+            temperature: attempt === 1 ? 0.45 : 0.25,
+          });
+          if (providerAttempt > 1) logAwo("provider_retry_recovered", { jobId: job.id, draftId: draft.id, weekNumber: slot.weekNumber, platform: slot.platform, providerAttempt });
+          break;
+        } catch (providerError) {
+          lastProviderError = providerError;
+          const retryable = isRetryableProviderError(providerError);
+          logAwo("provider_generation_error", { jobId: job.id, draftId: draft.id, weekNumber: slot.weekNumber, platform: slot.platform, validationAttempt: attempt, providerAttempt, retryable, error: providerError instanceof Error ? providerError.message : String(providerError) });
+          if (!retryable || providerAttempt >= MAX_PROVIDER_ATTEMPTS) throw providerError;
+          const delayMs = providerRetryDelayMs(providerAttempt);
+          logAwo("provider_retry_scheduled", { jobId: job.id, draftId: draft.id, weekNumber: slot.weekNumber, platform: slot.platform, providerAttempt, delayMs });
+          await sleep(delayMs);
+        }
+      }
+      if (!generated) throw lastProviderError instanceof Error ? lastProviderError : new Error("Provider failed to generate structured campaign content.");
+
       const validation = validateDistributionOutput(generated, {
         campaignName,
         brief: request.brief,
@@ -153,7 +205,7 @@ async function processJob(job: Job, client: ReturnType<typeof createAdminClient>
   let failed = 0;
   const failures: string[] = [];
   await setJob(db, job.id, { total_posts: schedule.length, completed_posts: completed, failed_posts: 0, locked_at: new Date().toISOString() });
-  logAwo("job_started", { jobId: job.id, campaignId: job.campaign_id, mode: job.mode ?? "unfinished", total: schedule.length, alreadyCompleted: completed, concurrency: CONCURRENCY, validationAttempts: MAX_VALIDATION_ATTEMPTS, localityRequired: profile.localityRequired });
+  logAwo("job_started", { jobId: job.id, campaignId: job.campaign_id, mode: job.mode ?? "unfinished", total: schedule.length, alreadyCompleted: completed, concurrency: CONCURRENCY, validationAttempts: MAX_VALIDATION_ATTEMPTS, providerAttempts: MAX_PROVIDER_ATTEMPTS, localityRequired: profile.localityRequired });
 
   const pending = force ? schedule : schedule.filter((slot, index) => { const draft = currentDrafts[index]; return !(draft && draft.body.trim() && draft.hashtags.length); });
   for (let offset = 0; offset < pending.length && !shuttingDown; offset += CONCURRENCY) {
@@ -176,5 +228,5 @@ async function processJob(job: Job, client: ReturnType<typeof createAdminClient>
   await setJob(db, job.id, { status: finalStatus, completed_posts: finalCompleted, failed_posts: Math.max(failed, schedule.length - finalCompleted), last_error: finalStatus === "completed" ? null : failures.slice(-5).join(" | ") || "Some posts remain unfinished.", finished_at: new Date().toISOString(), locked_at: null });
   logAwo("job_finished", { jobId: job.id, mode: job.mode ?? "unfinished", status: finalStatus, completed: finalCompleted, total: schedule.length, durationMs: Date.now() - started });
 }
-function sleep(ms: number) { return new Promise<void>((resolve) => setTimeout(resolve, ms)); }
-export async function runAwoCampaignWorker() { const client = createAdminClient(); const db = client as unknown as JobDb; let lastRecovery = 0; logAwo("worker_started", { pollIntervalMs: POLL_INTERVAL_MS, concurrency: CONCURRENCY }); const stop = () => { shuttingDown = true; }; process.once("SIGTERM", stop); process.once("SIGINT", stop); while (!shuttingDown) { try { if (Date.now() - lastRecovery >= STALE_RECOVERY_INTERVAL_MS) { await recoverStale(db); lastRecovery = Date.now(); } const job = await claimNext(db); if (!job) { await sleep(POLL_INTERVAL_MS); continue; } await processJob(job, client, db); } catch (error) { logAwo("worker_error", { error: error instanceof Error ? error.message : String(error) }); await sleep(Math.max(POLL_INTERVAL_MS, 5000)); } } logAwo("worker_stopped"); }
+
+export async function runAwoCampaignWorker() { const client = createAdminClient(); const db = client as unknown as JobDb; let lastRecovery = 0; logAwo("worker_started", { pollIntervalMs: POLL_INTERVAL_MS, concurrency: CONCURRENCY, providerAttempts: MAX_PROVIDER_ATTEMPTS }); const stop = () => { shuttingDown = true; }; process.once("SIGTERM", stop); process.once("SIGINT", stop); while (!shuttingDown) { try { if (Date.now() - lastRecovery >= STALE_RECOVERY_INTERVAL_MS) { await recoverStale(db); lastRecovery = Date.now(); } const job = await claimNext(db); if (!job) { await sleep(POLL_INTERVAL_MS); continue; } await processJob(job, client, db); } catch (error) { logAwo("worker_error", { error: error instanceof Error ? error.message : String(error) }); await sleep(Math.max(POLL_INTERVAL_MS, 5000)); } } logAwo("worker_stopped"); }
