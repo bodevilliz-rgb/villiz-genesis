@@ -9,6 +9,7 @@ import { getCampaignSchedule } from "../src/server/queries/campaign-schedule";
 import { getDraft, getLatestGenerationRequest, updateDraft } from "../src/core/application/use-cases/content";
 import type { Actor } from "../src/core/domain/entities/identity";
 import { validateDistributionOutput } from "./awo-distribution-validator";
+import { distributionProfilePrompt, resolveCampaignDistributionProfile, type CampaignDistributionProfile } from "./awo-campaign-distribution-profile";
 
 const POLL_INTERVAL_MS = Number(process.env.AWO_WORKER_POLL_INTERVAL_MS ?? 2000);
 const STALE_RECOVERY_INTERVAL_MS = Number(process.env.AWO_WORKER_STALE_RECOVERY_INTERVAL_MS ?? 60000);
@@ -52,45 +53,46 @@ Build discovery deliberately; never treat hashtags as decoration. Infer ONLY fro
 1. Brand: include the verified brand name or branded discovery term where appropriate.
 2. Service intent: include specific terms describing the actual service/topic and customer search intent.
 3. Audience intent: reflect the supplied target audience and the problem, desire or occasion driving discovery.
-4. Locality: when a location/service area is explicitly present in supplied evidence, include useful city/area/region search language and local hashtags. NEVER invent a location.
+4. Locality: obey the shared Campaign Distribution Profile. If locality is required, every post must include at least one verified locality signal. If locality is not resolved, NEVER invent one.
 5. Platform search: make the caption itself searchable with natural-language keywords; hashtags supplement the caption rather than substitute for it.
-6. Hashtag portfolio: return 5–20 unique, genuinely relevant hashtags spanning brand, service/niche, audience/intent and verified locality when available. Use only ASCII letters, digits and underscores in hashtag tokens. Avoid generic high-volume stuffing (#viral, #fyp, #explorepage, #trending) unless the campaign brief explicitly requires one and it is strategically justified.
+6. Hashtag portfolio: return 5–20 unique, genuinely relevant hashtags spanning brand, service/niche, audience/intent and verified locality when required. Use only ASCII letters, digits and underscores in hashtag tokens. Avoid generic high-volume stuffing (#viral, #fyp, #explorepage, #trending) unless the campaign brief explicitly requires one and it is strategically justified.
 7. Conversion: CTA must match the campaign objective and must not invent an offer, price, booking method or availability.
-8. Quality gate: before returning, silently reject and rewrite any output whose discovery terms could fit almost any business, whose locality is fabricated, whose hashtag token contains unexpected scripts/symbols, or whose hashtags are mostly generic.
+8. Quality gate: before returning, silently reject and rewrite any output whose discovery terms could fit almost any business, whose locality conflicts with the Campaign Distribution Profile, whose hashtag token contains unexpected scripts/symbols, or whose hashtags are mostly generic.
 The goal is qualified discoverability and conversion probability, not vanity reach. Do not claim or imply guaranteed reach, ranking or algorithmic distribution.`;
 
-async function optimiseSlot(job: Job, slot: Awaited<ReturnType<typeof getCampaignSchedule>>[number], deps: ReturnType<typeof buildContentDeps>, campaignName: string, force: boolean) {
+async function optimiseSlot(job: Job, slot: Awaited<ReturnType<typeof getCampaignSchedule>>[number], deps: ReturnType<typeof buildContentDeps>, campaignName: string, force: boolean, profile: CampaignDistributionProfile) {
   if (!slot.draftId) return { skipped: true, error: null as string | null };
   try {
     const draft = await getDraft(deps, job.organisation_id, slot.draftId);
     if (!force && draft.body.trim() && draft.hashtags.length) return { skipped: true, error: null as string | null };
     const request = await getLatestGenerationRequest(deps, job.organisation_id, draft.id);
     if (!request) throw new Error("No Awo generation request exists for this draft.");
-    const basePrompt = [`You are Awo, the campaign intelligence writer for ${campaignName}.`, `Week ${slot.weekNumber}. Platform: ${slot.platform}.`, platformInstruction(slot.platform), distributionInstruction, request.brief, request.targetAudience ? `Target audience: ${request.targetAudience}.` : "", request.tone ? `Tone: ${request.tone}.` : "", `Brand and MemBrain context:\n${request.memBrainContextPrompt}`, force ? "This is an explicit Distribution Intelligence v2 re-optimisation. Improve the existing strategy rather than merely paraphrasing it." : "", "Return a platform-ready caption, unique hashtags, a hook and CTA. Every discovery choice must be traceable to supplied campaign or MemBrain context. Avoid fabricated claims."].filter(Boolean).join("\n\n");
+    const basePrompt = [`You are Awo, the campaign intelligence writer for ${campaignName}.`, `Week ${slot.weekNumber}. Platform: ${slot.platform}.`, platformInstruction(slot.platform), distributionInstruction, distributionProfilePrompt(profile), request.brief, request.targetAudience ? `Target audience: ${request.targetAudience}.` : "", request.tone ? `Tone: ${request.tone}.` : "", `Brand and MemBrain context:\n${request.memBrainContextPrompt}`, force ? "This is an explicit Distribution Intelligence v2 re-optimisation. Improve the existing strategy rather than merely paraphrasing it." : "", "Return a platform-ready caption, unique hashtags, a hook and CTA. Every discovery choice must be traceable to supplied campaign, MemBrain or the shared Campaign Distribution Profile. Avoid fabricated claims."].filter(Boolean).join("\n\n");
     const ai = getAIProvider();
     let validationErrors: string[] = [];
 
     for (let attempt = 1; attempt <= MAX_VALIDATION_ATTEMPTS; attempt += 1) {
       const repairPrompt = validationErrors.length
-        ? `${basePrompt}\n\nYour previous output failed deterministic validation for these reasons:\n- ${validationErrors.join("\n- ")}\nRegenerate from scratch and correct every failure.`
+        ? `${basePrompt}\n\nYour previous output failed deterministic validation for these reasons:\n- ${validationErrors.join("\n- ")}\nRegenerate from scratch and correct every failure. The Campaign Distribution Profile is authoritative.`
         : basePrompt;
-      const generated = await ai.generateObject(repairPrompt, generatedSocialPostSchema, { systemPrompt: "Create evidence-grounded, search-aware social content. Apply the distribution intelligence gate. Follow supplied brand context and campaign objective. Never invent offers, prices, locations, testimonials, credentials, facts, or guarantees of algorithmic reach. Hashtag tokens must contain only ASCII letters, digits and underscores.", temperature: attempt === 1 ? 0.45 : 0.25 });
+      const generated = await ai.generateObject(repairPrompt, generatedSocialPostSchema, { systemPrompt: "Create evidence-grounded, search-aware social content. Apply the distribution intelligence gate and shared Campaign Distribution Profile. Follow supplied brand context and campaign objective. Never invent offers, prices, locations, testimonials, credentials, facts, or guarantees of algorithmic reach. Hashtag tokens must contain only ASCII letters, digits and underscores.", temperature: attempt === 1 ? 0.45 : 0.25 });
       const validation = validateDistributionOutput(generated, {
         campaignName,
         brief: request.brief,
         targetAudience: request.targetAudience ?? "",
         evidenceText: request.memBrainContextPrompt,
+        profile,
       });
       if (!validation.ok) {
         validationErrors = validation.errors;
-        logAwo("distribution_validation_rejected", { jobId: job.id, draftId: draft.id, weekNumber: slot.weekNumber, platform: slot.platform, attempt, portfolioScore: validation.portfolioScore, errors: validation.errors });
+        logAwo("distribution_validation_rejected", { jobId: job.id, draftId: draft.id, weekNumber: slot.weekNumber, platform: slot.platform, attempt, portfolioScore: validation.portfolioScore, localityRequired: profile.localityRequired, errors: validation.errors });
         continue;
       }
 
       const body = `${generated.hook}\n\n${generated.caption}\n\n${generated.cta}`.trim();
-      await updateDraft(deps, { organisationId: job.organisation_id, id: draft.id, title: draft.title, contentType: draft.contentType, categoryId: draft.category?.id ?? "", campaignId: job.campaign_id, summary: draft.summary ?? "", body, dueAt: draft.dueAt ?? "", reviewerIds: draft.reviewerIds, priority: draft.priority, reviewDeadline: draft.reviewDeadline ?? "", hashtags: validation.hashtags, changeSummary: `${force ? "Awo Distribution Intelligence v2 re-optimised" : "Awo distribution-intelligence optimised"} Week ${slot.weekNumber} for ${slot.platform}; deterministic output validation passed at discovery portfolio ${validation.portfolioScore}/100.` });
+      await updateDraft(deps, { organisationId: job.organisation_id, id: draft.id, title: draft.title, contentType: draft.contentType, categoryId: draft.category?.id ?? "", campaignId: job.campaign_id, summary: draft.summary ?? "", body, dueAt: draft.dueAt ?? "", reviewerIds: draft.reviewerIds, priority: draft.priority, reviewDeadline: draft.reviewDeadline ?? "", hashtags: validation.hashtags, changeSummary: `${force ? "Awo Distribution Intelligence v2 re-optimised" : "Awo distribution-intelligence optimised"} Week ${slot.weekNumber} for ${slot.platform}; Campaign Distribution Profile enforced; discovery portfolio ${validation.portfolioScore}/100.` });
       await deps.content.updateStatus(job.organisation_id, draft.id, "needs_review", job.requested_by);
-      logAwo("distribution_validation_passed", { jobId: job.id, draftId: draft.id, weekNumber: slot.weekNumber, platform: slot.platform, attempt, portfolioScore: validation.portfolioScore });
+      logAwo("distribution_validation_passed", { jobId: job.id, draftId: draft.id, weekNumber: slot.weekNumber, platform: slot.platform, attempt, portfolioScore: validation.portfolioScore, localityRequired: profile.localityRequired });
       if (attempt > 1) logAwo("distribution_validation_recovered", { jobId: job.id, draftId: draft.id, weekNumber: slot.weekNumber, platform: slot.platform, attempt });
       return { skipped: false, error: null as string | null };
     }
@@ -107,18 +109,22 @@ async function processJob(job: Job, client: ReturnType<typeof createAdminClient>
   const schedule = (await getCampaignSchedule(job.campaign_id)).filter((slot) => slot.draftId);
   if (!schedule.length) { await setJob(db, job.id, { status: "failed", last_error: "Campaign schedule has no drafts.", finished_at: new Date().toISOString() }); return; }
 
-  const force = job.mode === "distribution_reoptimise";
   const currentDrafts = await Promise.all(schedule.map((slot) => deps.content.findDraft(job.organisation_id, slot.draftId!)));
+  const generationRequests = await Promise.all(currentDrafts.map((draft) => draft ? getLatestGenerationRequest(deps, job.organisation_id, draft.id) : Promise.resolve(null)));
+  const profile = resolveCampaignDistributionProfile(campaign.name, generationRequests.filter((request): request is NonNullable<typeof request> => Boolean(request)).map((request) => ({ brief: request.brief, targetAudience: request.targetAudience, memBrainContextPrompt: request.memBrainContextPrompt })));
+  logAwo("campaign_distribution_profile_resolved", { jobId: job.id, campaignId: job.campaign_id, localityRequired: profile.localityRequired, localityTokens: profile.localityTokens, brandTokens: profile.brandTokens, serviceTokenCount: profile.serviceTokens.length, audienceTokenCount: profile.audienceTokens.length });
+
+  const force = job.mode === "distribution_reoptimise";
   let completed = force ? 0 : currentDrafts.filter((draft) => draft && draft.body.trim() && draft.hashtags.length).length;
   let failed = 0;
   const failures: string[] = [];
   await setJob(db, job.id, { total_posts: schedule.length, completed_posts: completed, failed_posts: 0, locked_at: new Date().toISOString() });
-  logAwo("job_started", { jobId: job.id, campaignId: job.campaign_id, mode: job.mode ?? "unfinished", total: schedule.length, alreadyCompleted: completed, concurrency: CONCURRENCY, validationAttempts: MAX_VALIDATION_ATTEMPTS });
+  logAwo("job_started", { jobId: job.id, campaignId: job.campaign_id, mode: job.mode ?? "unfinished", total: schedule.length, alreadyCompleted: completed, concurrency: CONCURRENCY, validationAttempts: MAX_VALIDATION_ATTEMPTS, localityRequired: profile.localityRequired });
 
   const pending = force ? schedule : schedule.filter((slot, index) => { const draft = currentDrafts[index]; return !(draft && draft.body.trim() && draft.hashtags.length); });
   for (let offset = 0; offset < pending.length && !shuttingDown; offset += CONCURRENCY) {
     const chunk = pending.slice(offset, offset + CONCURRENCY);
-    const results = await Promise.all(chunk.map((slot) => optimiseSlot(job, slot, deps, campaign.name, force)));
+    const results = await Promise.all(chunk.map((slot) => optimiseSlot(job, slot, deps, campaign.name, force, profile)));
     results.forEach((result, index) => {
       if (result.error) { failed += 1; const slot = chunk[index]; failures.push(`Week ${slot?.weekNumber ?? "?"} ${slot?.platform ?? "?"}: ${result.error}`); }
       else if (!result.skipped) completed += 1;
