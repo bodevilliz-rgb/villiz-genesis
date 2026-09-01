@@ -1,3 +1,5 @@
+import type { CampaignDistributionProfile } from "./awo-campaign-distribution-profile";
+
 const GENERIC_VANITY_TAGS = new Set([
   "viral",
   "fyp",
@@ -19,6 +21,7 @@ export type DistributionValidationContext = {
   brief?: string;
   targetAudience?: string;
   evidenceText?: string;
+  profile?: CampaignDistributionProfile;
 };
 
 export type DistributionValidationInput = {
@@ -81,7 +84,6 @@ export function validateDistributionOutput(input: DistributionValidationInput, c
   if (!input.hook.trim() || input.hook.trim().length < 4) errors.push("Hook is too short.");
   if (!input.caption.trim() || input.caption.trim().length < 20) errors.push("Caption is too short.");
   if (!input.cta.trim() || input.cta.trim().length < 2) errors.push("CTA is too short.");
-
   if (hashtags.length < 5) errors.push("Fewer than 5 usable hashtags were generated.");
   if (hashtags.length > 20) errors.push("More than 20 hashtags were generated.");
 
@@ -99,28 +101,27 @@ export function validateDistributionOutput(input: DistributionValidationInput, c
     errors.push("Copy implies guaranteed algorithmic or performance results.");
   }
 
-  const evidence = context.evidenceText ?? "";
-  const briefTokens = significantTokens(context.brief ?? "");
-  const audienceTokens = significantTokens(context.targetAudience ?? "");
-  const brandTokens = deriveBrandTokens(evidence);
-  const localityTokens = deriveLocalityTokens(evidence);
+  const evidence = context.profile?.evidenceText ?? context.evidenceText ?? "";
+  const briefTokens = context.profile?.serviceTokens ?? significantTokens(context.brief ?? "");
+  const audienceTokens = context.profile?.audienceTokens ?? significantTokens(context.targetAudience ?? "");
+  const brandTokens = context.profile?.brandTokens ?? deriveBrandTokens(evidence);
+  const localityTokens = context.profile?.localityTokens ?? deriveLocalityTokens(evidence);
+  const localityRequired = context.profile?.localityRequired ?? localityTokens.length > 0;
   const evidenceTokens = significantTokens(`${context.brief ?? ""} ${context.targetAudience ?? ""} ${evidence}`);
 
   const evidenceAligned = hashtags.filter((tag) => tagMatchesAny(tag, evidenceTokens)).length;
   const serviceAligned = briefTokens.length === 0 || hashtags.some((tag) => tagMatchesAny(tag, briefTokens));
   const audienceAligned = audienceTokens.length === 0 || hashtags.some((tag) => tagMatchesAny(tag, audienceTokens));
   const brandAligned = brandTokens.length === 0 || hashtags.some((tag) => tagMatchesAny(tag, brandTokens));
-  const localityAligned = localityTokens.length === 0 || hashtags.some((tag) => tagMatchesAny(tag, localityTokens));
+  const localityAligned = !localityRequired || hashtags.some((tag) => tagMatchesAny(tag, localityTokens));
 
-  if (evidenceTokens.length > 0 && evidenceAligned < Math.min(3, hashtags.length)) {
-    errors.push("Discovery portfolio is too weakly grounded in supplied campaign/MemBrain evidence.");
-  }
-  if (!serviceAligned) errors.push("Discovery portfolio is missing a service/topic-intent hashtag grounded in the brief.");
-  if (!audienceAligned) errors.push("Discovery portfolio is missing an audience/problem-intent hashtag grounded in the target audience.");
+  if (evidenceTokens.length > 0 && evidenceAligned < Math.min(3, hashtags.length)) errors.push("Discovery portfolio is too weakly grounded in supplied campaign/MemBrain evidence.");
+  if (!serviceAligned) errors.push("Discovery portfolio is missing a service/topic-intent hashtag grounded in the campaign profile.");
+  if (!audienceAligned) errors.push("Discovery portfolio is missing an audience/problem-intent hashtag grounded in the campaign profile.");
   if (!brandAligned) errors.push("Discovery portfolio is missing a verified brand/owned discovery term.");
-  if (!localityAligned) errors.push("Verified locality exists in MemBrain evidence but the discovery portfolio contains no locality signal.");
+  if (!localityAligned) errors.push("Campaign Distribution Profile requires locality, but this post contains no verified locality signal.");
 
-  const applicable = [brandTokens.length > 0, briefTokens.length > 0, audienceTokens.length > 0, localityTokens.length > 0];
+  const applicable = [brandTokens.length > 0, briefTokens.length > 0, audienceTokens.length > 0, localityRequired];
   const passed = [brandAligned, serviceAligned, audienceAligned, localityAligned];
   const applicableCount = applicable.filter(Boolean).length;
   const passedCount = applicable.reduce((count, isApplicable, index) => count + (isApplicable && passed[index] ? 1 : 0), 0);
