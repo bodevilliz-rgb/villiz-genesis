@@ -66,7 +66,7 @@ function draft(overrides: Partial<ContentDraft> = {}): ContentDraft {
 }
 
 describe("week source truth", () => {
-  it("combines draft and attached artwork metadata into one authoritative weekly truth", () => {
+  it("combines draft and attached artwork metadata into one weekly evidence pack", () => {
     const truth = composeWeekSourceTruth(draft());
     expect(truth).toContain("Your hair is unique");
     expect(truth).toContain("Protective styling is not one-size-fits-all");
@@ -74,10 +74,14 @@ describe("week source truth", () => {
     expect(truth).toContain("natural hair, protective styling, hair needs");
   });
 
-  it("puts Week Source Truth ahead of the broader generation brief", () => {
+  it("puts actual week evidence ahead of the broader generation brief without internal prompt language", () => {
     const truth = composeWeekSourceTruth(draft());
-    const enriched = prependWeekSourceTruth("Create an engaging Monday post for UK audiences.", truth);
-    expect(enriched.indexOf("WEEK SOURCE TRUTH")).toBeLessThan(enriched.indexOf("GENERATION BRIEF"));
-    expect(enriched).toContain("platform adaptation may change delivery, never subject");
+    const brief = "Create an engaging Monday post for UK audiences.";
+    const enriched = prependWeekSourceTruth(brief, truth);
+    expect(enriched.indexOf("Your hair is unique")).toBeLessThan(enriched.indexOf(brief));
+    expect(enriched).not.toMatch(/source truth/i);
+    expect(enriched).not.toMatch(/platform adaptation/i);
+    expect(enriched).not.toMatch(/generation brief/i);
+    expect(enriched).not.toMatch(/authoritative/i);
   });
 });

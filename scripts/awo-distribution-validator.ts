@@ -4,6 +4,28 @@ const GENERIC_VANITY_TAGS = new Set([
   "viral", "fyp", "foryou", "foryoupage", "trending", "explore", "explorepage", "instagood",
 ]);
 
+const PROMPT_LEAK_PATTERNS = [
+  /\bsource\s+truth\b/i,
+  /\bauthoritative\s+source\b/i,
+  /\bplatform\s+adaptation\b/i,
+  /\bgeneration\s+brief\b/i,
+  /\bsystem\s+prompt\b/i,
+  /\binternal\s+instruction(?:s)?\b/i,
+  /\bprompt\s+instruction(?:s)?\b/i,
+];
+
+const PROMPT_LEAK_HASHTAG_TOKENS = new Set([
+  "sourcetruth",
+  "authoritativesource",
+  "platformadaptation",
+  "generationbrief",
+  "systemprompt",
+  "internalinstruction",
+  "internalinstructions",
+  "promptinstruction",
+  "promptinstructions",
+]);
+
 export const DISTRIBUTION_PRODUCTION_GATE = 95;
 export const TOPIC_FIDELITY_GATE = 75;
 
@@ -134,6 +156,12 @@ export function validateDistributionOutput(input: DistributionValidationInput, c
 
   const joined = `${input.hook} ${input.caption} ${input.cta}`;
   if (/\b(guaranteed|guarantee)\s+(reach|views|ranking|results)\b/i.test(joined)) errors.push("Copy implies guaranteed algorithmic or performance results.");
+
+  const promptLeakInCopy = PROMPT_LEAK_PATTERNS.some((pattern) => pattern.test(joined));
+  const promptLeakHashtags = hashtags.filter((tag) => PROMPT_LEAK_HASHTAG_TOKENS.has(compact(tag)));
+  if (promptLeakInCopy || promptLeakHashtags.length > 0) {
+    errors.push("Prompt-leakage gate failed: public copy contains internal generation or control language.");
+  }
 
   const topic = evaluateTopicFidelity({ ...input, hashtags }, context.brief ?? "");
   if (topic.phraseAnchors.length >= 2 && topic.matchedPhrases.size < 2) {

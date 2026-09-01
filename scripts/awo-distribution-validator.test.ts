@@ -35,6 +35,27 @@ describe("validateDistributionOutput", () => {
     expect(result.topicFidelityScore).toBeGreaterThanOrEqual(TOPIC_FIDELITY_GATE);
   });
 
+  it("rejects the exact source-truth prompt leakage seen in Instagram output", () => {
+    const leakedInstagram = {
+      hook: "Welcome to Hairsential Monday — your authoritative source truth.",
+      caption: "Our authoritative source truth for beauty and confidence remains constant across the UK. Platform adaptation may change delivery, but the core meaning stays the same.",
+      cta: "Save this reminder.",
+      hashtags: ["hairsential", "hairsentialmonday", "mervicsignatures", "sourcetruth", "ukbeauty", "ukhair", "ukhairstylist"],
+    };
+    const result = validateDistributionOutput(leakedInstagram, { ...context, profile: sharedProfile });
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(" ")).toContain("Prompt-leakage gate failed");
+  });
+
+  it("rejects prompt leakage hidden only in hashtags", () => {
+    const result = validateDistributionOutput({
+      ...base,
+      hashtags: ["MervicSignatures", "HairsentialMonday", "NaturalHairCareUK", "ProtectiveStyling", "UKHairStylist", "SystemPrompt"],
+    }, { ...context, profile: sharedProfile });
+    expect(result.ok).toBe(false);
+    expect(result.errors.join(" ")).toContain("Prompt-leakage gate failed");
+  });
+
   it("rejects the exact Instagram drift: generic Monday motivation with valid UK distribution tags", () => {
     const driftedInstagram = {
       hook: "Start your week feeling prepared, confident, and focused.",
