@@ -14,10 +14,11 @@ import { distributionProfilePrompt, resolveCampaignDistributionProfile, type Cam
 const POLL_INTERVAL_MS = Number(process.env.AWO_WORKER_POLL_INTERVAL_MS ?? 2000);
 const STALE_RECOVERY_INTERVAL_MS = Number(process.env.AWO_WORKER_STALE_RECOVERY_INTERVAL_MS ?? 60000);
 const STALE_AFTER_SECONDS = Number(process.env.AWO_WORKER_STALE_AFTER_SECONDS ?? 900);
-const CONCURRENCY = Math.max(1, Math.min(Number(process.env.AWO_WORKER_CONCURRENCY ?? 3), 6));
+const CONCURRENCY = Math.max(1, Math.min(Number(process.env.AWO_WORKER_CONCURRENCY ?? 1), 2));
 const MAX_VALIDATION_ATTEMPTS = Math.max(1, Math.min(Number(process.env.AWO_DISTRIBUTION_VALIDATION_ATTEMPTS ?? 3), 5));
-const MAX_PROVIDER_ATTEMPTS = Math.max(1, Math.min(Number(process.env.AWO_PROVIDER_RETRY_ATTEMPTS ?? 4), 6));
-const PROVIDER_RETRY_BASE_MS = Math.max(250, Math.min(Number(process.env.AWO_PROVIDER_RETRY_BASE_MS ?? 1500), 15000));
+const MAX_PROVIDER_ATTEMPTS = Math.max(1, Math.min(Number(process.env.AWO_PROVIDER_RETRY_ATTEMPTS ?? 6), 6));
+const PROVIDER_RETRY_BASE_MS = Math.max(1000, Math.min(Number(process.env.AWO_PROVIDER_RETRY_BASE_MS ?? 4000), 15000));
+const SLOT_COOLDOWN_MS = Math.max(0, Math.min(Number(process.env.AWO_PROVIDER_SLOT_COOLDOWN_MS ?? 2500), 15000));
 const WORKER_ID = `awo-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 
 const generatedSocialPostSchema = z.object({
@@ -133,11 +134,11 @@ async function optimiseSlot(job: Job, slot: Awaited<ReturnType<typeof getCampaig
       for (let providerAttempt = 1; providerAttempt <= MAX_PROVIDER_ATTEMPTS; providerAttempt += 1) {
         try {
           const schemaReminder = providerAttempt > 1
-            ? "\n\nSTRUCTURED OUTPUT RECOVERY: Return exactly the requested object fields: caption (string), hashtags (array of strings), hook (string), cta (string). Do not wrap the object in prose or markdown."
+            ? "\n\nSTRUCTURED OUTPUT RECOVERY: Return one JSON object only, with exactly these keys: caption, hashtags, hook, cta. caption/hook/cta must be strings; hashtags must be an array of 5-20 plain hashtag strings. Do not include markdown, commentary, code fences, extra keys, nulls or nested objects."
             : "";
           generated = await ai.generateObject(`${repairPrompt}${schemaReminder}`, generatedSocialPostSchema, {
             systemPrompt: "Create evidence-grounded, search-aware social content. Apply the distribution intelligence gate and shared Campaign Distribution Profile. Follow supplied brand context and campaign objective. Never invent offers, prices, locations, testimonials, credentials, facts, or guarantees of algorithmic reach. Hashtag tokens must contain only ASCII letters, digits and underscores.",
-            temperature: attempt === 1 ? 0.45 : 0.25,
+            temperature: providerAttempt > 1 ? 0.1 : (attempt === 1 ? 0.4 : 0.2),
           });
           if (providerAttempt > 1) logAwo("provider_retry_recovered", { jobId: job.id, draftId: draft.id, weekNumber: slot.weekNumber, platform: slot.platform, providerAttempt });
           break;
@@ -205,7 +206,7 @@ async function processJob(job: Job, client: ReturnType<typeof createAdminClient>
   let failed = 0;
   const failures: string[] = [];
   await setJob(db, job.id, { total_posts: schedule.length, completed_posts: completed, failed_posts: 0, locked_at: new Date().toISOString() });
-  logAwo("job_started", { jobId: job.id, campaignId: job.campaign_id, mode: job.mode ?? "unfinished", total: schedule.length, alreadyCompleted: completed, concurrency: CONCURRENCY, validationAttempts: MAX_VALIDATION_ATTEMPTS, providerAttempts: MAX_PROVIDER_ATTEMPTS, localityRequired: profile.localityRequired });
+  logAwo("job_started", { jobId: job.id, campaignId: job.campaign_id, mode: job.mode ?? "unfinished", total: schedule.length, alreadyCompleted: completed, concurrency: CONCURRENCY, validationAttempts: MAX_VALIDATION_ATTEMPTS, providerAttempts: MAX_PROVIDER_ATTEMPTS, slotCooldownMs: SLOT_COOLDOWN_MS, localityRequired: profile.localityRequired });
 
   const pending = force ? schedule : schedule.filter((slot, index) => { const draft = currentDrafts[index]; return !(draft && draft.body.trim() && draft.hashtags.length); });
   for (let offset = 0; offset < pending.length && !shuttingDown; offset += CONCURRENCY) {
@@ -217,6 +218,7 @@ async function processJob(job: Job, client: ReturnType<typeof createAdminClient>
     });
     await setJob(db, job.id, { completed_posts: completed, failed_posts: failed, last_error: failures.length ? failures.slice(-3).join(" | ") : null, locked_at: new Date().toISOString() });
     logAwo("job_progress", { jobId: job.id, mode: job.mode ?? "unfinished", completed, failed, total: schedule.length });
+    if (SLOT_COOLDOWN_MS > 0 && offset + CONCURRENCY < pending.length) await sleep(SLOT_COOLDOWN_MS);
   }
 
   let finalCompleted = completed;
@@ -229,4 +231,4 @@ async function processJob(job: Job, client: ReturnType<typeof createAdminClient>
   logAwo("job_finished", { jobId: job.id, mode: job.mode ?? "unfinished", status: finalStatus, completed: finalCompleted, total: schedule.length, durationMs: Date.now() - started });
 }
 
-export async function runAwoCampaignWorker() { const client = createAdminClient(); const db = client as unknown as JobDb; let lastRecovery = 0; logAwo("worker_started", { pollIntervalMs: POLL_INTERVAL_MS, concurrency: CONCURRENCY, providerAttempts: MAX_PROVIDER_ATTEMPTS }); const stop = () => { shuttingDown = true; }; process.once("SIGTERM", stop); process.once("SIGINT", stop); while (!shuttingDown) { try { if (Date.now() - lastRecovery >= STALE_RECOVERY_INTERVAL_MS) { await recoverStale(db); lastRecovery = Date.now(); } const job = await claimNext(db); if (!job) { await sleep(POLL_INTERVAL_MS); continue; } await processJob(job, client, db); } catch (error) { logAwo("worker_error", { error: error instanceof Error ? error.message : String(error) }); await sleep(Math.max(POLL_INTERVAL_MS, 5000)); } } logAwo("worker_stopped"); }
+export async function runAwoCampaignWorker() { const client = createAdminClient(); const db = client as unknown as JobDb; let lastRecovery = 0; logAwo("worker_started", { pollIntervalMs: POLL_INTERVAL_MS, concurrency: CONCURRENCY, providerAttempts: MAX_PROVIDER_ATTEMPTS, slotCooldownMs: SLOT_COOLDOWN_MS }); const stop = () => { shuttingDown = true; }; process.once("SIGTERM", stop); process.once("SIGINT", stop); while (!shuttingDown) { try { if (Date.now() - lastRecovery >= STALE_RECOVERY_INTERVAL_MS) { await recoverStale(db); lastRecovery = Date.now(); } const job = await claimNext(db); if (!job) { await sleep(POLL_INTERVAL_MS); continue; } await processJob(job, client, db); } catch (error) { logAwo("worker_error", { error: error instanceof Error ? error.message : String(error) }); await sleep(Math.max(POLL_INTERVAL_MS, 5000)); } } logAwo("worker_stopped"); }
