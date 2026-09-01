@@ -48,6 +48,10 @@ async function claimNext(db: JobDb): Promise<Job | null> { const result = await 
 async function recoverStale(db: JobDb) { const result = await db.rpc("recover_stale_awo_campaign_jobs", { p_stale_seconds: STALE_AFTER_SECONDS }); if (result.error) throw new Error(result.error.message); const count = typeof result.data === "number" ? result.data : 0; if (count > 0) logAwo("stale_jobs_recovered", { count }); }
 function platformInstruction(platform: string): string { if (platform === "tiktok") return "TikTok: lead with a searchable natural-language hook; use terms a local customer would type into search; favour relevance and specificity over hashtag volume."; if (platform === "instagram") return "Instagram: strong opening line, skimmable caption, searchable service/location language and a deliberate discovery hashtag mix."; return `Write specifically for ${platform}, using its native search and discovery behaviour.`; }
 
+export function shouldInvalidateReoptimisationOutput(force: boolean, body: string, hashtags: string[]): boolean {
+  return force && Boolean(body.trim() || hashtags.length);
+}
+
 const distributionInstruction = `DISTRIBUTION INTELLIGENCE GATE — mandatory:
 Build discovery deliberately; never treat hashtags as decoration. Infer ONLY from supplied Brand/MemBrain/brief evidence.
 1. Brand: include the verified brand name or branded discovery term where appropriate.
@@ -65,9 +69,30 @@ async function optimiseSlot(job: Job, slot: Awaited<ReturnType<typeof getCampaig
   try {
     const draft = await getDraft(deps, job.organisation_id, slot.draftId);
     if (!force && draft.body.trim() && draft.hashtags.length) return { skipped: true, error: null as string | null };
+
+    if (shouldInvalidateReoptimisationOutput(force, draft.body, draft.hashtags)) {
+      await updateDraft(deps, {
+        organisationId: job.organisation_id,
+        id: draft.id,
+        title: draft.title,
+        contentType: draft.contentType,
+        categoryId: draft.category?.id ?? "",
+        campaignId: job.campaign_id,
+        summary: draft.summary ?? "",
+        body: "",
+        dueAt: draft.dueAt ?? "",
+        reviewerIds: draft.reviewerIds,
+        priority: draft.priority,
+        reviewDeadline: draft.reviewDeadline ?? "",
+        hashtags: [],
+        changeSummary: `Awo re-optimisation invalidated stale Week ${slot.weekNumber} ${slot.platform} output before fresh generation.`,
+      });
+      logAwo("reoptimisation_stale_output_invalidated", { jobId: job.id, draftId: draft.id, weekNumber: slot.weekNumber, platform: slot.platform });
+    }
+
     const request = await getLatestGenerationRequest(deps, job.organisation_id, draft.id);
     if (!request) throw new Error("No Awo generation request exists for this draft.");
-    const basePrompt = [`You are Awo, the campaign intelligence writer for ${campaignName}.`, `Week ${slot.weekNumber}. Platform: ${slot.platform}.`, platformInstruction(slot.platform), distributionInstruction, distributionProfilePrompt(profile), request.brief, request.targetAudience ? `Target audience: ${request.targetAudience}.` : "", request.tone ? `Tone: ${request.tone}.` : "", `Brand and MemBrain context:\n${request.memBrainContextPrompt}`, force ? "This is an explicit Distribution Intelligence v2 re-optimisation. Improve the existing strategy rather than merely paraphrasing it." : "", "Return a platform-ready caption, unique hashtags, a hook and CTA. Every discovery choice must be traceable to supplied campaign, MemBrain or the shared Campaign Distribution Profile. Avoid fabricated claims."].filter(Boolean).join("\n\n");
+    const basePrompt = [`You are Awo, the campaign intelligence writer for ${campaignName}.`, `Week ${slot.weekNumber}. Platform: ${slot.platform}.`, platformInstruction(slot.platform), distributionInstruction, distributionProfilePrompt(profile), request.brief, request.targetAudience ? `Target audience: ${request.targetAudience}.` : "", request.tone ? `Tone: ${request.tone}.` : "", `Brand and MemBrain context:\n${request.memBrainContextPrompt}`, force ? "This is an explicit Distribution Intelligence v2 re-optimisation. Generate a completely fresh replacement; do not reuse or preserve prior generated copy." : "", "Return a platform-ready caption, unique hashtags, a hook and CTA. Every discovery choice must be traceable to supplied campaign, MemBrain or the shared Campaign Distribution Profile. Avoid fabricated claims."].filter(Boolean).join("\n\n");
     const ai = getAIProvider();
     let validationErrors: string[] = [];
 
@@ -98,7 +123,16 @@ async function optimiseSlot(job: Job, slot: Awaited<ReturnType<typeof getCampaig
     }
 
     throw new Error(`Distribution output failed validation after ${MAX_VALIDATION_ATTEMPTS} attempts: ${validationErrors.join("; ")}`);
-  } catch (error) { return { skipped: false, error: error instanceof Error ? error.message : String(error) }; }
+  } catch (error) {
+    if (force && slot.draftId) {
+      try {
+        await deps.content.updateStatus(job.organisation_id, slot.draftId, "failed", job.requested_by);
+      } catch (statusError) {
+        logAwo("reoptimisation_failed_status_update", { jobId: job.id, draftId: slot.draftId, weekNumber: slot.weekNumber, platform: slot.platform, error: statusError instanceof Error ? statusError.message : String(statusError) });
+      }
+    }
+    return { skipped: false, error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 async function processJob(job: Job, client: ReturnType<typeof createAdminClient>, db: JobDb) {
