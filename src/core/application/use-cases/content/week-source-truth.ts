@@ -20,9 +20,9 @@ function uniqueLines(values: Array<string | null | undefined>): string[] {
 }
 
 /**
- * Builds the most specific, durable truth available for one scheduled content
- * item. Asset metadata is deliberately included because it belongs to the
- * actual week artwork, while campaign/MemBrain context remains downstream.
+ * Builds the most specific customer-facing evidence available for one content
+ * item. Only draft/artwork metadata is returned here: no model instructions,
+ * control language, or internal terminology is allowed into this evidence.
  */
 export function composeWeekSourceTruth(draft: ContentDraft | null): string | null {
   if (!draft) return null;
@@ -46,12 +46,11 @@ export function composeWeekSourceTruth(draft: ContentDraft | null): string | nul
   return lines.length ? lines.join("\n") : null;
 }
 
+/**
+ * Keeps the most specific evidence first without adding prompt-like labels or
+ * internal instructions that a generative model could echo into public copy.
+ */
 export function prependWeekSourceTruth(brief: string, sourceTruth: string | null): string {
   if (!sourceTruth) return brief;
-  return [
-    "WEEK SOURCE TRUTH — authoritative for this specific content item. Preserve its meaning; platform adaptation may change delivery, never subject:",
-    sourceTruth,
-    "GENERATION BRIEF — secondary to the Week Source Truth:",
-    brief,
-  ].join("\n\n");
+  return [sourceTruth, brief].join("\n\n");
 }
