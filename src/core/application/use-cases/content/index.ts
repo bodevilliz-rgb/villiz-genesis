@@ -18,6 +18,7 @@ import {
   updateDraftSchema,
 } from "@/core/application/dto/content-dto";
 import { retrieveContext } from "@/core/application/use-cases/membrain";
+import { composeWeekSourceTruth, prependWeekSourceTruth } from "./week-source-truth";
 
 interface ContentDeps {
   actor: Actor;
@@ -70,7 +71,17 @@ export async function getLatestGenerationRequest(
   organisationId: string,
   draftId: string,
 ): Promise<ContentGenerationRequest | null> {
-  return deps.content.getLatestGenerationRequest(organisationId, draftId);
+  const [request, draft] = await Promise.all([
+    deps.content.getLatestGenerationRequest(organisationId, draftId),
+    deps.content.findDraft(organisationId, draftId),
+  ]);
+  if (!request) return null;
+
+  const sourceTruth = composeWeekSourceTruth(draft);
+  return {
+    ...request,
+    brief: prependWeekSourceTruth(request.brief, sourceTruth),
+  };
 }
 
 export async function createDraft(deps: ContentDeps, raw: unknown): Promise<ContentDraft> {
@@ -89,16 +100,10 @@ export async function createDraft(deps: ContentDeps, raw: unknown): Promise<Cont
     summary: blank(input.summary),
     body: input.body?.trim() ?? "",
     createdBy: deps.actor.id,
-
-    // Sprint 2 features
     dueAt: blank(input.dueAt),
     reviewerIds: input.reviewerIds ?? [],
-
-    // Sprint 4 features
     priority: input.priority,
     reviewDeadline: blank(input.reviewDeadline),
-
-    // Sprint 5 features
     hashtags: input.hashtags ?? [],
   });
 }
@@ -128,21 +133,13 @@ export async function updateDraft(deps: ContentDeps, raw: unknown): Promise<Cont
     summary: blank(input.summary),
     body: input.body?.trim() ?? "",
     updatedBy: deps.actor.id,
-
-    // Sprint 2 features
     dueAt: blank(input.dueAt),
     reviewerIds: input.reviewerIds ?? [],
-
-    // Sprint 4 features
     priority: input.priority,
     reviewDeadline: blank(input.reviewDeadline),
-
-    // Sprint 5 features
     hashtags: input.hashtags ?? [],
   });
 
-  // The database writes the version row; the reason for the change is a human
-  // artefact and is attached afterwards, only when the content actually moved.
   const changeSummary = blank(input.changeSummary);
   if (changeSummary && draft.version > existing.version) {
     await deps.content.annotateLatestVersion(draft.id, changeSummary);
@@ -151,12 +148,6 @@ export async function updateDraft(deps: ContentDeps, raw: unknown): Promise<Cont
   return draft;
 }
 
-/**
- * Assembles a creative brief plus a MemBrain context pack into a structured
- * request and marks the draft ready for Awo (see the migration's decision
- * note). No generation happens here or anywhere in this codebase — Genesis
- * prepares work, Awo performs AI generation, in a future sprint.
- */
 export async function createGenerationRequest(
   deps: ContentDeps,
   raw: unknown,
@@ -230,7 +221,6 @@ export async function publishDraft(
   if (existing.status !== "approved" && existing.status !== "scheduled" && existing.status !== "failed") {
     throw new ValidationError("Only approved, scheduled, or failed content can be published.");
   }
-  // Transition to 'publishing' as requested by the workflow queue.
   return deps.content.updateStatus(organisationId, draftId, "publishing", deps.actor.id);
 }
 
