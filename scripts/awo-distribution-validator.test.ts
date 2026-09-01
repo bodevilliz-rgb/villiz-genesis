@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DISTRIBUTION_PRODUCTION_GATE, validateDistributionOutput } from "./awo-distribution-validator";
+import { DISTRIBUTION_PRODUCTION_GATE, TOPIC_FIDELITY_GATE, validateDistributionOutput } from "./awo-distribution-validator";
 import type { CampaignDistributionProfile } from "./awo-campaign-distribution-profile";
 
 const base = {
@@ -27,11 +27,37 @@ const sharedProfile: CampaignDistributionProfile = {
 };
 
 describe("validateDistributionOutput", () => {
-  it("accepts a clean balanced portfolio only when it reaches the 95 production gate", () => {
+  it("accepts a clean balanced portfolio only when distribution and topic fidelity gates pass", () => {
     const result = validateDistributionOutput(base, { ...context, profile: sharedProfile });
     expect(result.ok).toBe(true);
     expect(result.hashtags).toEqual(base.hashtags);
     expect(result.portfolioScore).toBeGreaterThanOrEqual(DISTRIBUTION_PRODUCTION_GATE);
+    expect(result.topicFidelityScore).toBeGreaterThanOrEqual(TOPIC_FIDELITY_GATE);
+  });
+
+  it("rejects the exact Instagram drift: generic Monday motivation with valid UK distribution tags", () => {
+    const driftedInstagram = {
+      hook: "Start your week feeling prepared, confident, and focused.",
+      caption: "Starting the week with clear organisation and focused intention sets the tone for everything ahead. Plan your beauty appointments and make time for yourself this week.",
+      cta: "Tell us how you are preparing for the week ahead.",
+      hashtags: ["hairsential", "hairsentialmonday", "mervicsignatures", "ukbeauty", "ukhair", "mondayengagement", "weekprep", "ukhairstylist", "beautyandconfidence", "mondaymindset"],
+    };
+    const result = validateDistributionOutput(driftedInstagram, { ...context, profile: sharedProfile });
+    expect(result.ok).toBe(false);
+    expect(result.topicFidelityScore).toBeLessThan(TOPIC_FIDELITY_GATE);
+    expect(result.errors.join(" ")).toContain("Weekly Topic Fidelity");
+  });
+
+  it("allows platform adaptation when the weekly hair-care subject remains intact", () => {
+    const instagramEditorial = {
+      hook: "Your protective style deserves a healthy start to the week.",
+      caption: "Monday is a good moment to check scalp comfort, moisture and tension so your natural hair stays cared for beneath your protective style.",
+      cta: "Save this Hairsential reminder for your next protective-style week.",
+      hashtags: ["MervicSignatures", "HairsentialMonday", "ProtectiveStylingUK", "NaturalHairCareUK", "UKHairStylist", "ScalpCare"],
+    };
+    const result = validateDistributionOutput(instagramEditorial, { ...context, profile: sharedProfile });
+    expect(result.ok).toBe(true);
+    expect(result.topicFidelityScore).toBeGreaterThanOrEqual(TOPIC_FIDELITY_GATE);
   });
 
   it("rejects unexpected scripts in hashtag tokens", () => {
@@ -58,7 +84,7 @@ describe("validateDistributionOutput", () => {
     expect(result.hashtags[0]).toBe("MervicSignatures");
   });
 
-  it("blocks the exact Instagram regression: shared UK profile but no locality hashtag", () => {
+  it("blocks the exact Instagram locality regression: shared UK profile but no locality hashtag", () => {
     const result = validateDistributionOutput({
       ...base,
       hashtags: ["MervicSignatures", "HairsentialMonday", "NaturalHairCare", "ProtectiveStyling", "HealthyHairCare", "HairCareRoutine"],
