@@ -11,6 +11,8 @@ const GENERIC_VANITY_TAGS = new Set([
   "instagood",
 ]);
 
+export const DISTRIBUTION_PRODUCTION_GATE = 95;
+
 const HASHTAG_PATTERN = /^[A-Za-z0-9_]+$/;
 const STOP_WORDS = new Set([
   "about", "after", "again", "also", "and", "are", "brand", "business", "campaign", "client", "content", "from", "have", "into", "more", "only", "posts", "that", "the", "their", "them", "this", "tone", "using", "with", "your"
@@ -113,22 +115,26 @@ export function validateDistributionOutput(input: DistributionValidationInput, c
   const serviceAligned = briefTokens.length === 0 || hashtags.some((tag) => tagMatchesAny(tag, briefTokens));
   const audienceAligned = audienceTokens.length === 0 || hashtags.some((tag) => tagMatchesAny(tag, audienceTokens));
   const brandAligned = brandTokens.length === 0 || hashtags.some((tag) => tagMatchesAny(tag, brandTokens));
-  const localityAligned = !localityRequired || hashtags.some((tag) => tagMatchesAny(tag, localityTokens));
+  const localityAligned = !localityRequired || (localityTokens.length > 0 && hashtags.some((tag) => tagMatchesAny(tag, localityTokens)));
 
   if (evidenceTokens.length > 0 && evidenceAligned < Math.min(3, hashtags.length)) errors.push("Discovery portfolio is too weakly grounded in supplied campaign/MemBrain evidence.");
-  if (!serviceAligned) errors.push("Discovery portfolio is missing a service/topic-intent hashtag grounded in the campaign profile.");
-  if (!audienceAligned) errors.push("Discovery portfolio is missing an audience/problem-intent hashtag grounded in the campaign profile.");
-  if (!brandAligned) errors.push("Discovery portfolio is missing a verified brand/owned discovery term.");
+  if (!serviceAligned) errors.push("Discovery portfolio is missing a service/topic-intent hashtag grounded in the Campaign Distribution Profile.");
+  if (!audienceAligned) errors.push("Discovery portfolio is missing an audience/problem-intent hashtag grounded in the Campaign Distribution Profile.");
+  if (!brandAligned) errors.push("Discovery portfolio is missing a verified brand/owned discovery term from the Campaign Distribution Profile.");
   if (!localityAligned) errors.push("Campaign Distribution Profile requires locality, but this post contains no verified locality signal.");
 
   const applicable = [brandTokens.length > 0, briefTokens.length > 0, audienceTokens.length > 0, localityRequired];
   const passed = [brandAligned, serviceAligned, audienceAligned, localityAligned];
   const applicableCount = applicable.filter(Boolean).length;
   const passedCount = applicable.reduce((count, isApplicable, index) => count + (isApplicable && passed[index] ? 1 : 0), 0);
-  const groundingScore = evidenceTokens.length === 0 ? 100 : Math.min(100, Math.round((evidenceAligned / Math.max(3, Math.min(hashtags.length, 6))) * 100));
-  const portfolioScore = applicableCount === 0 ? groundingScore : Math.round((((passedCount / applicableCount) * 70) + (groundingScore * 0.3)));
+  const groundingTarget = Math.max(3, Math.min(hashtags.length, 6));
+  const groundingScore = evidenceTokens.length === 0 ? 100 : Math.min(100, Math.round((evidenceAligned / groundingTarget) * 100));
+  const bucketScore = applicableCount === 0 ? 100 : Math.round((passedCount / applicableCount) * 100);
+  const portfolioScore = Math.round((bucketScore * 0.8) + (groundingScore * 0.2));
 
-  if (portfolioScore < 85) errors.push(`Discovery portfolio score ${portfolioScore}/100 is below the 85/100 generation gate.`);
+  if (portfolioScore < DISTRIBUTION_PRODUCTION_GATE) {
+    errors.push(`Discovery portfolio score ${portfolioScore}/100 is below the ${DISTRIBUTION_PRODUCTION_GATE}/100 production eligibility gate.`);
+  }
 
   return { ok: errors.length === 0, errors, hashtags, portfolioScore };
 }
