@@ -10,12 +10,17 @@ test("resume processes editable unfinished drafts", () => {
   assert.equal(isResumeEligibleDraft(draft("changes_requested")), true);
 });
 
-test("resume skips already completed drafts", () => {
-  assert.equal(isResumeEligibleDraft(draft("needs_review", "Ready caption", ["#brand", "#hair"])), false);
+test("resume recovers unfinished Awo failed drafts", () => {
+  assert.equal(isResumeEligibleDraft(draft("failed")), true);
 });
 
-test("resume never sends locked approval states back to Awo", () => {
-  for (const status of ["approved", "rejected", "scheduled", "published", "archived", "awaiting_client", "failed"]) {
+test("resume skips already completed drafts", () => {
+  assert.equal(isResumeEligibleDraft(draft("needs_review", "Ready caption", ["#brand", "#hair"])), false);
+  assert.equal(isResumeEligibleDraft(draft("failed", "Recovered caption", ["#brand", "#hair"])), false);
+});
+
+test("resume never sends protected terminal approval states back to Awo", () => {
+  for (const status of ["approved", "rejected", "scheduled", "published", "archived", "awaiting_client"]) {
     assert.equal(isResumeEligibleDraft(draft(status)), false, status);
   }
 });
