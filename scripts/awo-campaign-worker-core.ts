@@ -7,6 +7,7 @@ import { SupabaseCampaignRepository } from "../src/infrastructure/repositories/s
 import { getAIProvider } from "../src/infrastructure/ai/provider-factory";
 import { getCampaignSchedule } from "../src/server/queries/campaign-schedule";
 import { getDraft, getLatestGenerationRequest, updateDraft } from "../src/core/application/use-cases/content";
+import { isContentDraftLocked, type ContentDraft } from "../src/core/domain/entities/content";
 import type { Actor } from "../src/core/domain/entities/identity";
 import { validateDistributionOutput } from "./awo-distribution-validator";
 import { distributionProfilePrompt, resolveCampaignDistributionProfile, type CampaignDistributionProfile } from "./awo-campaign-distribution-profile";
@@ -56,23 +57,15 @@ export function shouldInvalidateReoptimisationOutput(force: boolean, body: strin
   return force && Boolean(body.trim() || hashtags.length);
 }
 
+export function isResumeEligibleDraft(draft: Pick<ContentDraft, "status" | "body" | "hashtags"> | null | undefined): boolean {
+  if (!draft) return false;
+  if (draft.body.trim() && draft.hashtags.length) return false;
+  return !isContentDraftLocked(draft.status);
+}
+
 export function isRetryableProviderError(error: unknown): boolean {
   const message = (error instanceof Error ? `${error.name}: ${error.message}` : String(error)).toLowerCase();
-  return [
-    "high demand",
-    "temporarily",
-    "try again later",
-    "rate limit",
-    "429",
-    "503",
-    "502",
-    "504",
-    "timeout",
-    "timed out",
-    "no object generated",
-    "response did not match schema",
-    "ai_apicallerror",
-  ].some((token) => message.includes(token));
+  return ["high demand", "temporarily", "try again later", "rate limit", "429", "503", "502", "504", "timeout", "timed out", "no object generated", "response did not match schema", "ai_apicallerror"].some((token) => message.includes(token));
 }
 
 export function providerRetryDelayMs(attempt: number, baseMs = PROVIDER_RETRY_BASE_MS): number {
@@ -97,24 +90,13 @@ async function optimiseSlot(job: Job, slot: Awaited<ReturnType<typeof getCampaig
   try {
     const draft = await getDraft(deps, job.organisation_id, slot.draftId);
     if (!force && draft.body.trim() && draft.hashtags.length) return { skipped: true, error: null as string | null };
+    if (!force && isContentDraftLocked(draft.status)) {
+      logAwo("resume_locked_draft_skipped", { jobId: job.id, draftId: draft.id, weekNumber: slot.weekNumber, platform: slot.platform, status: draft.status });
+      return { skipped: true, error: null as string | null };
+    }
 
     if (shouldInvalidateReoptimisationOutput(force, draft.body, draft.hashtags)) {
-      await updateDraft(deps, {
-        organisationId: job.organisation_id,
-        id: draft.id,
-        title: draft.title,
-        contentType: draft.contentType,
-        categoryId: draft.category?.id ?? "",
-        campaignId: job.campaign_id,
-        summary: draft.summary ?? "",
-        body: "",
-        dueAt: draft.dueAt ?? "",
-        reviewerIds: draft.reviewerIds,
-        priority: draft.priority,
-        reviewDeadline: draft.reviewDeadline ?? "",
-        hashtags: [],
-        changeSummary: `Awo re-optimisation invalidated stale Week ${slot.weekNumber} ${slot.platform} output before fresh generation.`,
-      });
+      await updateDraft(deps, { organisationId: job.organisation_id, id: draft.id, title: draft.title, contentType: draft.contentType, categoryId: draft.category?.id ?? "", campaignId: job.campaign_id, summary: draft.summary ?? "", body: "", dueAt: draft.dueAt ?? "", reviewerIds: draft.reviewerIds, priority: draft.priority, reviewDeadline: draft.reviewDeadline ?? "", hashtags: [], changeSummary: `Awo re-optimisation invalidated stale Week ${slot.weekNumber} ${slot.platform} output before fresh generation.` });
       logAwo("reoptimisation_stale_output_invalidated", { jobId: job.id, draftId: draft.id, weekNumber: slot.weekNumber, platform: slot.platform });
     }
 
@@ -125,21 +107,13 @@ async function optimiseSlot(job: Job, slot: Awaited<ReturnType<typeof getCampaig
     let validationErrors: string[] = [];
 
     for (let attempt = 1; attempt <= MAX_VALIDATION_ATTEMPTS; attempt += 1) {
-      const repairPrompt = validationErrors.length
-        ? `${basePrompt}\n\nYour previous output failed deterministic validation for these reasons:\n- ${validationErrors.join("\n- ")}\nRegenerate from scratch and correct every failure. The Campaign Distribution Profile is authoritative.`
-        : basePrompt;
-
+      const repairPrompt = validationErrors.length ? `${basePrompt}\n\nYour previous output failed deterministic validation for these reasons:\n- ${validationErrors.join("\n- ")}\nRegenerate from scratch and correct every failure. The Campaign Distribution Profile is authoritative.` : basePrompt;
       let generated: z.infer<typeof generatedSocialPostSchema> | null = null;
       let lastProviderError: unknown = null;
       for (let providerAttempt = 1; providerAttempt <= MAX_PROVIDER_ATTEMPTS; providerAttempt += 1) {
         try {
-          const schemaReminder = providerAttempt > 1
-            ? "\n\nSTRUCTURED OUTPUT RECOVERY: Return one JSON object only, with exactly these keys: caption, hashtags, hook, cta. caption/hook/cta must be strings; hashtags must be an array of 5-20 plain hashtag strings. Do not include markdown, commentary, code fences, extra keys, nulls or nested objects."
-            : "";
-          generated = await ai.generateObject(`${repairPrompt}${schemaReminder}`, generatedSocialPostSchema, {
-            systemPrompt: "Create evidence-grounded, search-aware social content. Apply the distribution intelligence gate and shared Campaign Distribution Profile. Follow supplied brand context and campaign objective. Never invent offers, prices, locations, testimonials, credentials, facts, or guarantees of algorithmic reach. Hashtag tokens must contain only ASCII letters, digits and underscores.",
-            temperature: providerAttempt > 1 ? 0.1 : (attempt === 1 ? 0.4 : 0.2),
-          });
+          const schemaReminder = providerAttempt > 1 ? "\n\nSTRUCTURED OUTPUT RECOVERY: Return one JSON object only, with exactly these keys: caption, hashtags, hook, cta. caption/hook/cta must be strings; hashtags must be an array of 5-20 plain hashtag strings. Do not include markdown, commentary, code fences, extra keys, nulls or nested objects." : "";
+          generated = await ai.generateObject(`${repairPrompt}${schemaReminder}`, generatedSocialPostSchema, { systemPrompt: "Create evidence-grounded, search-aware social content. Apply the distribution intelligence gate and shared Campaign Distribution Profile. Follow supplied brand context and campaign objective. Never invent offers, prices, locations, testimonials, credentials, facts, or guarantees of algorithmic reach. Hashtag tokens must contain only ASCII letters, digits and underscores.", temperature: providerAttempt > 1 ? 0.1 : (attempt === 1 ? 0.4 : 0.2) });
           if (providerAttempt > 1) logAwo("provider_retry_recovered", { jobId: job.id, draftId: draft.id, weekNumber: slot.weekNumber, platform: slot.platform, providerAttempt });
           break;
         } catch (providerError) {
@@ -153,20 +127,8 @@ async function optimiseSlot(job: Job, slot: Awaited<ReturnType<typeof getCampaig
         }
       }
       if (!generated) throw lastProviderError instanceof Error ? lastProviderError : new Error("Provider failed to generate structured campaign content.");
-
-      const validation = validateDistributionOutput(generated, {
-        campaignName,
-        brief: request.brief,
-        targetAudience: request.targetAudience ?? "",
-        evidenceText: request.memBrainContextPrompt,
-        profile,
-      });
-      if (!validation.ok) {
-        validationErrors = validation.errors;
-        logAwo("distribution_validation_rejected", { jobId: job.id, draftId: draft.id, weekNumber: slot.weekNumber, platform: slot.platform, attempt, portfolioScore: validation.portfolioScore, localityRequired: profile.localityRequired, errors: validation.errors });
-        continue;
-      }
-
+      const validation = validateDistributionOutput(generated, { campaignName, brief: request.brief, targetAudience: request.targetAudience ?? "", evidenceText: request.memBrainContextPrompt, profile });
+      if (!validation.ok) { validationErrors = validation.errors; logAwo("distribution_validation_rejected", { jobId: job.id, draftId: draft.id, weekNumber: slot.weekNumber, platform: slot.platform, attempt, portfolioScore: validation.portfolioScore, localityRequired: profile.localityRequired, errors: validation.errors }); continue; }
       const body = `${generated.hook}\n\n${generated.caption}\n\n${generated.cta}`.trim();
       await updateDraft(deps, { organisationId: job.organisation_id, id: draft.id, title: draft.title, contentType: draft.contentType, categoryId: draft.category?.id ?? "", campaignId: job.campaign_id, summary: draft.summary ?? "", body, dueAt: draft.dueAt ?? "", reviewerIds: draft.reviewerIds, priority: draft.priority, reviewDeadline: draft.reviewDeadline ?? "", hashtags: validation.hashtags, changeSummary: `${force ? "Awo Distribution Intelligence v2 re-optimised" : "Awo distribution-intelligence optimised"} Week ${slot.weekNumber} for ${slot.platform}; Campaign Distribution Profile enforced; discovery portfolio ${validation.portfolioScore}/100.` });
       await deps.content.updateStatus(job.organisation_id, draft.id, "needs_review", job.requested_by);
@@ -174,16 +136,9 @@ async function optimiseSlot(job: Job, slot: Awaited<ReturnType<typeof getCampaig
       if (attempt > 1) logAwo("distribution_validation_recovered", { jobId: job.id, draftId: draft.id, weekNumber: slot.weekNumber, platform: slot.platform, attempt });
       return { skipped: false, error: null as string | null };
     }
-
     throw new Error(`Distribution output failed validation after ${MAX_VALIDATION_ATTEMPTS} attempts: ${validationErrors.join("; ")}`);
   } catch (error) {
-    if (force && slot.draftId) {
-      try {
-        await deps.content.updateStatus(job.organisation_id, slot.draftId, "failed", job.requested_by);
-      } catch (statusError) {
-        logAwo("reoptimisation_failed_status_update", { jobId: job.id, draftId: slot.draftId, weekNumber: slot.weekNumber, platform: slot.platform, error: statusError instanceof Error ? statusError.message : String(statusError) });
-      }
-    }
+    if (force && slot.draftId) { try { await deps.content.updateStatus(job.organisation_id, slot.draftId, "failed", job.requested_by); } catch (statusError) { logAwo("reoptimisation_failed_status_update", { jobId: job.id, draftId: slot.draftId, weekNumber: slot.weekNumber, platform: slot.platform, error: statusError instanceof Error ? statusError.message : String(statusError) }); } }
     return { skipped: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
@@ -195,40 +150,35 @@ async function processJob(job: Job, client: ReturnType<typeof createAdminClient>
   if (!campaign) { await setJob(db, job.id, { status: "failed", last_error: "Campaign not found.", finished_at: new Date().toISOString() }); return; }
   const schedule = (await getCampaignSchedule(job.campaign_id)).filter((slot) => slot.draftId);
   if (!schedule.length) { await setJob(db, job.id, { status: "failed", last_error: "Campaign schedule has no drafts.", finished_at: new Date().toISOString() }); return; }
-
   const currentDrafts = await Promise.all(schedule.map((slot) => deps.content.findDraft(job.organisation_id, slot.draftId!)));
   const generationRequests = await Promise.all(currentDrafts.map((draft) => draft ? getLatestGenerationRequest(deps, job.organisation_id, draft.id) : Promise.resolve(null)));
   const profile = resolveCampaignDistributionProfile(campaign.name, generationRequests.filter((request): request is NonNullable<typeof request> => Boolean(request)).map((request) => ({ brief: request.brief, targetAudience: request.targetAudience, memBrainContextPrompt: request.memBrainContextPrompt })));
   logAwo("campaign_distribution_profile_resolved", { jobId: job.id, campaignId: job.campaign_id, localityRequired: profile.localityRequired, localityTokens: profile.localityTokens, brandTokens: profile.brandTokens, serviceTokenCount: profile.serviceTokens.length, audienceTokenCount: profile.audienceTokens.length });
 
   const force = job.mode === "distribution_reoptimise";
+  const lockedUnfinished = force ? [] : schedule.flatMap((slot, index) => { const draft = currentDrafts[index]; return draft && isContentDraftLocked(draft.status) && !(draft.body.trim() && draft.hashtags.length) ? [{ slot, draft }] : []; });
   let completed = force ? 0 : currentDrafts.filter((draft) => draft && draft.body.trim() && draft.hashtags.length).length;
   let failed = 0;
   const failures: string[] = [];
   await setJob(db, job.id, { total_posts: schedule.length, completed_posts: completed, failed_posts: 0, locked_at: new Date().toISOString() });
-  logAwo("job_started", { jobId: job.id, campaignId: job.campaign_id, mode: job.mode ?? "unfinished", total: schedule.length, alreadyCompleted: completed, concurrency: CONCURRENCY, validationAttempts: MAX_VALIDATION_ATTEMPTS, providerAttempts: MAX_PROVIDER_ATTEMPTS, slotCooldownMs: SLOT_COOLDOWN_MS, localityRequired: profile.localityRequired });
+  logAwo("job_started", { jobId: job.id, campaignId: job.campaign_id, mode: job.mode ?? "unfinished", total: schedule.length, alreadyCompleted: completed, lockedUnfinished: lockedUnfinished.length, concurrency: CONCURRENCY, validationAttempts: MAX_VALIDATION_ATTEMPTS, providerAttempts: MAX_PROVIDER_ATTEMPTS, slotCooldownMs: SLOT_COOLDOWN_MS, localityRequired: profile.localityRequired });
 
-  const pending = force ? schedule : schedule.filter((slot, index) => { const draft = currentDrafts[index]; return !(draft && draft.body.trim() && draft.hashtags.length); });
+  const pending = force ? schedule : schedule.filter((slot, index) => isResumeEligibleDraft(currentDrafts[index]));
   for (let offset = 0; offset < pending.length && !shuttingDown; offset += CONCURRENCY) {
     const chunk = pending.slice(offset, offset + CONCURRENCY);
     const results = await Promise.all(chunk.map((slot) => optimiseSlot(job, slot, deps, campaign.name, force, profile)));
-    results.forEach((result, index) => {
-      if (result.error) { failed += 1; const slot = chunk[index]; failures.push(`Week ${slot?.weekNumber ?? "?"} ${slot?.platform ?? "?"}: ${result.error}`); }
-      else if (!result.skipped) completed += 1;
-    });
+    results.forEach((result, index) => { if (result.error) { failed += 1; const slot = chunk[index]; failures.push(`Week ${slot?.weekNumber ?? "?"} ${slot?.platform ?? "?"}: ${result.error}`); } else if (!result.skipped) completed += 1; });
     await setJob(db, job.id, { completed_posts: completed, failed_posts: failed, last_error: failures.length ? failures.slice(-3).join(" | ") : null, locked_at: new Date().toISOString() });
-    logAwo("job_progress", { jobId: job.id, mode: job.mode ?? "unfinished", completed, failed, total: schedule.length });
+    logAwo("job_progress", { jobId: job.id, mode: job.mode ?? "unfinished", completed, failed, lockedUnfinished: lockedUnfinished.length, total: schedule.length });
     if (SLOT_COOLDOWN_MS > 0 && offset + CONCURRENCY < pending.length) await sleep(SLOT_COOLDOWN_MS);
   }
 
   let finalCompleted = completed;
-  if (!force) {
-    const finalDrafts = await Promise.all(schedule.map((slot) => deps.content.findDraft(job.organisation_id, slot.draftId!)));
-    finalCompleted = finalDrafts.filter((draft) => draft && draft.body.trim() && draft.hashtags.length).length;
-  }
+  if (!force) { const finalDrafts = await Promise.all(schedule.map((slot) => deps.content.findDraft(job.organisation_id, slot.draftId!))); finalCompleted = finalDrafts.filter((draft) => draft && draft.body.trim() && draft.hashtags.length).length; }
+  const lockedMessage = lockedUnfinished.length ? lockedUnfinished.map(({ slot, draft }) => `Week ${slot.weekNumber} ${slot.platform}: ${draft.status} draft requires Lead reopen before Awo can edit it.`).slice(0, 5).join(" | ") : "";
   const finalStatus = finalCompleted >= schedule.length && failed === 0 ? "completed" : "failed";
-  await setJob(db, job.id, { status: finalStatus, completed_posts: finalCompleted, failed_posts: Math.max(failed, schedule.length - finalCompleted), last_error: finalStatus === "completed" ? null : failures.slice(-5).join(" | ") || "Some posts remain unfinished.", finished_at: new Date().toISOString(), locked_at: null });
-  logAwo("job_finished", { jobId: job.id, mode: job.mode ?? "unfinished", status: finalStatus, completed: finalCompleted, total: schedule.length, durationMs: Date.now() - started });
+  await setJob(db, job.id, { status: finalStatus, completed_posts: finalCompleted, failed_posts: failed, last_error: finalStatus === "completed" ? null : failures.slice(-5).join(" | ") || lockedMessage || "Some editable posts remain unfinished.", finished_at: new Date().toISOString(), locked_at: null });
+  logAwo("job_finished", { jobId: job.id, mode: job.mode ?? "unfinished", status: finalStatus, completed: finalCompleted, failed, lockedUnfinished: lockedUnfinished.length, total: schedule.length, durationMs: Date.now() - started });
 }
 
 export async function runAwoCampaignWorker() { const client = createAdminClient(); const db = client as unknown as JobDb; let lastRecovery = 0; logAwo("worker_started", { pollIntervalMs: POLL_INTERVAL_MS, concurrency: CONCURRENCY, providerAttempts: MAX_PROVIDER_ATTEMPTS, slotCooldownMs: SLOT_COOLDOWN_MS }); const stop = () => { shuttingDown = true; }; process.once("SIGTERM", stop); process.once("SIGINT", stop); while (!shuttingDown) { try { if (Date.now() - lastRecovery >= STALE_RECOVERY_INTERVAL_MS) { await recoverStale(db); lastRecovery = Date.now(); } const job = await claimNext(db); if (!job) { await sleep(POLL_INTERVAL_MS); continue; } await processJob(job, client, db); } catch (error) { logAwo("worker_error", { error: error instanceof Error ? error.message : String(error) }); await sleep(Math.max(POLL_INTERVAL_MS, 5000)); } } logAwo("worker_stopped"); }
