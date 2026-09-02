@@ -60,6 +60,7 @@ export function shouldInvalidateReoptimisationOutput(force: boolean, body: strin
 export function isResumeEligibleDraft(draft: Pick<ContentDraft, "status" | "body" | "hashtags"> | null | undefined): boolean {
   if (!draft) return false;
   if (draft.body.trim() && draft.hashtags.length) return false;
+  if (draft.status === "failed") return true;
   return !isContentDraftLocked(draft.status);
 }
 
@@ -90,7 +91,10 @@ async function optimiseSlot(job: Job, slot: Awaited<ReturnType<typeof getCampaig
   try {
     const draft = await getDraft(deps, job.organisation_id, slot.draftId);
     if (!force && draft.body.trim() && draft.hashtags.length) return { skipped: true, error: null as string | null };
-    if (!force && isContentDraftLocked(draft.status)) {
+    if (!force && draft.status === "failed") {
+      await deps.content.updateStatus(job.organisation_id, draft.id, "draft", job.requested_by);
+      logAwo("resume_failed_draft_reopened", { jobId: job.id, draftId: draft.id, weekNumber: slot.weekNumber, platform: slot.platform });
+    } else if (!force && isContentDraftLocked(draft.status)) {
       logAwo("resume_locked_draft_skipped", { jobId: job.id, draftId: draft.id, weekNumber: slot.weekNumber, platform: slot.platform, status: draft.status });
       return { skipped: true, error: null as string | null };
     }
@@ -156,7 +160,7 @@ async function processJob(job: Job, client: ReturnType<typeof createAdminClient>
   logAwo("campaign_distribution_profile_resolved", { jobId: job.id, campaignId: job.campaign_id, localityRequired: profile.localityRequired, localityTokens: profile.localityTokens, brandTokens: profile.brandTokens, serviceTokenCount: profile.serviceTokens.length, audienceTokenCount: profile.audienceTokens.length });
 
   const force = job.mode === "distribution_reoptimise";
-  const lockedUnfinished = force ? [] : schedule.flatMap((slot, index) => { const draft = currentDrafts[index]; return draft && isContentDraftLocked(draft.status) && !(draft.body.trim() && draft.hashtags.length) ? [{ slot, draft }] : []; });
+  const lockedUnfinished = force ? [] : schedule.flatMap((slot, index) => { const draft = currentDrafts[index]; return draft && draft.status !== "failed" && isContentDraftLocked(draft.status) && !(draft.body.trim() && draft.hashtags.length) ? [{ slot, draft }] : []; });
   let completed = force ? 0 : currentDrafts.filter((draft) => draft && draft.body.trim() && draft.hashtags.length).length;
   let failed = 0;
   const failures: string[] = [];
