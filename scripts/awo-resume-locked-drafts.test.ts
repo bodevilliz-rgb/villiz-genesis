@@ -20,6 +20,7 @@ test("resume never sends locked approval states back to Awo", () => {
   }
 });
 
-test("missing draft remains eligible so normal error handling can surface it", () => {
-  assert.equal(isResumeEligibleDraft(null), true);
+test("missing drafts are not sent into Awo resume processing", () => {
+  assert.equal(isResumeEligibleDraft(null), false);
+  assert.equal(isResumeEligibleDraft(undefined), false);
 });
