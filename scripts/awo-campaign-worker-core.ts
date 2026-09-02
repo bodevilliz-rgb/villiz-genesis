@@ -57,8 +57,8 @@ export function shouldInvalidateReoptimisationOutput(force: boolean, body: strin
   return force && Boolean(body.trim() || hashtags.length);
 }
 
-export function isResumeEligibleDraft(draft: Pick<ContentDraft, "status" | "body" | "hashtags"> | null): boolean {
-  if (!draft) return true;
+export function isResumeEligibleDraft(draft: Pick<ContentDraft, "status" | "body" | "hashtags"> | null | undefined): boolean {
+  if (!draft) return false;
   if (draft.body.trim() && draft.hashtags.length) return false;
   return !isContentDraftLocked(draft.status);
 }
