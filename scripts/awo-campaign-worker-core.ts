@@ -5,6 +5,7 @@ import { SupabaseMembrainRepository } from "../src/infrastructure/repositories/s
 import { SupabaseContentRepository } from "../src/infrastructure/repositories/supabase-content-repository";
 import { SupabaseCampaignRepository } from "../src/infrastructure/repositories/supabase-campaign-repository";
 import { getAIProvider } from "../src/infrastructure/ai/provider-factory";
+import { isRetryableProviderError } from "../src/infrastructure/ai/provider-error-policy";
 import { getCampaignSchedule } from "../src/server/queries/campaign-schedule";
 import { getDraft, getLatestGenerationRequest, updateDraft } from "../src/core/application/use-cases/content";
 import { isContentDraftLocked, type ContentDraft } from "../src/core/domain/entities/content";
@@ -64,10 +65,7 @@ export function isResumeEligibleDraft(draft: Pick<ContentDraft, "status" | "body
   return !isContentDraftLocked(draft.status);
 }
 
-export function isRetryableProviderError(error: unknown): boolean {
-  const message = (error instanceof Error ? `${error.name}: ${error.message}` : String(error)).toLowerCase();
-  return ["high demand", "temporarily", "try again later", "rate limit", "429", "503", "502", "504", "timeout", "timed out", "no object generated", "response did not match schema", "ai_apicallerror"].some((token) => message.includes(token));
-}
+export { isRetryableProviderError } from "../src/infrastructure/ai/provider-error-policy";
 
 export function providerRetryDelayMs(attempt: number, baseMs = PROVIDER_RETRY_BASE_MS): number {
   const exponent = Math.max(0, attempt - 1);
