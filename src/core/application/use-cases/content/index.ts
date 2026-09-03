@@ -161,7 +161,11 @@ export async function createGenerationRequest(
   const draft = await deps.content.findDraft(input.organisationId, input.draftId);
   if (!draft) throw new NotFoundError("Draft");
 
-  const query = [input.brief, input.targetAudience, input.tone].filter((part) => part && part.trim()).join(" — ");
+  const rawQuery = [input.brief, input.targetAudience, input.tone]
+    .filter((part) => part && part.trim())
+    .join(" — ");
+  const truncatedQuery = rawQuery.slice(0, 500);
+  const query = /[\uD800-\uDBFF]$/.test(truncatedQuery) ? truncatedQuery.slice(0, -1) : truncatedQuery;
 
   const pack = await retrieveContext(
     { actor: deps.actor, membrain: deps.membrain, organisations: deps.organisations },
