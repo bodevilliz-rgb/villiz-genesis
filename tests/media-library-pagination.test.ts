@@ -21,8 +21,8 @@
  * T1  — bounded: requests exactly `limit`, not the whole library
  * T2  — repository receives limit/offset/search/mimeFilter/isArchived
  * T3  — a 500-asset synthetic org still returns only one page
- * T4  — signed URLs generated only for current-page image items
- * T5  — no image bytes/base64 anywhere in the returned payload — URLs only
+ * T4  — signed URLs generated only for current-page image thumbnails
+ * T5  — full-resolution assets without thumbnails generate no preview URLs
  * T6  — "Load more" (offset = previous page length) retrieves the next batch
  * T7  — no duplicate asset ids between sequential pages
  * T8  — search is forwarded to the repository — works beyond the first page
@@ -35,7 +35,7 @@
  *       upload, so a new asset becomes visible without a full-library refetch
  * T15 — empty library: zero items, hasMore false, no crash
  * T16 — a single-asset library returns that one asset, hasMore false
- * T17 — a signed-URL failure for one asset does not fail the whole page
+ * T17 — a signed-URL failure for one thumbnail does not fail the whole page
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -56,6 +56,7 @@ function listItem(overrides: Partial<MediaAssetListItem> = {}): MediaAssetListIt
     mimeType: "image/jpeg",
     sizeBytes: 100000,
     storagePath: `organisations/${ALPHA_ORG_ID}/img.jpg`,
+    thumbnailPath: null,
     tags: [],
     altText: null,
     isArchived: false,
@@ -175,22 +176,25 @@ describe("T3 — a very large organisation (10,000 synthetic assets) still retur
 
 // ── T4–T5: signed URLs and payload content ───────────────────────────────────
 
-describe("T4 — signed URLs are generated only for the current page's image items", () => {
+describe("T4 — signed URLs are generated only for current-page image thumbnails", () => {
   it("signCallCount equals the number of image assets on the page, not the library size", async () => {
-    const dataset = fakeOrgDataset(ALPHA_ORG_ID, 200, (i) => ({ mimeType: i % 2 === 0 ? "image/jpeg" : "video/mp4" }));
+    const dataset = fakeOrgDataset(ALPHA_ORG_ID, 200, (i) => ({
+      mimeType: i % 2 === 0 ? "image/jpeg" : "video/mp4",
+      thumbnailPath: i % 2 === 0 ? `organisations/${ALPHA_ORG_ID}/thumb-${i}.jpg` : null,
+    }));
     const { repo } = fakeMediaRepository({ [ALPHA_ORG_ID]: dataset });
     const { storage, signCallCount } = fakeStorage();
 
     const result = await loadMediaLibraryPage({ media: repo, storage }, ALPHA_ORG_ID, { limit: 24, offset: 0 });
 
-    const imagesOnPage = result.items.filter((a) => a.mimeType.startsWith("image/")).length;
-    expect(imagesOnPage).toBeGreaterThan(0);
-    expect(imagesOnPage).toBeLessThan(200);
-    expect(signCallCount()).toBe(imagesOnPage);
+    const thumbnailsOnPage = result.items.filter((a) => a.mimeType.startsWith("image/") && a.thumbnailPath).length;
+    expect(thumbnailsOnPage).toBeGreaterThan(0);
+    expect(thumbnailsOnPage).toBeLessThan(200);
+    expect(signCallCount()).toBe(thumbnailsOnPage);
   });
 });
 
-describe("T5 — no image bytes or base64 anywhere in the returned payload", () => {
+describe("T5 — full-resolution assets without thumbnails do not generate preview URLs", () => {
   it("signedUrls values are plain HTTPS URL strings, and the serialized result contains no data: URI", async () => {
     const dataset = fakeOrgDataset(ALPHA_ORG_ID, 5, () => ({ mimeType: "image/png" }));
     const { repo } = fakeMediaRepository({ [ALPHA_ORG_ID]: dataset });
@@ -201,9 +205,8 @@ describe("T5 — no image bytes or base64 anywhere in the returned payload", () 
     const serialised = JSON.stringify(result);
     expect(serialised).not.toContain("data:image");
     expect(serialised).not.toContain("base64");
-    for (const url of Object.values(result.signedUrls)) {
-      expect(url.startsWith("https://")).toBe(true);
-    }
+    expect(result.signedUrls).toEqual({});
+    expect(Object.keys(result.signedUrls)).toHaveLength(0);
   });
 });
 
@@ -404,9 +407,12 @@ describe("T16 — a single-asset library returns that one asset with hasMore fal
 
 // ── T17: resilience ────────────────────────────────────────────────────────────
 
-describe("T17 — a signed-URL failure for one asset does not fail the whole page", () => {
-  it("the failing asset is simply omitted from signedUrls; the page still returns all items", async () => {
-    const dataset = fakeOrgDataset(ALPHA_ORG_ID, 3, () => ({ mimeType: "image/jpeg" }));
+describe("T17 — a signed-URL failure for one thumbnail does not fail the whole page", () => {
+  it("the failing thumbnail is simply omitted from signedUrls; the page still returns all items", async () => {
+    const dataset = fakeOrgDataset(ALPHA_ORG_ID, 3, (i) => ({
+      mimeType: "image/jpeg",
+      thumbnailPath: `organisations/${ALPHA_ORG_ID}/thumb-${i}.jpg`,
+    }));
     const { repo } = fakeMediaRepository({ [ALPHA_ORG_ID]: dataset });
     let calls = 0;
     const storage: Pick<StoragePort, "getSignedUrl"> = {

@@ -307,7 +307,8 @@ export function BrandKitsPanel({ organisationId, brandKits, allAssets, signedUrl
             ) : (
               <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
                 {activeBrandKit.assets.map((ba) => {
-                  const signedUrl = signedUrls[ba.asset?.storagePath || ""];
+                  const previewPath = ba.asset?.thumbnailPath;
+                  const signedUrl = previewPath ? signedUrls[previewPath] : undefined;
                   const isImg = ba.asset?.mimeType.startsWith("image/");
                   return (
                     <div key={ba.assetId} className="group relative rounded-lg border border-border bg-card overflow-hidden">

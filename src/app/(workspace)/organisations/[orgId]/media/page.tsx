@@ -70,11 +70,12 @@ export default async function MediaDashboardPage({
   async function signAll(assets: MediaAsset[]): Promise<Record<string, string>> {
     const signed: Record<string, string> = {};
     for (const asset of assets) {
-      if (asset.mimeType.startsWith("image/")) {
+      const previewPath = asset.thumbnailPath;
+      if (asset.mimeType.startsWith("image/") && previewPath) {
         try {
-          signed[asset.storagePath] = await context.storage.getSignedUrl(asset.storagePath);
+          signed[previewPath] = await context.storage.getSignedUrl(previewPath);
         } catch (err) {
-          console.warn(`Failed to sign URL for storagePath: ${asset.storagePath}`, err);
+          console.warn(`Failed to sign thumbnail URL for storagePath: ${previewPath}`, err);
         }
       }
     }
