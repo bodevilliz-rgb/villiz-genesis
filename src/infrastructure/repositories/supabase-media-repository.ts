@@ -102,7 +102,7 @@ export class SupabaseMediaRepository implements MediaRepository {
     let query = this.client
       .from("media_assets")
       .select(
-        "id, organisation_id, title, file_name, mime_type, size_bytes, storage_path, tags, alt_text, is_archived, is_ai_generated, created_at",
+        "id, organisation_id, title, file_name, mime_type, size_bytes, storage_path, thumbnail_path, tags, alt_text, is_archived, is_ai_generated, created_at",
         { count: "exact" },
       )
       .eq("organisation_id", organisationId);
@@ -174,6 +174,7 @@ export class SupabaseMediaRepository implements MediaRepository {
       mimeType: row.mime_type,
       sizeBytes: row.size_bytes,
       storagePath: row.storage_path,
+      thumbnailPath: row.thumbnail_path ?? null,
       tags: row.tags ?? [],
       altText: row.alt_text ?? null,
       isArchived: row.is_archived ?? false,
