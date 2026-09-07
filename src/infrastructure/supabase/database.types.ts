@@ -741,6 +741,7 @@ export type PublishingJobRow = {
   cancelled_at: string | null;
   claimed_by: string | null;
   claimed_at: string | null;
+  pre_submission_recovery: boolean;
   dev_simulation_mode: PublishingSimulationModeDb | null;
   resolved_account_id: string | null;
   is_ai_generated: boolean | null;
@@ -1254,6 +1255,10 @@ export type Database = {
       organisation_usage_snapshot: View<UsageSnapshotRow>;
     };
     Functions: {
+      get_media_library_stats: {
+        Args: { p_organisation_id: string };
+        Returns: { total_assets: number; image_count: number; video_count: number; total_storage_bytes: number }[];
+      };
       admin_set_staff_profile: {
         Args: { p_actor_id: string; p_profile_id: string; p_full_name: string; p_role: PlatformRoleDb; p_is_active: boolean };
         Returns: ProfileRow;
@@ -1312,6 +1317,22 @@ export type Database = {
       claim_automation_events: {
         Args: { p_consumer: string; p_limit?: number | null; p_lease_seconds?: number | null };
         Returns: ClaimAutomationEventRow[];
+      };
+      claim_pre_submission_publishing_job: {
+        Args: { p_worker_id: string };
+        Returns: unknown;
+      };
+      settle_failed_publishing_claim: {
+        Args: { p_job_id: string; p_worker_id: string; p_error_code: string; p_error_message: string };
+        Returns: boolean;
+      };
+      begin_publishing_submission: {
+        Args: { p_job_id: string; p_attempt_id: string; p_worker_id: string };
+        Returns: unknown;
+      };
+      settle_publishing_receipt: {
+        Args: { p_attempt_id: string; p_outcome: string; p_metadata: Json; p_external_post_id: string | null; p_external_url: string | null };
+        Returns: unknown;
       };
       claim_next_publishing_job: {
         Args: {

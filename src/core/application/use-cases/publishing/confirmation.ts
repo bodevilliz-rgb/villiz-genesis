@@ -80,8 +80,7 @@ export async function runProviderConfirmationPass(
     return { status: "unresolved", jobId: job.id, reason: "missing_submission_id" };
   }
 
-  const attempts = await deps.publishing.listAttemptsForJob(job.organisationId, job.id);
-  const lastAttempt = attempts[attempts.length - 1];
+  const lastAttempt = await deps.publishing.findLatestAttemptForJob(job.organisationId, job.id);
   const submissionId = findSubmissionId(lastAttempt?.providerMetadata);
 
   if (!lastAttempt || !submissionId) {

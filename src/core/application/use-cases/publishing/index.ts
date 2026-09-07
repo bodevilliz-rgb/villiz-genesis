@@ -300,9 +300,8 @@ export async function startPublishingAttempt(
   deps: Pick<PublishingDeps, "publishing" | "content">,
   job: PublishingJob,
 ): Promise<PublishingAttempt> {
-  const existingAttempts = await deps.publishing.listAttemptsForJob(job.organisationId, job.id);
-  const attemptNumber = existingAttempts.length + 1;
-  const previousAttempt = existingAttempts[existingAttempts.length - 1] ?? null;
+  const previousAttempt = await deps.publishing.findLatestAttemptForJob(job.organisationId, job.id);
+  const attemptNumber = (previousAttempt?.attemptNumber ?? 0) + 1;
 
   const attempt = await deps.publishing.createAttempt({
     jobId: job.id,
@@ -373,10 +372,13 @@ export async function awaitProviderConfirmation(
   attempt: PublishingAttempt,
   pending: { providerSubmissionId: string; providerMetadata: Record<string, unknown> },
 ): Promise<void> {
-  await deps.publishing.awaitAttemptConfirmation(attempt.id, pending.providerMetadata);
+  // Receipt and job schedule commit together; there is no second schedule
+  // write that can strand the receipt or reopen a concurrently resolved job.
+  await deps.publishing.awaitAttemptConfirmation(attempt.id, {
+    ...pending.providerMetadata, postSubmissionId: pending.providerSubmissionId,
+  });
 
   const nextCheckAt = new Date(Date.now() + nextConfirmationCheckDelayMs(0)).toISOString();
-  await deps.publishing.markJobAwaitingConfirmation(job.id, nextCheckAt);
 
   await deps.audits.recordEvent({
     organisationId: job.organisationId,
@@ -449,8 +451,7 @@ async function hasUnresolvedProviderSubmission(
   if (job.status === "awaiting_confirmation") return true;
   if (job.status !== "failed") return false;
 
-  const attempts = await deps.publishing.listAttemptsForJob(organisationId, job.id);
-  const lastAttempt = attempts[attempts.length - 1];
+  const lastAttempt = await deps.publishing.findLatestAttemptForJob(organisationId, job.id);
   if (!lastAttempt || lastAttempt.errorCode !== "blotato_status_timeout") return false;
 
   const submissionId = lastAttempt.providerMetadata?.postSubmissionId;
@@ -552,8 +553,7 @@ export async function reconcileBlotatoStatusTimeout(
     throw new ValidationError("This job was simulated — there is no real provider submission to reconcile.");
   }
 
-  const attempts = await deps.publishing.listAttemptsForJob(organisationId, jobId);
-  const lastAttempt = attempts[attempts.length - 1];
+  const lastAttempt = await deps.publishing.findLatestAttemptForJob(organisationId, jobId);
   if (!lastAttempt || lastAttempt.errorCode !== "blotato_status_timeout") {
     throw new ValidationError(
       "This job's last attempt did not time out waiting for the provider's status — there is nothing to reconcile. Use retry instead.",

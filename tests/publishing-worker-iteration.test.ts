@@ -28,6 +28,7 @@ vi.mock("@/infrastructure/repositories/supabase-publishing-repository", () => ({
   SupabasePublishingRepository: vi.fn().mockImplementation(() => ({
     recoverStaleJobs: vi.fn(async () => []),
     claimNextJob: vi.fn(async () => null),
+    findLatestAttemptForJob: vi.fn(async () => null),
     listAttemptsForJob: vi.fn(async () => []),
     createAttempt: vi.fn(async () => ({})),
     startAttempt: vi.fn(async () => ({})),
@@ -315,6 +316,7 @@ function createPublishingHarness(initialJob: PublishingJob | null = baseJob()) {
       attempts.set(attemptId, updated);
       return updated;
     },
+    async findLatestAttemptForJob(organisationId: string, jobId: string) { return (await this.listAttemptsForJob!(organisationId, jobId)).at(-1) ?? null; },
     async listAttemptsForJob(_orgId, jobId) {
       return [...attempts.values()].filter((a) => a.jobId === jobId);
     },

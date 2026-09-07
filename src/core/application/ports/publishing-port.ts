@@ -101,18 +101,23 @@ export interface PublishingRepository {
    * of an already-submitted post, never a new publish.
    */
   claimJobForConfirmation(workerId: string): Promise<PublishingJob | null>;
-  /** Marks an attempt as awaiting provider confirmation, preserving its provider metadata (including the submission id). Never a terminal state. */
+  /** Atomically saves the receipt and schedules the job for confirmation. Replays cannot reopen a terminal attempt/job. */
   awaitAttemptConfirmation(attemptId: string, providerMetadata: Record<string, unknown>): Promise<PublishingAttempt>;
 
+  /** Atomically fail an owned pre-submission claim, its active attempts and draft. */
+  settleFailedClaim(jobId: string, workerId: string, failure: Pick<FailPublishingAttemptInput, "errorCode" | "errorMessage">): Promise<boolean>;
   /** Worker-only — must be called with the service-role client. Atomic (`for update skip locked`) at the database level. */
-  claimNextJob(workerId: string): Promise<PublishingJob | null>;
+  claimNextJob(workerId: string, preSubmissionRecovery?: boolean): Promise<PublishingJob | null>;
   /** Worker-only — must be called with the service-role client. */
   recoverStaleJobs(staleAfterSeconds: number): Promise<PublishingJob[]>;
 
   createAttempt(input: CreatePublishingAttemptInput): Promise<PublishingAttempt>;
   startAttempt(attemptId: string): Promise<PublishingAttempt>;
+  /** Atomically completes the attempt, job and draft. Safe to replay after a lost response. */
   completeAttempt(attemptId: string, input: CompletePublishingAttemptInput): Promise<PublishingAttempt>;
   failAttempt(attemptId: string, input: FailPublishingAttemptInput): Promise<PublishingAttempt>;
+  findLatestAttemptForJob(organisationId: string, jobId: string): Promise<PublishingAttempt | null>;
+  /** Most recent 100 attempts, in ascending attempt order, for UI history. */
   listAttemptsForJob(organisationId: string, jobId: string): Promise<PublishingAttempt[]>;
   listAttemptsForDraft(organisationId: string, draftId: string): Promise<PublishingAttempt[]>;
 

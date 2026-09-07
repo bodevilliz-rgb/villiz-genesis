@@ -112,7 +112,7 @@ describe("createBackoffController — cancellable wait, isolated from pollOnce",
 });
 
 describe("pollOnce — a transient claim failure does not kill the worker, and the next claim attempt still runs", () => {
-  it("catches the error, backs off, retries the claim, and resolves normally once a poll succeeds (finding no due job)", async () => {
+  it("contains the error and retries only in a later cycle after cooldown", async () => {
     vi.useFakeTimers();
     try {
       const claimNextJob = vi
@@ -121,7 +121,7 @@ describe("pollOnce — a transient claim failure does not kill the worker, and t
         .mockResolvedValueOnce(null);
 
       const fakeDeps = {
-        publishing: { claimNextJob } as unknown as PublishingRepository,
+        publishing: { recoverStaleJobs: vi.fn().mockResolvedValue([]), claimNextJob } as unknown as PublishingRepository,
         content: {},
         audits: {},
         notifications: {},
@@ -139,6 +139,8 @@ describe("pollOnce — a transient claim failure does not kill the worker, and t
       await vi.advanceTimersByTimeAsync(30_000);
 
       await expect(pending).resolves.toBeUndefined();
+      expect(claimNextJob).toHaveBeenCalledTimes(1);
+      await pollOnce(fakeDeps as never);
       expect(claimNextJob).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();

@@ -62,7 +62,7 @@ export function CampaignAssetsPanel({ organisationId, campaignId, allAssets, att
       <CardContent>
         {localAssets.length === 0 ? <p className="text-[12px] text-muted-foreground italic py-2">No creative templates, visual logos, or photography attached to this campaign.</p> : (
           <div className="grid gap-3 sm:grid-cols-2">{localAssets.map((asset) => {
-            const sUrl = signedUrls[asset.storagePath];
+            const sUrl = signedUrls[asset.id];
             return <div key={asset.id} className="flex items-center justify-between p-2 rounded-md border border-border bg-card">
               <div className="flex items-center gap-2.5 truncate">
                 {asset.mimeType.startsWith("image/") && sUrl ? <img src={sUrl} alt="" className="size-8 rounded object-cover border border-border" /> : <div className="size-8 rounded border border-border bg-muted flex items-center justify-center">{getFileIcon(asset.mimeType)}</div>}
@@ -78,7 +78,7 @@ export function CampaignAssetsPanel({ organisationId, campaignId, allAssets, att
         <div className="flex items-center justify-between border-b border-border pb-3 mb-4"><h4 className="text-md font-semibold text-foreground">Link Asset to Campaign</h4><button onClick={() => setShowModal(false)} className="text-muted-foreground hover:text-foreground"><X className="size-4" /></button></div>
         <div className="overflow-y-auto flex-1 flex flex-col gap-2">
           {availableAssets.map((asset) => <div key={asset.id} className="flex items-center justify-between p-2 rounded hover:bg-muted/40 border border-transparent hover:border-border">
-            <div className="flex items-center gap-3">{asset.mimeType.startsWith("image/") && signedUrls[asset.storagePath] ? <img src={signedUrls[asset.storagePath]} alt="" className="size-8 rounded object-cover border border-border" /> : <div className="size-8 rounded border border-border bg-muted flex items-center justify-center">{getFileIcon(asset.mimeType)}</div>}<div><p className="text-[12px] font-medium text-foreground truncate max-w-[200px]">{asset.title || asset.fileName}</p><p className="text-[10px] text-muted-foreground uppercase">{asset.mimeType.split("/")[1]}</p></div></div>
+            <div className="flex items-center gap-3">{asset.mimeType.startsWith("image/") && signedUrls[asset.id] ? <img src={signedUrls[asset.id]} alt="" className="size-8 rounded object-cover border border-border" /> : <div className="size-8 rounded border border-border bg-muted flex items-center justify-center">{getFileIcon(asset.mimeType)}</div>}<div><p className="text-[12px] font-medium text-foreground truncate max-w-[200px]">{asset.title || asset.fileName}</p><p className="text-[10px] text-muted-foreground uppercase">{asset.mimeType.split("/")[1]}</p></div></div>
             <Button onClick={() => handleAttach(asset)} variant="ghost" className="text-primary text-[11px] font-medium py-1 px-2.5 h-auto" disabled={isPending}>Link</Button>
           </div>)}
           {availableAssets.length === 0 && <p className="text-center text-[12px] text-muted-foreground py-8">All available assets are already linked to this campaign.</p>}

@@ -131,7 +131,7 @@ export class SupabasePublishingRepository implements PublishingRepository {
       .select(JOB_SELECT)
       .eq("organisation_id", organisationId)
       .eq("draft_id", draftId)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false }).limit(100);
 
     if (error) translateError(error, "Publishing jobs");
     return (data ?? []).map((row) => toPublishingJob(row as unknown as PublishingJobRowWithRelations));
@@ -223,9 +223,9 @@ export class SupabasePublishingRepository implements PublishingRepository {
     return toPublishingJob(unwrap(result, "Publishing job") as unknown as PublishingJobRowWithRelations);
   }
 
-  async claimNextJob(workerId: string) {
-    const { data, error } = await this.client.rpc("claim_next_publishing_job", { p_worker_id: workerId });
-    if (error) translateError(error, "Publishing job claim");
+  async claimNextJob(workerId: string, preSubmissionRecovery = false) {
+    const { data, error, status } = await this.client.rpc(preSubmissionRecovery ? "claim_pre_submission_publishing_job" : "claim_next_publishing_job", { p_worker_id: workerId });
+    if (error) translateError({ ...error, status }, "Publishing job claim");
     // Shape-independent by design — see toClaimedPublishingJob.
     return toClaimedPublishingJob(data, "claim_next_publishing_job");
   }
@@ -281,38 +281,50 @@ export class SupabasePublishingRepository implements PublishingRepository {
   }
 
   async claimJobForConfirmation(workerId: string) {
-    const { data, error } = await this.client.rpc("claim_publishing_job_for_confirmation", {
+    const { data, error, status } = await this.client.rpc("claim_publishing_job_for_confirmation", {
       p_worker_id: workerId,
     });
-    if (error) translateError(error, "Publishing confirmation claim");
+    if (error) translateError({ ...error, status }, "Publishing confirmation claim");
     // P0 follow-up: this exact destructuring previously threw "rows is not
     // iterable" every worker tick. Both claim RPCs now share one normalizer.
     return toClaimedPublishingJob(data, "claim_publishing_job_for_confirmation");
   }
 
   async awaitAttemptConfirmation(attemptId: string, providerMetadata: Record<string, unknown>) {
-    const result = await this.client
-      .from("publishing_attempts")
-      .update({
-        status: "awaiting_confirmation",
-        // Deliberately NOT setting failed_at/completed_at/duration_ms: this
-        // attempt has not ended. Its provider metadata (including the real
-        // submission id) is preserved so reconciliation re-checks the exact
-        // submission rather than creating another one.
-        provider_metadata: providerMetadata as Json,
-      })
-      .eq("id", attemptId)
-      .select()
-      .single();
+    return this.settleAttempt(attemptId, "pending", providerMetadata);
+  }
 
-    return toPublishingAttempt(unwrap(result, "Publishing attempt") as unknown as PublishingAttemptRow);
+  /** A delayed pre-submission failure must not overwrite a recovered lease. */
+  async settleFailedClaim(jobId: string, workerId: string, failure: Pick<FailPublishingAttemptInput, "errorCode" | "errorMessage">): Promise<boolean> {
+    const { data, error, status } = await this.client.rpc("settle_failed_publishing_claim", {
+      p_job_id: jobId, p_worker_id: workerId,
+      p_error_code: failure.errorCode, p_error_message: failure.errorMessage,
+    });
+    if (error) translateError({ ...error, status }, "Publishing claim settlement");
+    return data === true;
+  }
+
+  async beginSubmission(jobId: string, attemptId: string, workerId: string) {
+    const { error, status } = await this.client.rpc("begin_publishing_submission", {
+      p_job_id: jobId, p_attempt_id: attemptId, p_worker_id: workerId,
+    });
+    if (error) translateError({ ...error, status }, "Publishing submission barrier");
+  }
+
+  private async settleAttempt(attemptId: string, outcome: string, metadata: Record<string, unknown>, externalPostId?: string, externalUrl?: string) {
+    const { data, error, status } = await this.client.rpc("settle_publishing_receipt", {
+      p_attempt_id: attemptId, p_outcome: outcome, p_metadata: metadata as Json,
+      p_external_post_id: externalPostId ?? null, p_external_url: externalUrl ?? null,
+    });
+    if (error) translateError({ ...error, status }, "Publishing receipt settlement");
+    return toPublishingAttempt(data as unknown as PublishingAttemptRow);
   }
 
   async recoverStaleJobs(staleAfterSeconds: number) {
-    const { data, error } = await this.client.rpc("recover_stale_publishing_jobs", {
+    const { data, error, status } = await this.client.rpc("recover_stale_publishing_jobs", {
       p_stale_after_seconds: staleAfterSeconds,
     });
-    if (error) translateError(error, "Stale publishing job recovery");
+    if (error) translateError({ ...error, status }, "Stale publishing job recovery");
     const rows = (data ?? []) as unknown as PublishingJobRowWithRelations[];
     return rows.map((row) => toPublishingJob(row));
   }
@@ -346,30 +358,7 @@ export class SupabasePublishingRepository implements PublishingRepository {
   }
 
   async completeAttempt(attemptId: string, input: CompletePublishingAttemptInput) {
-    const existing = await this.client
-      .from("publishing_attempts")
-      .select("started_at, queued_at")
-      .eq("id", attemptId)
-      .single();
-    const row = unwrap(existing, "Publishing attempt") as unknown as { started_at: string | null; queued_at: string };
-    const startedAt = row.started_at ? new Date(row.started_at).getTime() : new Date(row.queued_at).getTime();
-    const durationMs = Math.max(0, Date.now() - startedAt);
-
-    const result = await this.client
-      .from("publishing_attempts")
-      .update({
-        status: "completed",
-        completed_at: new Date().toISOString(),
-        duration_ms: durationMs,
-        external_post_id: input.externalPostId,
-        external_url: input.externalUrl,
-        provider_metadata: input.providerMetadata as Json,
-      })
-      .eq("id", attemptId)
-      .select()
-      .single();
-
-    return toPublishingAttempt(unwrap(result, "Publishing attempt") as unknown as PublishingAttemptRow);
+    return this.settleAttempt(attemptId, "published", input.providerMetadata, input.externalPostId, input.externalUrl);
   }
 
   async failAttempt(attemptId: string, input: FailPublishingAttemptInput) {
@@ -399,16 +388,24 @@ export class SupabasePublishingRepository implements PublishingRepository {
     return toPublishingAttempt(unwrap(result, "Publishing attempt") as unknown as PublishingAttemptRow);
   }
 
+  async findLatestAttemptForJob(organisationId: string, jobId: string) {
+    const { data, error } = await this.client.from("publishing_attempts").select()
+      .eq("organisation_id", organisationId).eq("job_id", jobId)
+      .order("attempt_number", { ascending: false }).limit(1);
+    if (error) translateError(error, "Latest publishing attempt");
+    return data?.[0] ? toPublishingAttempt(data[0] as unknown as PublishingAttemptRow) : null;
+  }
+
   async listAttemptsForJob(organisationId: string, jobId: string) {
     const { data, error } = await this.client
       .from("publishing_attempts")
       .select()
       .eq("organisation_id", organisationId)
       .eq("job_id", jobId)
-      .order("attempt_number", { ascending: true });
+      .order("attempt_number", { ascending: false }).limit(100);
 
     if (error) translateError(error, "Publishing attempts");
-    return (data ?? []).map((row) => toPublishingAttempt(row as unknown as PublishingAttemptRow));
+    return (data ?? []).reverse().map((row) => toPublishingAttempt(row as unknown as PublishingAttemptRow));
   }
 
   async listAttemptsForDraft(organisationId: string, draftId: string) {
@@ -417,7 +414,7 @@ export class SupabasePublishingRepository implements PublishingRepository {
       .select()
       .eq("organisation_id", organisationId)
       .eq("draft_id", draftId)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false }).limit(100);
 
     if (error) translateError(error, "Publishing attempts");
     return (data ?? []).map((row) => toPublishingAttempt(row as unknown as PublishingAttemptRow));
@@ -435,10 +432,11 @@ export class SupabasePublishingRepository implements PublishingRepository {
     if (input.status) query = query.eq("status", input.status);
     if (input.requireExternalPostId) query = query.not("external_post_id", "is", null);
     if (input.newestFirst) query = query.order("completed_at", { ascending: false, nullsFirst: false });
-    if (input.limit) query = query.limit(Math.min(Math.max(input.limit, 1), 100));
+    query = query.limit(input.limit === undefined ? 101 : Math.min(Math.max(input.limit, 1), 100));
 
     const { data, error } = await query;
     if (error) translateError(error, "Publishing analytics");
+    if ((data?.length ?? 0) > 100) throw new Error("Narrow the date range to load complete publishing analytics (maximum 100 records).");
     return (data ?? []).map((row) => toPublishingAttempt(row as unknown as PublishingAttemptRow));
   }
 
@@ -448,8 +446,9 @@ export class SupabasePublishingRepository implements PublishingRepository {
     if (input.dateFrom) query = query.gte("created_at", input.dateFrom);
     if (input.dateTo) query = query.lte("created_at", input.dateTo);
 
-    const { data, error } = await query;
+    const { data, error } = await query.order("created_at", { ascending: false }).limit(101);
     if (error) translateError(error, "Publishing analytics");
+    if ((data?.length ?? 0) > 100) throw new Error("Narrow the date range to load complete publishing analytics (maximum 100 records).");
     return (data ?? []).map((row) => toPublishingJob(row as unknown as PublishingJobRowWithRelations));
   }
 }

@@ -181,6 +181,7 @@ function makeConfirmationDeps(input: {
     deps: {
       publishing: {
         claimJobForConfirmation,
+        async findLatestAttemptForJob(organisationId: string, jobId: string) { return (await listAttemptsForJob(organisationId, jobId)).at(-1) ?? null; },
         listAttemptsForJob,
         completeAttempt,
         failAttempt,
@@ -219,6 +220,7 @@ function makeWorkerDeps(input: { claimed: PublishingJob | null; publishFn: Retur
       claimNextJob: vi.fn().mockResolvedValueOnce(input.claimed).mockResolvedValue(null),
       claimJobForConfirmation: vi.fn(async () => null),
       recoverStaleJobs: vi.fn(async () => []),
+      findLatestAttemptForJob: vi.fn(async () => null),
       listAttemptsForJob: vi.fn(async () => []),
       createAttempt: vi.fn(async () => attempt({ status: "started" })),
       startAttempt: vi.fn(async () => attempt({ status: "started" })),
@@ -309,7 +311,7 @@ describe("3/4/5/7 — provider still processing past the window → Awaiting Con
       "attempt-1",
       expect.objectContaining({ postSubmissionId: SUBMISSION_ID }),
     );
-    expect(markJobAwaitingConfirmation).toHaveBeenCalledTimes(1);
+    expect(markJobAwaitingConfirmation).not.toHaveBeenCalled(); // Receipt RPC owns scheduling.
   });
 });
 
@@ -421,6 +423,7 @@ describe("18/19 — retry is blocked while unresolved, permitted after a confirm
       actor: { id: "user-1", isPlatformAdmin: true } as never,
       publishing: {
         findJobById: vi.fn(async () => input.job),
+        findLatestAttemptForJob: vi.fn(async () => input.attempts.at(-1) ?? null),
         listAttemptsForJob: vi.fn(async () => input.attempts),
         requeueJobForRetry: vi.fn(async () => job({ status: "queued", retryCount: 1 })),
       } as never,
@@ -684,7 +687,7 @@ describe("27/28/29/30 — disclosures, execution mode, media and hashtag policy 
       metadata: { postSubmissionId: SUBMISSION_ID },
     }));
     const claimed = job({ status: "queued", isAiGenerated: true, isYourBrand: true, isBrandedContent: false, executionMode: "live" });
-    const { deps, markJobAwaitingConfirmation } = makeWorkerDeps({ claimed, publishFn });
+    const { deps, awaitAttemptConfirmation, markJobAwaitingConfirmation } = makeWorkerDeps({ claimed, publishFn });
 
     await runPublishingWorkerIteration(deps);
 
@@ -692,8 +695,9 @@ describe("27/28/29/30 — disclosures, execution mode, media and hashtag policy 
     expect(publishFn).toHaveBeenCalledWith(
       expect.objectContaining({ isAiGenerated: true, isYourBrand: true, isBrandedContent: false }),
     );
-    // ...and the awaiting transition writes only status + scheduling fields.
-    expect(markJobAwaitingConfirmation).toHaveBeenCalledWith("job-1", expect.any(String));
+    // ...and the atomic receipt operation owns scheduling without rewriting disclosures.
+    expect(awaitAttemptConfirmation).toHaveBeenCalledWith("attempt-1", expect.objectContaining({ postSubmissionId: SUBMISSION_ID }));
+    expect(markJobAwaitingConfirmation).not.toHaveBeenCalled();
   });
 
   it("the confirmation pass has no media or hashtag dependency at all — it cannot alter either", () => {

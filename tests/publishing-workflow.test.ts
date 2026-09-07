@@ -282,6 +282,7 @@ function createHarness(input: {
       attempts.set(attemptId, updated);
       return updated;
     },
+    async findLatestAttemptForJob(organisationId: string, jobId: string) { return (await this.listAttemptsForJob!(organisationId, jobId)).at(-1) ?? null; },
     async listAttemptsForJob(_organisationId, jobId) {
       return [...attempts.values()].filter((a) => a.jobId === jobId).sort((a, b) => a.attemptNumber - b.attemptNumber);
     },

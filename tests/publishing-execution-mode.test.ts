@@ -248,6 +248,7 @@ function makeVercelWorkerDeps(theJob: PublishingJob, globalLive: boolean): Worke
     publishing: {
       claimNextJob: vi.fn().mockResolvedValueOnce(theJob).mockResolvedValue(null),
       recoverStaleJobs: vi.fn(async () => []),
+      findLatestAttemptForJob: vi.fn(async () => null),
       listAttemptsForJob: vi.fn(async () => []),
       createAttempt: vi.fn(async () => ({ id: "attempt-1", attemptNumber: 1 })),
       startAttempt: vi.fn(async () => ({ id: "attempt-1", attemptNumber: 1 })),
@@ -330,7 +331,9 @@ describe("9/10 — the Render worker derives publisher behaviour from job.execut
     const failAttempt = vi.fn(async () => {});
     const deps = {
       publishing: {
+        recoverStaleJobs: vi.fn().mockResolvedValue([]),
         claimNextJob: vi.fn().mockResolvedValueOnce(theJob).mockResolvedValue(null),
+        findLatestAttemptForJob: vi.fn(async () => null),
         listAttemptsForJob: vi.fn(async () => []),
         createAttempt: vi.fn(async () => ({ id: "attempt-1", attemptNumber: 1 })),
         startAttempt: vi.fn(async () => ({ id: "attempt-1", attemptNumber: 1 })),
@@ -495,6 +498,7 @@ describe("16 — reconciliation refuses a simulation job", () => {
       actor: { id: "user-1", isPlatformAdmin: true } as never,
       publishing: {
         findJobById: vi.fn(async () => job({ status: "failed", executionMode: "simulation" })),
+        findLatestAttemptForJob: vi.fn(async () => null),
         listAttemptsForJob: vi.fn(async () => []),
       } as never,
       blotatoAccounts: {} as never,
@@ -520,6 +524,7 @@ describe("16 — reconciliation refuses a simulation job", () => {
       actor: { id: "user-1", isPlatformAdmin: true } as never,
       publishing: {
         findJobById: vi.fn(async () => job({ status: "failed", executionMode: "live" })),
+        findLatestAttemptForJob: vi.fn(async () => timedOutAttempt),
         listAttemptsForJob: vi.fn(async () => [timedOutAttempt]),
         createAttempt: vi.fn(async () => ({ id: "attempt-2", attemptNumber: 2 })),
         startAttempt: vi.fn(async () => ({ id: "attempt-2" })),
