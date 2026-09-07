@@ -4,11 +4,10 @@
  * Tests A–H are pure unit tests of runPublishingWorkerIteration using
  * in-memory fakes. No Supabase client is ever created.
  *
- * Test G tests the POST /api/internal/publishing/run endpoint auth guard.
+ * Test G proves the retired internal publishing endpoint always returns 410.
  * Infrastructure classes are mocked at module scope (vi.mock is hoisted) so
- * the route can be imported without a real Supabase connection. The real
- * runPublishingWorkerIteration runs with those mocked deps and returns idle
- * (no jobs queued in the mock repos).
+ * the route can be imported without a real Supabase connection. The retired
+ * route never runs those mocked dependencies.
  *
  * Tests I–J are logic-layer unit tests of the brand voice filtering that
  * runPrePublishReviewAction applies before calling analyzeDraftForPublishing.
@@ -727,7 +726,7 @@ describe("F — missing account: org has no connected account → safe failure",
 // G — Manual endpoint auth
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("G — manual endpoint: POST /api/internal/publishing/run auth checks", () => {
+describe("G — retired endpoint: POST /api/internal/publishing/run", () => {
   const VALID_SECRET = "super-secret-key-32chars-minimum!!";
 
   beforeEach(() => {
@@ -735,24 +734,24 @@ describe("G — manual endpoint: POST /api/internal/publishing/run auth checks",
     vi.clearAllMocks();
   });
 
-  it("missing Authorization header → 401", async () => {
+  it("missing Authorization header → 410", async () => {
     const { POST } = await import("@/app/api/internal/publishing/run/route");
     const req = new Request("http://localhost/api/internal/publishing/run", { method: "POST" });
     const res = await POST(req as never);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(410);
   });
 
-  it("wrong secret → 401", async () => {
+  it("wrong secret → 410", async () => {
     const { POST } = await import("@/app/api/internal/publishing/run/route");
     const req = new Request("http://localhost/api/internal/publishing/run", {
       method: "POST",
       headers: { authorization: "Bearer wrong-secret-value-here" },
     });
     const res = await POST(req as never);
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(410);
   });
 
-  it("missing PUBLISHING_WORKER_SECRET env var → 401 for all requests (fail-closed)", async () => {
+  it("missing PUBLISHING_WORKER_SECRET env var → 410 for all requests (fail-closed)", async () => {
     const originalSecret = process.env.PUBLISHING_WORKER_SECRET;
     delete process.env.PUBLISHING_WORKER_SECRET;
     const { POST } = await import("@/app/api/internal/publishing/run/route");
@@ -762,28 +761,28 @@ describe("G — manual endpoint: POST /api/internal/publishing/run auth checks",
     });
     try {
       const res = await POST(req as never);
-      expect(res.status).toBe(401);
+      expect(res.status).toBe(410);
     } finally {
       process.env.PUBLISHING_WORKER_SECRET = originalSecret;
     }
   });
 
-  it("correct secret → 200 with worker result (idle — no jobs queued in mocked repo)", async () => {
+  it("correct secret also returns 410", async () => {
     const { POST } = await import("@/app/api/internal/publishing/run/route");
     const req = new Request("http://localhost/api/internal/publishing/run", {
       method: "POST",
       headers: { authorization: `Bearer ${VALID_SECRET}` },
     });
     const res = await POST(req as never);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(410);
     const body = await res.json();
-    expect(body).toEqual({ status: "idle" });
+    expect(body).toEqual({ status: "disabled", error: "Publishing endpoint retired" });
   });
 
-  it("GET → 405 Method Not Allowed", async () => {
+  it("GET → 410 Gone for the retired endpoint", async () => {
     const { GET } = await import("@/app/api/internal/publishing/run/route");
     const res = await GET();
-    expect(res.status).toBe(405);
+    expect(res.status).toBe(410);
   });
 });
 

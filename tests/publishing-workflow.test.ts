@@ -137,6 +137,22 @@ function createHarness(input: {
   };
 
   const publishing: Partial<PublishingRepository> = {
+    async reconcileFailedTimeout(input) {
+      const job = jobs.get(input.jobId)!;
+      if (job.status === "published" || [...attempts.values()].some(a => a.retryOfAttemptId === input.attemptId)) return job;
+      const old = attempts.get(input.attemptId)!;
+      const id = `attempt-${++attemptSeq}`;
+      const failed = input.outcome === "failed";
+      attempts.set(id, { ...old, id, status: failed ? "failed" : "completed", attemptNumber: old.attemptNumber + 1,
+        retryOfAttemptId: old.id, externalPostId: input.postSubmissionId, externalUrl: input.externalUrl,
+        errorCode: failed ? "blotato_publish_failed" : null, errorMessage: input.errorMessage ?? null, failedAt: failed ? new Date().toISOString() : null,
+        providerMetadata: { ...old.providerMetadata, reconciledFromAttemptId: old.id } });
+      const published: PublishingJob = { ...job, status: failed ? "failed" : "published" };
+      jobs.set(job.id, published);
+      draft = { ...draft, status: failed ? "failed" : "published" };
+      auditEvents.push({ eventType: "publishing_attempt_reconciled", description: "Reconciled", draftId: job.draftId });
+      return published;
+    },
     async createJob(jobInput: CreatePublishingJobInput) {
       const existingByKey = [...jobs.values()].find((j) => j.idempotencyKey === jobInput.idempotencyKey);
       if (existingByKey) return existingByKey;
@@ -1027,8 +1043,8 @@ describe("reconcileBlotatoStatusTimeout", () => {
     expect(getAttempts().filter((a) => a.jobId === job.id)).toHaveLength(1);
   });
 
-  it("5: provider confirms genuinely failed → job/attempt remain failed (nothing to flip), audit records the confirmation", async () => {
-    const { deps, getJobs, getAuditEvents } = createHarness({ draft: baseDraft({ status: "failed" }), viewerRole: "contributor" });
+  it("5: confirmed failure appends terminal evidence, replays once and permits governed retry", async () => {
+    const { deps, getJobs, getAuditEvents, getAttempts } = createHarness({ draft: baseDraft({ status: "failed" }), viewerRole: "contributor" });
     const job = await seedTimedOutJob(deps);
 
     const result = await reconcileBlotatoStatusTimeout(
@@ -1038,8 +1054,17 @@ describe("reconcileBlotatoStatusTimeout", () => {
     );
 
     expect(result.outcome).toBe("confirmed_failed");
+    expect(getAttempts()).toHaveLength(2);
+    expect(getAttempts().at(-1)?.errorCode).toBe("blotato_publish_failed");
+    await expect(reconcileBlotatoStatusTimeout({ ...deps, blotatoClient: {
+      getPostStatus: async () => { throw new Error("restart must not poll"); },
+    } }, ORG_ID, job.id)).resolves.toMatchObject({ outcome: "confirmed_failed" });
+    expect(getAuditEvents().filter(e => e.eventType === "publishing_attempt_reconciled")).toHaveLength(1);
+
+
     expect(getJobs().find((j) => j.id === job.id)?.status).toBe("failed");
     expect(getAuditEvents().some((e) => e.eventType === "publishing_attempt_reconciled")).toBe(true);
+    await expect(retryFailedPublishingJob(deps, ORG_ID, job.id)).resolves.toMatchObject({ status: "queued" });
   });
 
   it("6: existing postSubmissionId is reused — the fake client exposes only getPostStatus, so reconciliation is structurally incapable of calling publishPost", async () => {
@@ -1114,7 +1139,7 @@ describe("reconcileBlotatoStatusTimeout", () => {
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
-  it("10: idempotency — reconciling twice never double-completes or republishes; the second call is rejected because the job is no longer failed", async () => {
+  it("10: replay after restart returns published without another provider check", async () => {
     const { deps, getAttempts } = createHarness({ draft: baseDraft({ status: "failed" }), viewerRole: "contributor" });
     const job = await seedTimedOutJob(deps);
     const blotatoClient = fakeGetPostStatus({ postSubmissionId: "sub-timeout-1", status: "published", scheduledTime: null, publicUrl: "https://instagram.com/p/real123", errorMessage: null });
@@ -1122,9 +1147,63 @@ describe("reconcileBlotatoStatusTimeout", () => {
     const first = await reconcileBlotatoStatusTimeout({ ...deps, blotatoClient }, ORG_ID, job.id);
     expect(first.outcome).toBe("published");
 
-    await expect(reconcileBlotatoStatusTimeout({ ...deps, blotatoClient }, ORG_ID, job.id)).rejects.toBeInstanceOf(ValidationError);
-    // Still exactly 2 attempts (original timeout + one reconciliation) — the rejected second call created nothing.
+    await expect(reconcileBlotatoStatusTimeout({ ...deps, blotatoClient: { getPostStatus: async () => { throw new Error("restart must not poll"); } } }, ORG_ID, job.id)).resolves.toMatchObject({ outcome: "published" });
+    // Still exactly 2 attempts: original timeout plus one reconciliation.
     expect(getAttempts().filter((a) => a.jobId === job.id)).toHaveLength(2);
+  });
+
+  it("concurrent confirmations use only atomic reconciliation, leave no started attempt, and preserve history", async () => {
+    const { deps, getAttempts } = createHarness({ draft: baseDraft({ status: "failed" }), viewerRole: "contributor" });
+    const job = await seedTimedOutJob(deps);
+    const original = structuredClone(getAttempts());
+    for (const key of ["createAttempt", "startAttempt", "completeAttempt", "markJobPublished"] as const) {
+      deps.publishing[key] = async () => { throw new Error("non-atomic reconciliation"); };
+    }
+    const client = fakeGetPostStatus({ postSubmissionId: "sub-timeout-1", status: "published", scheduledTime: null, publicUrl: null, errorMessage: null });
+    const results = await Promise.all([1, 2].map(() => reconcileBlotatoStatusTimeout({ ...deps, blotatoClient: client }, ORG_ID, job.id)));
+    expect(results.map(r => r.outcome)).toEqual(["published", "published"]);
+    expect(getAttempts()).toHaveLength(2);
+    expect(getAttempts()[0]).toEqual(original[0]);
+    expect(getAttempts().some(a => a.status === "started")).toBe(false);
+  });
+
+  it.each(["published", "failed", "in-progress"] as const)("rejects a mismatched receipt for %s without writes", async status => {
+    const { deps, getAttempts } = createHarness({ draft: baseDraft({ status: "failed" }), viewerRole: "contributor" });
+    const job = await seedTimedOutJob(deps);
+    await expect(reconcileBlotatoStatusTimeout({ ...deps, blotatoClient: fakeGetPostStatus({
+      postSubmissionId: "wrong", status, scheduledTime: null, publicUrl: null, errorMessage: null,
+    }) }, ORG_ID, job.id)).rejects.toBeInstanceOf(ValidationError);
+    expect(getAttempts()).toHaveLength(1);
+  });
+
+  it("handles a concurrent commit between the job and latest-attempt reads", async () => {
+    const { deps } = createHarness({ draft: baseDraft({ status: "failed" }), viewerRole: "contributor" });
+    const job = await seedTimedOutJob(deps);
+    const client = fakeGetPostStatus({ postSubmissionId: "sub-timeout-1", status: "published", scheduledTime: null, publicUrl: null, errorMessage: null });
+    await reconcileBlotatoStatusTimeout({ ...deps, blotatoClient: client }, ORG_ID, job.id);
+    const read = deps.publishing.findJobById.bind(deps.publishing);
+    let first = true;
+    deps.publishing.findJobById = async (...args) => {
+      if (first) { first = false; return { ...job, status: "failed" }; }
+      return read(...args);
+    };
+    await expect(reconcileBlotatoStatusTimeout({ ...deps, blotatoClient: {
+      getPostStatus: async () => { throw new Error("must reuse committed result"); },
+    } }, ORG_ID, job.id)).resolves.toMatchObject({ outcome: "published" });
+  });
+
+  it.each(["published", "failed"] as const)("recovers a committed %s RPC response loss after restart without resubmission or an orphan", async status => {
+    const { deps, getAttempts } = createHarness({ draft: baseDraft({ status: "failed" }), viewerRole: "contributor" });
+    const job = await seedTimedOutJob(deps);
+    const atomic = deps.publishing.reconcileFailedTimeout.bind(deps.publishing);
+    deps.publishing.reconcileFailedTimeout = async input => { await atomic(input); throw new Error("response lost"); };
+    const client = fakeGetPostStatus({ postSubmissionId: "sub-timeout-1", status, scheduledTime: null, publicUrl: null, errorMessage: null });
+    await expect(reconcileBlotatoStatusTimeout({ ...deps, blotatoClient: client }, ORG_ID, job.id)).rejects.toThrow("response lost");
+    await expect(reconcileBlotatoStatusTimeout({ ...deps, blotatoClient: {
+      getPostStatus: async () => { throw new Error("must not call provider after restart"); },
+    } }, ORG_ID, job.id)).resolves.toMatchObject({ outcome: status === "failed" ? "confirmed_failed" : "published" });
+    expect(getAttempts()).toHaveLength(2);
+    expect(getAttempts().map(a => a.status)).toEqual(["failed", status === "failed" ? "failed" : "completed"]);
   });
 
   it("11: permission enforcement — a viewer with no write role cannot reconcile", async () => {

@@ -524,6 +524,7 @@ describe("16 — reconciliation refuses a simulation job", () => {
       actor: { id: "user-1", isPlatformAdmin: true } as never,
       publishing: {
         findJobById: vi.fn(async () => job({ status: "failed", executionMode: "live" })),
+        reconcileFailedTimeout: vi.fn(async () => job({ status: "published" })),
         findLatestAttemptForJob: vi.fn(async () => timedOutAttempt),
         listAttemptsForJob: vi.fn(async () => [timedOutAttempt]),
         createAttempt: vi.fn(async () => ({ id: "attempt-2", attemptNumber: 2 })),

@@ -115,7 +115,40 @@ begin
     join public.publishing_attempts a on a.job_id = j.id
     where a.id = p_attempt_id for update of j;
   select * into strict v_attempt from public.publishing_attempts where id = p_attempt_id for update;
-  if p_outcome not in ('pending', 'published') then raise exception 'Invalid settlement outcome'; end if;
+  if p_outcome is null or p_outcome not in ('pending', 'published', 'failed') then raise exception 'Invalid settlement outcome'; end if;
+  if p_outcome = 'failed' then
+    if v_job.execution_mode <> 'live'
+      or p_metadata->'confirmedAfterAwaiting' is distinct from 'true'::jsonb
+      or jsonb_typeof(p_metadata->'postSubmissionId') is distinct from 'string'
+      or nullif(btrim(p_external_post_id), '') is null
+      or p_metadata->>'postSubmissionId' is distinct from p_external_post_id
+      or v_attempt.provider_metadata->>'postSubmissionId' is distinct from p_external_post_id
+      or (v_attempt.external_post_id is not null and v_attempt.external_post_id <> p_external_post_id)
+      or v_attempt.organisation_id <> v_job.organisation_id
+      or v_attempt.draft_id <> v_job.draft_id or v_attempt.platform <> v_job.platform then
+      raise exception 'Invalid confirmed provider failure receipt';
+    end if;
+    if v_attempt.status = 'failed' and v_attempt.error_code = 'blotato_publish_failed' then
+      return v_attempt; -- Response loss, including replay after a governed retry.
+    end if;
+    if v_job.status <> 'awaiting_confirmation' or v_attempt.status <> 'awaiting_confirmation'
+      or exists(select 1 from public.publishing_attempts
+        where job_id = v_job.id and attempt_number > v_attempt.attempt_number) then
+      raise exception 'Publishing job or attempt is not awaiting this confirmation';
+    end if;
+    update public.publishing_attempts set status = 'failed', failed_at = now(),
+      duration_ms = greatest(0, extract(epoch from (now() - coalesce(started_at, queued_at))) * 1000)::integer,
+      error_code = 'blotato_publish_failed',
+      error_message = coalesce(p_metadata->>'errorMessage', 'Provider confirmed failure'),
+      provider_metadata = provider_metadata || p_metadata
+      where id = p_attempt_id returning * into v_attempt;
+    update public.publishing_jobs set status = 'failed', completed_at = now(),
+      next_status_check_at = null, pre_submission_recovery = false where id = v_job.id;
+    update public.content_drafts set status = 'failed', updated_by = v_job.requested_by
+      where id = v_job.draft_id and organisation_id = v_job.organisation_id;
+    if not found then raise exception 'Confirmation draft missing'; end if;
+    return v_attempt;
+  end if;
   if v_attempt.status in ('completed', 'failed') then return v_attempt; end if;
   if v_job.status not in ('processing', 'awaiting_confirmation') then
     raise exception 'Publishing job is no longer eligible for settlement';

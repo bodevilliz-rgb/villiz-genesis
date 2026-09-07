@@ -59,7 +59,20 @@ export interface FailPublishingAttemptInput {
   providerMetadata: Record<string, unknown>;
 }
 
+export interface ReconcileFailedTimeoutInput {
+  outcome?: "published" | "failed";
+  errorMessage?: string;
+  organisationId: string;
+  jobId: string;
+  attemptId: string;
+  postSubmissionId: string;
+  externalUrl: string;
+  actorId: string;
+}
+
 export interface PublishingRepository {
+  /** Service-role only: atomically append a terminal legacy reconciliation, settle job/draft and audit. */
+  reconcileFailedTimeout(input: ReconcileFailedTimeoutInput): Promise<PublishingJob>;
   /**
    * Deterministic idempotency: a repeated call with the same
    * `idempotencyKey` returns the row that already exists instead of
@@ -115,6 +128,7 @@ export interface PublishingRepository {
   startAttempt(attemptId: string): Promise<PublishingAttempt>;
   /** Atomically completes the attempt, job and draft. Safe to replay after a lost response. */
   completeAttempt(attemptId: string, input: CompletePublishingAttemptInput): Promise<PublishingAttempt>;
+  /** Confirmed-after-awaiting blotato_publish_failed atomically settles attempt, job and draft. */
   failAttempt(attemptId: string, input: FailPublishingAttemptInput): Promise<PublishingAttempt>;
   findLatestAttemptForJob(organisationId: string, jobId: string): Promise<PublishingAttempt | null>;
   /** Most recent 100 attempts, in ascending attempt order, for UI history. */

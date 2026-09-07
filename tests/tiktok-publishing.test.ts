@@ -646,6 +646,7 @@ describe("21 — timeout reconciliation for a TikTok job never calls publishPost
       actor: { id: "user-1", isPlatformAdmin: true } as never,
       publishing: {
         findJobById: vi.fn(async () => tiktokJob),
+        reconcileFailedTimeout: vi.fn(async () => job({ status: "published" })),
         findLatestAttemptForJob: vi.fn(async () => timedOutAttempt),
         listAttemptsForJob: vi.fn(async () => [timedOutAttempt]),
         createAttempt: vi.fn(async () => attempt({ id: "attempt-2", attemptNumber: 2 })),

@@ -168,6 +168,8 @@ function makeConfirmationDeps(input: {
   status?: ReturnType<typeof providerStatus>;
 }) {
   const getPostStatus = vi.fn(async () => input.status ?? providerStatus("in-progress"));
+  const recordEvent = vi.fn(async () => {});
+  const createNotification = vi.fn(async () => {});
   const completeAttempt = vi.fn(async () => attempt({ status: "completed" }));
   const failAttempt = vi.fn(async () => attempt({ status: "failed" }));
   const markJobPublished = vi.fn(async () => job({ status: "published" }));
@@ -190,11 +192,13 @@ function makeConfirmationDeps(input: {
         recordConfirmationCheck,
       } as never,
       content: { updateStatus } as never,
-      audits: { recordEvent: vi.fn(async () => {}) } as never,
-      notifications: { createNotification: vi.fn(async () => {}) } as never,
+      audits: { recordEvent } as never,
+      notifications: { createNotification } as never,
       blotatoClient: { getPostStatus } as never,
     },
     getPostStatus,
+    recordEvent,
+    createNotification,
     completeAttempt,
     failAttempt,
     markJobPublished,
@@ -376,11 +380,33 @@ describe("13/14 — a provider-confirmed failure resolves job and draft to Faile
     const outcome = await runProviderConfirmationPass(h.deps, { workerId: "worker-1" });
 
     expect(h.failAttempt).toHaveBeenCalledWith("attempt-1", expect.objectContaining({ errorCode: "blotato_publish_failed" }));
-    expect(h.markJobFailed).toHaveBeenCalledWith("job-1");
-    expect(h.updateStatus).toHaveBeenCalledWith(ORG_ALPHA, DRAFT_ID, "failed", "user-1");
+    expect(h.markJobFailed).not.toHaveBeenCalled();
+    expect(h.updateStatus).not.toHaveBeenCalled();
     expect(outcome.status).toBe("resolved");
     if (outcome.status === "resolved") expect(outcome.result).toBe("failed");
   });
+});
+
+
+it("failed confirmation response loss leaves side effects pending and replay uses the same atomic settlement", async () => {
+  const h = makeConfirmationDeps({ claimed: job({ status: "awaiting_confirmation" }), status: providerStatus("failed") });
+  h.failAttempt.mockRejectedValueOnce(new Error("response lost"));
+  await expect(runProviderConfirmationPass(h.deps)).rejects.toThrow("response lost");
+  expect(h.recordEvent).not.toHaveBeenCalled();
+  expect(h.createNotification).not.toHaveBeenCalled();
+  await expect(runProviderConfirmationPass(h.deps)).resolves.toMatchObject({ result: "failed" });
+  expect(h.failAttempt).toHaveBeenCalledTimes(2);
+  expect(h.markJobFailed).not.toHaveBeenCalled();
+  expect(h.updateStatus).not.toHaveBeenCalled();
+  expect(h.recordEvent).toHaveBeenCalledOnce();
+  expect(h.createNotification).toHaveBeenCalledOnce();
+});
+
+it("rejects provider failure for a different receipt without settlement", async () => {
+  const h = makeConfirmationDeps({ claimed: job({ status: "awaiting_confirmation" }),
+    status: providerStatus("failed", { postSubmissionId: "wrong" }) });
+  await expect(runProviderConfirmationPass(h.deps)).rejects.toThrow("does not match");
+  expect(h.failAttempt).not.toHaveBeenCalled();
 });
 
 // ── 15/16/17: trigger attribution and retry semantics ─────────────────────────

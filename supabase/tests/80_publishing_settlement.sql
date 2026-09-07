@@ -191,6 +191,61 @@ begin
 end;
 $$;
 
+
+do $$
+declare
+  org uuid := '00000000-0000-4000-b000-000000000001';
+  draft uuid; job uuid; attempt uuid; boundary text; original jsonb;
+begin
+  insert into public.content_drafts(organisation_id, title, status)
+    values(org, 'Confirmed failure fixture', 'publishing') returning id into draft;
+  insert into public.publishing_jobs(organisation_id, draft_id, platform, trigger_type, idempotency_key, status, execution_mode)
+    values(org, draft, 'facebook', 'immediate', 'confirmed-failure-test', 'awaiting_confirmation', 'live') returning id into job;
+  insert into public.publishing_attempts(job_id, organisation_id, draft_id, platform, attempt_number, status, provider_metadata)
+    values(job, org, draft, 'facebook', 1, 'awaiting_confirmation', '{"postSubmissionId":"receipt"}') returning id into attempt;
+  perform test.throws('publishing_settlement', 'failure rejects wrong receipt',
+    format('select public.settle_publishing_receipt(%L,%L,%L::jsonb,%L,null)', attempt, 'failed',
+      '{"postSubmissionId":"wrong","confirmedAfterAwaiting":true}', 'wrong'));
+  perform test.throws('publishing_settlement', 'failure requires explicit confirmation',
+    format('select public.settle_publishing_receipt(%L,%L,%L::jsonb,%L,null)', attempt, 'failed',
+      '{"postSubmissionId":"receipt"}', 'receipt'));
+  update public.publishing_jobs set status = 'processing' where id = job;
+  perform test.throws('publishing_settlement', 'failure rejects non-awaiting job',
+    format('select public.settle_publishing_receipt(%L,%L,%L::jsonb,%L,null)', attempt, 'failed',
+      '{"postSubmissionId":"receipt","confirmedAfterAwaiting":true}', 'receipt'));
+  update public.publishing_jobs set status = 'awaiting_confirmation', execution_mode = 'simulation' where id = job;
+  perform test.throws('publishing_settlement', 'failure rejects simulation',
+    format('select public.settle_publishing_receipt(%L,%L,%L::jsonb,%L,null)', attempt, 'failed',
+      '{"postSubmissionId":"receipt","confirmedAfterAwaiting":true}', 'receipt'));
+  update public.publishing_jobs set execution_mode = 'live' where id = job;
+  foreach boundary in array array['publishing_attempts','publishing_jobs','content_drafts'] loop
+    perform set_config('test.fail_table', boundary, true);
+    begin
+      perform public.settle_publishing_receipt(attempt, 'failed',
+        '{"postSubmissionId":"receipt","confirmedAfterAwaiting":true,"errorMessage":"rejected"}', 'receipt', null);
+      raise exception 'Fault did not fire';
+    exception when no_data_found then null;
+    end;
+    perform set_config('test.fail_table', '', true);
+    perform test.ok('publishing_settlement', 'confirmed failure rollback ' || boundary,
+      (select status = 'awaiting_confirmation' from public.publishing_jobs where id = job)
+      and (select status = 'awaiting_confirmation' and error_code is null from public.publishing_attempts where id = attempt)
+      and (select status = 'publishing' from public.content_drafts where id = draft));
+  end loop;
+  perform public.settle_publishing_receipt(attempt, 'failed',
+    '{"postSubmissionId":"receipt","confirmedAfterAwaiting":true,"errorMessage":"rejected"}', 'receipt', null);
+  select to_jsonb(a) into original from public.publishing_attempts a where id = attempt;
+  perform public.settle_publishing_receipt(attempt, 'failed',
+    '{"postSubmissionId":"receipt","confirmedAfterAwaiting":true,"errorMessage":"changed"}', 'receipt', null);
+  perform public.settle_publishing_receipt(attempt, 'pending', '{"postSubmissionId":"receipt"}', null, null);
+  perform public.settle_publishing_receipt(attempt, 'published', '{"postSubmissionId":"receipt"}', 'receipt', null);
+  perform test.ok('publishing_settlement', 'confirmed failure response loss replay is immutable and terminal',
+    (select status = 'failed' and next_status_check_at is null from public.publishing_jobs where id = job)
+    and (select status = 'failed' and error_code = 'blotato_publish_failed' and to_jsonb(a) = original from public.publishing_attempts a where id = attempt)
+    and (select status = 'failed' from public.content_drafts where id = draft));
+end;
+$$;
+
 drop trigger test_settlement_attempt on public.publishing_attempts;
 drop trigger test_settlement_job on public.publishing_jobs;
 drop trigger test_settlement_draft on public.content_drafts;

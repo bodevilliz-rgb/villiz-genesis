@@ -147,6 +147,9 @@ export async function runProviderConfirmationPass(
   }
 
   if (status.status === "failed") {
+    if (status.postSubmissionId !== submissionId) {
+      throw new Error("Provider response does not match the recorded submission receipt.");
+    }
     // The ONLY path that may write a terminal failure: the provider itself
     // said so.
     const errorMessage = status.errorMessage ?? "The provider reported this post failed, with no further detail.";
@@ -155,8 +158,7 @@ export async function runProviderConfirmationPass(
       errorMessage,
       providerMetadata: { ...lastAttempt.providerMetadata, confirmedAfterAwaiting: true },
     });
-    await deps.publishing.markJobFailed(job.id);
-    await deps.content.updateStatus(job.organisationId, job.draftId, "failed", job.requestedBy || "");
+    // failAttempt atomically settles this confirmed receipt, job and draft.
 
     await deps.audits.recordEvent({
       organisationId: job.organisationId,

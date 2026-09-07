@@ -6,6 +6,7 @@ import type {
   FailPublishingAttemptInput,
   PublishingQueueFilters,
   PublishingRepository,
+  ReconcileFailedTimeoutInput,
 } from "@/core/application/ports/publishing-port";
 import type { PublishingAttempt, PublishingJobStatus, PublishingPlatform } from "@/core/domain/entities/publishing";
 import type { GenesisClient } from "../supabase/server-client";
@@ -290,6 +291,16 @@ export class SupabasePublishingRepository implements PublishingRepository {
     return toClaimedPublishingJob(data, "claim_publishing_job_for_confirmation");
   }
 
+  async reconcileFailedTimeout(input: ReconcileFailedTimeoutInput) {
+    const { data, error, status } = await this.client.rpc("reconcile_failed_publishing_timeout", {
+      p_organisation_id: input.organisationId, p_job_id: input.jobId, p_attempt_id: input.attemptId,
+      p_post_submission_id: input.postSubmissionId, p_external_url: input.externalUrl, p_actor_id: input.actorId,
+      ...(input.outcome ? { p_outcome: input.outcome, p_error_message: input.errorMessage ?? "" } : {}),
+    });
+    if (error) translateError({ ...error, status }, "Legacy publishing reconciliation");
+    return toPublishingJob(data as unknown as PublishingJobRowWithRelations);
+  }
+
   async awaitAttemptConfirmation(attemptId: string, providerMetadata: Record<string, unknown>) {
     return this.settleAttempt(attemptId, "pending", providerMetadata);
   }
@@ -362,6 +373,11 @@ export class SupabasePublishingRepository implements PublishingRepository {
   }
 
   async failAttempt(attemptId: string, input: FailPublishingAttemptInput) {
+    if (input.errorCode === "blotato_publish_failed" && input.providerMetadata.confirmedAfterAwaiting === true) {
+      return this.settleAttempt(attemptId, "failed",
+        { ...input.providerMetadata, errorMessage: input.errorMessage },
+        input.providerMetadata.postSubmissionId as string);
+    }
     const existing = await this.client
       .from("publishing_attempts")
       .select("started_at, queued_at")

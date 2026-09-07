@@ -1330,6 +1330,19 @@ export type Database = {
         Args: { p_job_id: string; p_attempt_id: string; p_worker_id: string };
         Returns: unknown;
       };
+      reconcile_failed_publishing_timeout: {
+        Args: {
+          p_outcome?: string;
+          p_error_message?: string;
+          p_organisation_id: string;
+          p_job_id: string;
+          p_attempt_id: string;
+          p_post_submission_id: string;
+          p_external_url: string;
+          p_actor_id: string;
+        };
+        Returns: unknown;
+      };
       settle_publishing_receipt: {
         Args: { p_attempt_id: string; p_outcome: string; p_metadata: Json; p_external_post_id: string | null; p_external_url: string | null };
         Returns: unknown;

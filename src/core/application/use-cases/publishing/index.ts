@@ -510,26 +510,10 @@ export async function retryFailedPublishingJob(
  * Blotato but Genesis had already marked the job/draft "failed" — the post
  * was real; only the local status was stale.
  *
- * Safety invariants:
- *   - Never calls blotatoClient.publishPost — only GET /posts/{id} via
- *     getPostStatus, using the postSubmissionId already recorded on the
- *     timed-out attempt. No new content is ever submitted to the provider.
- *   - Only operates on a job whose CURRENT status is "failed" and whose most
- *     recent attempt's errorCode is exactly "blotato_status_timeout" — a job
- *     that failed for any other reason (no connected account, media
- *     resolution, preflight, or a confirmed blotato_publish_failed) has
- *     nothing to reconcile and is rejected.
- *   - Idempotent: once reconciled to "published", the job's status is no
- *     longer "failed", so a second call is rejected by the same guard —
- *     there is no path that republishes or double-completes.
- *   - Never mutates the timed-out attempt row directly — `completeAttempt`/
- *     `failAttempt` are enforced immutable once an attempt is terminal (see
- *     20260801140000_publishing_engine.sql's trigger). A confirmed "published"
- *     outcome is recorded as a NEW attempt (retryOfAttemptId pointing at the
- *     timed-out one), keeping the append-only history honest: attempt N says
- *     "the provider's status was still unknown when we gave up", attempt N+1
- *     says "the provider confirms it was already published — no new
- *     submission was made for this one".
+ * Reads only the existing provider receipt. A dedicated service-role RPC locks
+ * the job and atomically appends a completed attempt, publishes job/draft and
+ * records the audit. Terminal history and ordinary settlement guards remain
+ * unchanged. Published replays return the stored result without polling.
  */
 export async function reconcileBlotatoStatusTimeout(
   deps: PublishingDeps & { blotatoClient: Pick<BlotatoClient, "getPostStatus"> },
@@ -538,9 +522,9 @@ export async function reconcileBlotatoStatusTimeout(
 ): Promise<{ outcome: "published" | "confirmed_failed" | "still_processing"; job: PublishingJob }> {
   await requireRole(deps, organisationId, canWriteContent);
 
-  const job = await deps.publishing.findJobById(organisationId, jobId);
+  let job = await deps.publishing.findJobById(organisationId, jobId);
   if (!job) throw new NotFoundError("Publishing job");
-  if (job.status !== "failed") {
+  if (job.status !== "failed" && job.status !== "published") {
     throw new ValidationError("Only a failed publishing job can be reconciled with the provider.");
   }
   // P0 defense in depth: a "blotato_status_timeout" error is structurally
@@ -554,14 +538,35 @@ export async function reconcileBlotatoStatusTimeout(
   }
 
   const lastAttempt = await deps.publishing.findLatestAttemptForJob(organisationId, jobId);
-  if (!lastAttempt || lastAttempt.errorCode !== "blotato_status_timeout") {
+  // Another repair may commit between these two reads. Refresh only when
+  // the latest row proves a reconciliation; the RPC still owns all writes.
+  const isReconciled = (lastAttempt?.status === "completed" ||
+        (lastAttempt?.status === "failed" && lastAttempt.errorCode === "blotato_publish_failed")) && lastAttempt.retryOfAttemptId &&
+        lastAttempt.providerMetadata?.reconciledFromAttemptId === lastAttempt.retryOfAttemptId &&
+        typeof lastAttempt.providerMetadata?.postSubmissionId === "string" &&
+        lastAttempt.providerMetadata.postSubmissionId.trim().length > 0 &&
+        lastAttempt.externalPostId === lastAttempt.providerMetadata.postSubmissionId;
+  if (job.status === "failed" && isReconciled) {
+    job = await deps.publishing.findJobById(organisationId, jobId);
+    if (!job) throw new NotFoundError("Publishing job");
+  }
+  if (job.status === "published") {
+    if (isReconciled && lastAttempt?.status === "completed") {
+      return { outcome: "published", job };
+    }
+    throw new ValidationError("This published job has no legacy timeout reconciliation.");
+  }
+  if (job.status === "failed" && isReconciled && lastAttempt?.status === "failed") {
+    return { outcome: "confirmed_failed", job };
+  }
+  if (!lastAttempt || lastAttempt.status !== "failed" || lastAttempt.errorCode !== "blotato_status_timeout") {
     throw new ValidationError(
       "This job's last attempt did not time out waiting for the provider's status — there is nothing to reconcile. Use retry instead.",
     );
   }
 
   const postSubmissionId = lastAttempt.providerMetadata?.postSubmissionId as string | undefined;
-  if (!postSubmissionId) {
+  if (typeof postSubmissionId !== "string" || !postSubmissionId.trim()) {
     throw new ValidationError(
       "No provider submission id was recorded for this attempt — the status cannot be safely checked without resubmitting, which reconciliation will never do.",
     );
@@ -569,59 +574,25 @@ export async function reconcileBlotatoStatusTimeout(
 
   const status = await deps.blotatoClient.getPostStatus(postSubmissionId);
 
+  if (status.postSubmissionId !== postSubmissionId) {
+    throw new ValidationError("Provider response does not match the recorded submission receipt.");
+  }
+
   if (status.status === "published") {
-    const reconciliationAttempt = await deps.publishing.createAttempt({
-      jobId,
-      organisationId,
-      draftId: job.draftId,
-      platform: job.platform,
-      attemptNumber: lastAttempt.attemptNumber + 1,
-      retryOfAttemptId: lastAttempt.id,
+    const publishedJob = await deps.publishing.reconcileFailedTimeout({
+      organisationId, jobId, attemptId: lastAttempt.id, postSubmissionId,
+      externalUrl: status.publicUrl ?? "https://my.blotato.com", actorId: deps.actor.id,
     });
-    await deps.publishing.startAttempt(reconciliationAttempt.id);
-    await deps.publishing.completeAttempt(reconciliationAttempt.id, {
-      externalPostId: status.postSubmissionId,
-      externalUrl: status.publicUrl ?? "https://my.blotato.com",
-      providerMetadata: { ...lastAttempt.providerMetadata, reconciledFromAttemptId: lastAttempt.id },
-    });
-    const publishedJob = await deps.publishing.markJobPublished(jobId);
-    await deps.content.updateStatus(organisationId, job.draftId, "published", job.requestedBy || "");
-
-    await deps.audits.recordEvent({
-      organisationId,
-      draftId: job.draftId,
-      actorId: deps.actor.id,
-      eventType: "publishing_attempt_reconciled",
-      description: `Reconciled a delayed ${PUBLISHING_PLATFORM_LABELS[job.platform]} publish as published — the provider had already published it; no new post was submitted.`,
-      metadata: { jobId, attemptId: reconciliationAttempt.id, retryOfAttemptId: lastAttempt.id, postSubmissionId, outcome: "published" },
-    });
-
-    if (job.requestedBy) {
-      try {
-        await deps.notifications.createNotification({
-          organisationId,
-          profileId: job.requestedBy,
-          type: "publish_succeeded",
-          message: `Your ${PUBLISHING_PLATFORM_LABELS[job.platform]} publish succeeded (confirmed after a delayed provider status). ${status.publicUrl ?? ""}`.trim(),
-        });
-      } catch {
-        // Best-effort, matching completePublishingAttempt's identical rationale.
-      }
-    }
-
     return { outcome: "published", job: publishedJob };
   }
 
   if (status.status === "failed") {
-    await deps.audits.recordEvent({
-      organisationId,
-      draftId: job.draftId,
-      actorId: deps.actor.id,
-      eventType: "publishing_attempt_reconciled",
-      description: `Confirmed with the provider that the delayed ${PUBLISHING_PLATFORM_LABELS[job.platform]} publish genuinely failed: ${status.errorMessage ?? "no further detail"}.`,
-      metadata: { jobId, attemptId: lastAttempt.id, postSubmissionId, outcome: "confirmed_failed" },
+    const failedJob = await deps.publishing.reconcileFailedTimeout({
+      organisationId, jobId, attemptId: lastAttempt.id, postSubmissionId,
+      externalUrl: "", actorId: deps.actor.id, outcome: "failed",
+      errorMessage: status.errorMessage ?? "The provider reported this post failed, with no further detail.",
     });
-    return { outcome: "confirmed_failed", job };
+    return { outcome: "confirmed_failed", job: failedJob };
   }
 
   // Still "in-progress" or "scheduled" at the provider — genuinely unresolved.

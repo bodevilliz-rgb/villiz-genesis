@@ -27,3 +27,33 @@ it("atomically settles an owned pre-submission failure and propagates errors for
   });
   expect(from).not.toHaveBeenCalled();
 });
+
+it("legacy reconciliation uses one dedicated RPC and propagates response loss without partial writes", async () => {
+  const rpc = vi.fn().mockResolvedValue({ data: null, error: { message: "unavailable" }, status: 503 });
+  const from = vi.fn(() => { throw new Error("non-atomic write"); });
+  const repo = new SupabasePublishingRepository({ rpc, from } as never);
+  await expect(repo.reconcileFailedTimeout({
+    organisationId: "org", jobId: "job", attemptId: "old", postSubmissionId: "receipt", externalUrl: "url", actorId: "actor",
+  })).rejects.toMatchObject({ infrastructureCategory: "service" });
+  expect(rpc).toHaveBeenCalledExactlyOnceWith("reconcile_failed_publishing_timeout", {
+    p_organisation_id: "org", p_job_id: "job", p_attempt_id: "old",
+    p_post_submission_id: "receipt", p_external_url: "url", p_actor_id: "actor",
+  });
+  expect(from).not.toHaveBeenCalled();
+});
+
+it("confirmed provider failure uses atomic receipt settlement and propagates response loss", async () => {
+  const rpc = vi.fn().mockResolvedValue({ data: null, error: { message: "unavailable" }, status: 503 });
+  const from = vi.fn(() => { throw new Error("non-atomic write"); });
+  const repo = new SupabasePublishingRepository({ rpc, from } as never);
+  await expect(repo.failAttempt("attempt", {
+    errorCode: "blotato_publish_failed", errorMessage: "rejected",
+    providerMetadata: { postSubmissionId: "receipt", confirmedAfterAwaiting: true },
+  })).rejects.toMatchObject({ infrastructureCategory: "service" });
+  expect(rpc).toHaveBeenCalledExactlyOnceWith("settle_publishing_receipt", {
+    p_attempt_id: "attempt", p_outcome: "failed",
+    p_metadata: { postSubmissionId: "receipt", confirmedAfterAwaiting: true, errorMessage: "rejected" },
+    p_external_post_id: "receipt", p_external_url: null,
+  });
+  expect(from).not.toHaveBeenCalled();
+});
