@@ -402,11 +402,11 @@ it("failed confirmation response loss leaves side effects pending and replay use
   expect(h.createNotification).toHaveBeenCalledOnce();
 });
 
-it("rejects provider failure for a different receipt without settlement", async () => {
+it.each(["published", "failed", "in-progress", "scheduled"] as const)("rejects %s for a different receipt without settlement", async (status) => {
   const h = makeConfirmationDeps({ claimed: job({ status: "awaiting_confirmation" }),
-    status: providerStatus("failed", { postSubmissionId: "wrong" }) });
+    status: providerStatus(status, { postSubmissionId: "wrong" }) });
   await expect(runProviderConfirmationPass(h.deps)).rejects.toThrow("does not match");
-  expect(h.failAttempt).not.toHaveBeenCalled();
+  for (const mutate of [h.failAttempt, h.completeAttempt, h.markJobPublished, h.markJobFailed, h.updateStatus, h.recordConfirmationCheck, h.recordEvent, h.createNotification]) expect(mutate).not.toHaveBeenCalled();
 });
 
 // ── 15/16/17: trigger attribution and retry semantics ─────────────────────────

@@ -101,6 +101,11 @@ export async function runProviderConfirmationPass(
 
   const status = await deps.blotatoClient.getPostStatus(submissionId);
 
+  if (status.postSubmissionId !== submissionId) {
+    throw new Error("Provider response does not match the recorded submission receipt.");
+  }
+
+
   if (status.status === "published") {
     // The awaiting attempt is NOT terminal (the DB's
     // prevent_terminal_attempt_mutation trigger only guards
@@ -147,9 +152,6 @@ export async function runProviderConfirmationPass(
   }
 
   if (status.status === "failed") {
-    if (status.postSubmissionId !== submissionId) {
-      throw new Error("Provider response does not match the recorded submission receipt.");
-    }
     // The ONLY path that may write a terminal failure: the provider itself
     // said so.
     const errorMessage = status.errorMessage ?? "The provider reported this post failed, with no further detail.";

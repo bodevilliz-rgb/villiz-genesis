@@ -17,8 +17,8 @@ export type CampaignScheduleSlotView = {
 type Row = { id:string; campaign_id:string; asset_id:string|null; draft_id:string|null; week_number:number; platform:CampaignPlatform; scheduled_date:string; scheduled_time:string; timezone:string; status:string };
 type Reader = { from:(table:"campaign_schedule_slots")=>{ select:(columns:string)=>{ eq:(column:"campaign_id",value:string)=>{ order:(column:"week_number",opts:{ascending:boolean})=>{ limit:(count:number)=>PromiseLike<{data:Row[]|null;error:{message:string}|null}> } } } } };
 
-export async function getCampaignSchedule(campaignId: string): Promise<CampaignScheduleSlotView[]> {
-  const db = createAdminClient() as unknown as Reader;
+export async function getCampaignSchedule(campaignId: string, client?: ReturnType<typeof createAdminClient>): Promise<CampaignScheduleSlotView[]> {
+  const db = (client ?? createAdminClient()) as unknown as Reader;
   const { data, error } = await db.from("campaign_schedule_slots").select("id,campaign_id,asset_id,draft_id,week_number,platform,scheduled_date,scheduled_time,timezone,status").eq("campaign_id", campaignId).order("week_number", { ascending: true }).limit(417);
   if (error) return [];
   // 52 weeks × eight supported platforms, plus one overflow sentinel.

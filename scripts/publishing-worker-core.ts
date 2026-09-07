@@ -28,6 +28,8 @@
  */
 import { classifyPollError, infrastructureErrorDetails } from "../src/core/domain/entities/infrastructure-error";
 export { classifyPollError } from "../src/core/domain/entities/infrastructure-error";
+import { createWorkerBackendClient } from "./worker-backend-client";
+import { sharedWorkerBackendGate, SUPABASE_QUOTA_COOLDOWN_MS, type WorkerBackendGate } from "./worker-backend-gate";
 import { createAdminClient } from "../src/infrastructure/supabase/admin-client";
 import { SupabasePublishingRepository } from "../src/infrastructure/repositories/supabase-publishing-repository";
 import { SupabaseContentRepository } from "../src/infrastructure/repositories/supabase-content-repository";
@@ -66,7 +68,7 @@ export function createPublishingCircuit() {
     shouldAttempt: (now: number) => now >= retryAt,
     succeed: () => { retryAt = 0; delay = 0; },
     fail: (error: unknown, now: number) => {
-      delay = classifyPollError(error) === "quota" ? 15 * 60_000 : nextBackoffMs(delay, 2000, 60_000);
+      delay = classifyPollError(error) === "quota" ? SUPABASE_QUOTA_COOLDOWN_MS : nextBackoffMs(delay, 2000, 60_000);
       retryAt = now + delay;
       return delay;
     },
@@ -264,6 +266,7 @@ async function processJob(job: PublishingJob, deps: ReturnType<typeof buildDeps>
     const effectiveMode = resolveEffectiveSimulationMode(job.devSimulationMode);
 
     const publishedPayloadFingerprint = engagementPayloadFingerprint(draft.body, draft.hashtags ?? []);
+    sharedWorkerBackendGate.assertHealthy();
     const result = await publisher.publish({
       organisationId: job.organisationId,
       draftId: job.draftId,
@@ -382,7 +385,7 @@ function buildDeps(client: ReturnType<typeof createAdminClient>) {
 
 export const MAX_JOBS_PER_CYCLE = 1;
 
-export function createPublishingPoller(deps: ReturnType<typeof buildDeps>, now = Date.now) {
+export function createPublishingPoller(deps: ReturnType<typeof buildDeps>, now = Date.now, backend?: { gate: WorkerBackendGate; probe: () => Promise<void> }) {
   const circuit = createPublishingCircuit();
   let busy = false;
   let pending: FailedClaim | null = null;
@@ -392,6 +395,7 @@ export function createPublishingPoller(deps: ReturnType<typeof buildDeps>, now =
     if (busy || shuttingDown || !circuit.shouldAttempt(now())) return;
     busy = true;
     try {
+      if (backend && !await backend.gate.allowWork(backend.probe)) return;
       // One retained receipt, no media/closures or further claims until saved.
       // Durable RPCs make replay after a committed-but-lost response safe.
       if (received) {
@@ -426,7 +430,9 @@ export function createPublishingPoller(deps: ReturnType<typeof buildDeps>, now =
         catch (settlementError) { if (pending?.category !== "quota") failure = settlementError; }
       }
       if (pending?.category === "quota") failure = { infrastructureCategory: "quota" };
-      const backoffMs = circuit.fail(failure, now());
+      // The shared backend gate owns quota cooldown/probing for both loops.
+      // Keep only ordinary publishing errors on the local exponential circuit.
+      const backoffMs = backend?.gate.isOpen() ? SUPABASE_QUOTA_COOLDOWN_MS : circuit.fail(failure, now());
       log("poll_error", { errorCategory: classifyPollError(failure), backoffMs });
     } finally {
       busy = false;
@@ -489,11 +495,12 @@ async function runConfirmationPass(deps: ReturnType<typeof buildDeps>) {
 export async function runWorker(): Promise<void> {
   log("worker_starting", { pollIntervalMs: POLL_INTERVAL_MS, maxJobsPerCycle: MAX_JOBS_PER_CYCLE });
 
-  const client = createAdminClient();
+  const { client, probe } = createWorkerBackendClient();
   const deps = buildDeps(client);
 
   // Startup and periodic recovery share the single-flight cycle and circuit.
-  const stop = createSingleFlightScheduler(() => pollOnce(deps), POLL_INTERVAL_MS);
+  const poll = createPublishingPoller(deps, Date.now, { gate: sharedWorkerBackendGate, probe });
+  const stop = createSingleFlightScheduler(poll, POLL_INTERVAL_MS);
 
   const shutdown = (signal: string) => {
     if (shuttingDown) return;

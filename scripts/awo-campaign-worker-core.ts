@@ -1,3 +1,5 @@
+import { createWorkerBackendClient } from "./worker-backend-client";
+import { sharedWorkerBackendGate, type WorkerBackendGate } from "./worker-backend-gate";
 import { z } from "zod";
 import { createAdminClient } from "../src/infrastructure/supabase/admin-client";
 import { SupabaseOrganisationRepository } from "../src/infrastructure/repositories/supabase-organisation-repository";
@@ -85,6 +87,7 @@ Build discovery deliberately; never treat hashtags as decoration. Infer ONLY fro
 The goal is qualified discoverability and conversion probability, not vanity reach. Do not claim or imply guaranteed reach, ranking or algorithmic distribution.`;
 
 async function optimiseSlot(job: Job, slot: Awaited<ReturnType<typeof getCampaignSchedule>>[number], deps: ReturnType<typeof buildContentDeps>, campaignName: string, force: boolean, profile: CampaignDistributionProfile) {
+  sharedWorkerBackendGate.assertHealthy();
   if (!slot.draftId) return { skipped: true, error: null as string | null };
   try {
     const draft = await getDraft(deps, job.organisation_id, slot.draftId);
@@ -115,6 +118,7 @@ async function optimiseSlot(job: Job, slot: Awaited<ReturnType<typeof getCampaig
       for (let providerAttempt = 1; providerAttempt <= MAX_PROVIDER_ATTEMPTS; providerAttempt += 1) {
         try {
           const schemaReminder = providerAttempt > 1 ? "\n\nSTRUCTURED OUTPUT RECOVERY: Return one JSON object only, with exactly these keys: caption, hashtags, hook, cta. caption/hook/cta must be strings; hashtags must be an array of 5-20 plain hashtag strings. Do not include markdown, commentary, code fences, extra keys, nulls or nested objects." : "";
+          sharedWorkerBackendGate.assertHealthy();
           generated = await ai.generateObject(`${repairPrompt}${schemaReminder}`, generatedSocialPostSchema, { systemPrompt: "Create evidence-grounded, search-aware social content. Apply the distribution intelligence gate and shared Campaign Distribution Profile. Follow supplied brand context and campaign objective. Never invent offers, prices, locations, testimonials, credentials, facts, or guarantees of algorithmic reach. Hashtag tokens must contain only ASCII letters, digits and underscores.", temperature: providerAttempt > 1 ? 0.1 : (attempt === 1 ? 0.4 : 0.2) });
           if (providerAttempt > 1) logAwo("provider_retry_recovered", { jobId: job.id, draftId: draft.id, weekNumber: slot.weekNumber, platform: slot.platform, providerAttempt });
           break;
@@ -140,6 +144,7 @@ async function optimiseSlot(job: Job, slot: Awaited<ReturnType<typeof getCampaig
     }
     throw new Error(`Distribution output failed validation after ${MAX_VALIDATION_ATTEMPTS} attempts: ${validationErrors.join("; ")}`);
   } catch (error) {
+    sharedWorkerBackendGate.assertHealthy();
     if (force && slot.draftId) { try { await deps.content.updateStatus(job.organisation_id, slot.draftId, "failed", job.requested_by); } catch (statusError) { logAwo("reoptimisation_failed_status_update", { jobId: job.id, draftId: slot.draftId, weekNumber: slot.weekNumber, platform: slot.platform, error: statusError instanceof Error ? statusError.message : String(statusError) }); } }
     return { skipped: false, error: error instanceof Error ? error.message : String(error) };
   }
@@ -150,7 +155,7 @@ async function processJob(job: Job, client: ReturnType<typeof createAdminClient>
   const deps = buildContentDeps(client, job.requested_by);
   const campaign = await deps.campaigns.findCampaign(job.organisation_id, job.campaign_id);
   if (!campaign) { await setJob(db, job.id, { status: "failed", last_error: "Campaign not found.", finished_at: new Date().toISOString() }); return; }
-  const schedule = (await getCampaignSchedule(job.campaign_id)).filter((slot) => slot.draftId);
+  const schedule = (await getCampaignSchedule(job.campaign_id, client)).filter((slot) => slot.draftId);
   if (!schedule.length) { await setJob(db, job.id, { status: "failed", last_error: "Campaign schedule has no drafts.", finished_at: new Date().toISOString() }); return; }
   const currentDrafts = await Promise.all(schedule.map((slot) => deps.content.findDraft(job.organisation_id, slot.draftId!)));
   const generationRequests = await Promise.all(currentDrafts.map((draft) => draft ? getLatestGenerationRequest(deps, job.organisation_id, draft.id) : Promise.resolve(null)));
@@ -167,6 +172,7 @@ async function processJob(job: Job, client: ReturnType<typeof createAdminClient>
 
   const pending = force ? schedule : schedule.filter((slot, index) => isResumeEligibleDraft(currentDrafts[index]));
   for (let offset = 0; offset < pending.length && !shuttingDown; offset += CONCURRENCY) {
+    sharedWorkerBackendGate.assertHealthy();
     const chunk = pending.slice(offset, offset + CONCURRENCY);
     const results = await Promise.all(chunk.map((slot) => optimiseSlot(job, slot, deps, campaign.name, force, profile)));
     results.forEach((result, index) => { if (result.error) { failed += 1; const slot = chunk[index]; failures.push(`Week ${slot?.weekNumber ?? "?"} ${slot?.platform ?? "?"}: ${result.error}`); } else if (!result.skipped) completed += 1; });
@@ -183,4 +189,49 @@ async function processJob(job: Job, client: ReturnType<typeof createAdminClient>
   logAwo("job_finished", { jobId: job.id, mode: job.mode ?? "unfinished", status: finalStatus, completed: finalCompleted, failed, lockedUnfinished: lockedUnfinished.length, total: schedule.length, durationMs: Date.now() - started });
 }
 
-export async function runAwoCampaignWorker() { const client = createAdminClient(); const db = client as unknown as JobDb; let lastRecovery = 0; logAwo("worker_started", { pollIntervalMs: POLL_INTERVAL_MS, concurrency: CONCURRENCY, providerAttempts: MAX_PROVIDER_ATTEMPTS, slotCooldownMs: SLOT_COOLDOWN_MS }); const stop = () => { shuttingDown = true; }; process.once("SIGTERM", stop); process.once("SIGINT", stop); while (!shuttingDown) { try { if (Date.now() - lastRecovery >= STALE_RECOVERY_INTERVAL_MS) { await recoverStale(db); lastRecovery = Date.now(); } const job = await claimNext(db); if (!job) { await sleep(POLL_INTERVAL_MS); continue; } await processJob(job, client, db); } catch (error) { logAwo("worker_error", { error: error instanceof Error ? error.message : String(error) }); await sleep(Math.max(POLL_INTERVAL_MS, 5000)); } } logAwo("worker_stopped"); }
+/** One job per cycle, with at most CONCURRENCY (1–2) draft slots in flight. */
+export function createAwoPoller<T>(
+  deps: { recover: () => Promise<unknown>; claim: () => Promise<T | null>; process: (job: T) => Promise<unknown> },
+  backend: { gate: WorkerBackendGate; probe: () => Promise<void> },
+  now = Date.now,
+) {
+  let busy = false;
+  let recoverAt = 0;
+  return async () => {
+    if (busy || shuttingDown) return;
+    busy = true;
+    try {
+      if (!await backend.gate.allowWork(backend.probe)) return;
+      if (now() >= recoverAt) {
+        await deps.recover();
+        recoverAt = now() + STALE_RECOVERY_INTERVAL_MS;
+      }
+      backend.gate.assertHealthy();
+      const job = await deps.claim();
+      backend.gate.assertHealthy();
+      if (job) await deps.process(job);
+    } finally { busy = false; }
+  };
+}
+
+export async function runAwoCampaignWorker() {
+  const { client, probe } = createWorkerBackendClient();
+  const db = client as unknown as JobDb;
+  const poll = createAwoPoller({
+    recover: () => recoverStale(db), claim: () => claimNext(db),
+    process: (job) => processJob(job, client, db),
+  }, { gate: sharedWorkerBackendGate, probe });
+  logAwo("worker_started", { pollIntervalMs: POLL_INTERVAL_MS, concurrency: CONCURRENCY, providerAttempts: MAX_PROVIDER_ATTEMPTS, slotCooldownMs: SLOT_COOLDOWN_MS });
+  const stop = () => { shuttingDown = true; };
+  process.once("SIGTERM", stop); process.once("SIGINT", stop);
+  while (!shuttingDown) {
+    try { await poll(); }
+    catch (error) {
+      logAwo("worker_error", { error: error instanceof Error ? error.message : String(error) });
+      await sleep(Math.max(POLL_INTERVAL_MS, 5000));
+      continue;
+    }
+    await sleep(POLL_INTERVAL_MS);
+  }
+  logAwo("worker_stopped");
+}

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, it, vi } from "vitest";
 import { SupabasePublishingRepository } from "@/infrastructure/repositories/supabase-publishing-repository";
 
@@ -57,3 +58,35 @@ it("confirmed provider failure uses atomic receipt settlement and propagates res
   });
   expect(from).not.toHaveBeenCalled();
 });
+
+it("validates receipt identity for every outcome before replay or mutation", () => {
+  const sql = readFileSync("supabase/migrations/20260907000000_publishing_safe_recovery_settlement.sql", "utf8")
+    .split("create or replace function public.settle_publishing_receipt(")[1];
+  expect(sql).toBeDefined();
+  const functionSql = sql!;
+  const guard = functionSql.slice(functionSql.indexOf("  if ("), functionSql.indexOf("Provider receipt identity mismatch"));
+  expect(guard).not.toContain("p_outcome");
+  expect(guard).toContain("nullif(btrim(p_external_post_id), '') is null");
+  expect(guard).toContain("jsonb_typeof(p_metadata->'postSubmissionId') is distinct from 'string'");
+  expect(guard).toContain("p_metadata->>'postSubmissionId' is distinct from p_external_post_id");
+  expect(guard).toContain("v_attempt.provider_metadata->>'postSubmissionId' is distinct from p_external_post_id");
+  expect(guard).toContain("v_attempt.external_post_id is distinct from p_external_post_id");
+  expect(functionSql.indexOf("Provider receipt identity mismatch")).toBeLessThan(functionSql.indexOf("return v_attempt"));
+  expect(functionSql.indexOf("Provider receipt identity mismatch")).toBeLessThan(functionSql.indexOf("update public."));
+});
+
+it.each(["receipt", "wrong", "   ", 123, null, undefined])(
+  "pending passes receipt %s to atomic settlement and propagates rejection without fallback writes",
+  async receipt => {
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: { message: "Provider receipt identity mismatch" } });
+    const from = vi.fn(() => { throw new Error("non-atomic write"); });
+    const repo = new SupabasePublishingRepository({ rpc, from } as never);
+    await expect(repo.awaitAttemptConfirmation("attempt", { postSubmissionId: receipt }))
+      .rejects.toThrow("Provider receipt identity mismatch");
+    expect(rpc).toHaveBeenCalledExactlyOnceWith("settle_publishing_receipt", {
+      p_attempt_id: "attempt", p_outcome: "pending", p_metadata: { postSubmissionId: receipt },
+      p_external_post_id: typeof receipt === "string" ? receipt : null, p_external_url: null,
+    });
+    expect(from).not.toHaveBeenCalled();
+  },
+);

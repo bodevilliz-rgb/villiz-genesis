@@ -116,6 +116,16 @@ begin
     where a.id = p_attempt_id for update of j;
   select * into strict v_attempt from public.publishing_attempts where id = p_attempt_id for update;
   if p_outcome is null or p_outcome not in ('pending', 'published', 'failed') then raise exception 'Invalid settlement outcome'; end if;
+  -- Validate identity for every outcome before replay or any write.
+  if (
+    nullif(btrim(p_external_post_id), '') is null
+    or jsonb_typeof(p_metadata->'postSubmissionId') is distinct from 'string'
+    or p_metadata->>'postSubmissionId' is distinct from p_external_post_id
+    or (v_attempt.provider_metadata ? 'postSubmissionId'
+      and v_attempt.provider_metadata->>'postSubmissionId' is distinct from p_external_post_id)
+    or (v_attempt.external_post_id is not null
+      and v_attempt.external_post_id is distinct from p_external_post_id)
+  ) then raise exception 'Provider receipt identity mismatch'; end if;
   if p_outcome = 'failed' then
     if v_job.execution_mode <> 'live'
       or p_metadata->'confirmedAfterAwaiting' is distinct from 'true'::jsonb

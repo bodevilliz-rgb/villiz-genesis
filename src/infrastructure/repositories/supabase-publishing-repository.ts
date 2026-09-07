@@ -302,7 +302,8 @@ export class SupabasePublishingRepository implements PublishingRepository {
   }
 
   async awaitAttemptConfirmation(attemptId: string, providerMetadata: Record<string, unknown>) {
-    return this.settleAttempt(attemptId, "pending", providerMetadata);
+    return this.settleAttempt(attemptId, "pending", providerMetadata,
+      typeof providerMetadata.postSubmissionId === "string" ? providerMetadata.postSubmissionId : undefined);
   }
 
   /** A delayed pre-submission failure must not overwrite a recovered lease. */

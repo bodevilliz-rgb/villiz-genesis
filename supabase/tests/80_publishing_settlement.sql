@@ -15,11 +15,41 @@ create trigger test_settlement_job before update on public.publishing_jobs
 create trigger test_settlement_draft before update on public.content_drafts
   for each row execute function test.reject_settlement_write();
 
+-- Full-row snapshots prove that rejection cannot change even lease/timestamp fields.
+create or replace function test.reject_mismatched_receipts(p_attempt uuid) returns void language plpgsql as $$
+declare outcome text; supplied text; metadata jsonb; before_rows jsonb; after_rows jsonb;
+begin
+  foreach outcome in array array['pending', 'published', 'failed'] loop
+    for supplied, metadata in select * from (values
+      (null::text, '{"postSubmissionId":"receipt","confirmedAfterAwaiting":true}'::jsonb),
+      ('   ', '{"postSubmissionId":"   ","confirmedAfterAwaiting":true}'::jsonb),
+      ('receipt', '{"postSubmissionId":"wrong","confirmedAfterAwaiting":true}'::jsonb),
+      ('receipt', '{"confirmedAfterAwaiting":true}'::jsonb),
+      ('receipt', '{"postSubmissionId":123,"confirmedAfterAwaiting":true}'::jsonb),
+      ('wrong', '{"postSubmissionId":"wrong","confirmedAfterAwaiting":true}'::jsonb)
+    ) cases(receipt, meta) loop
+      -- An unrecorded initial receipt may legitimately have any identity.
+      if supplied = 'wrong' and not exists(select 1 from public.publishing_attempts
+        where id = p_attempt and (provider_metadata ? 'postSubmissionId' or external_post_id is not null)) then continue; end if;
+      select jsonb_build_array(to_jsonb(a), to_jsonb(j), to_jsonb(d)) into before_rows
+        from public.publishing_attempts a join public.publishing_jobs j on j.id = a.job_id
+        join public.content_drafts d on d.id = j.draft_id where a.id = p_attempt;
+      perform test.throws('publishing_settlement', outcome || ' rejects mismatched receipt ' || coalesce(supplied, 'NULL'),
+        format('select public.settle_publishing_receipt(%L,%L,%L::jsonb,%L,null)', p_attempt, outcome, metadata, supplied));
+      select jsonb_build_array(to_jsonb(a), to_jsonb(j), to_jsonb(d)) into after_rows
+        from public.publishing_attempts a join public.publishing_jobs j on j.id = a.job_id
+        join public.content_drafts d on d.id = j.draft_id where a.id = p_attempt;
+      perform test.ok('publishing_settlement', outcome || ' mismatch has zero attempt/job/draft mutation', before_rows = after_rows);
+    end loop;
+  end loop;
+end;
+$$;
+
 do $$
 declare
   org uuid := '00000000-0000-4000-b000-000000000001';
   draft uuid; job uuid; attempt uuid; boundary text; outcome text;
-  n integer; recovered integer; original_anchor timestamptz;
+  n integer; recovered integer; original_anchor timestamptz; before_rows jsonb; after_rows jsonb;
 begin
   insert into public.content_drafts(organisation_id, title, status)
     values(org, 'Settlement fault injection', 'publishing') returning id into draft;
@@ -91,6 +121,7 @@ begin
   select count(*) into recovered from public.recover_stale_publishing_jobs(300);
   perform test.eq('publishing_settlement', 'restart never recovers a post-barrier job', recovered, 0);
 
+  perform test.reject_mismatched_receipts(attempt);
   foreach outcome in array array['pending', 'published'] loop
     foreach boundary in array array['publishing_attempts', 'publishing_jobs', 'content_drafts'] loop
       if outcome = 'pending' and boundary = 'content_drafts' then continue; end if;
@@ -107,25 +138,47 @@ begin
         and (select status = 'publishing' from public.content_drafts where id = draft));
     end loop;
   end loop;
-  perform public.settle_publishing_receipt(attempt, 'pending', '{"postSubmissionId":"receipt"}', null, null);
+  perform public.settle_publishing_receipt(attempt, 'pending', '{"postSubmissionId":"receipt"}', 'receipt', null);
+  perform test.reject_mismatched_receipts(attempt);
+  -- A conflicting external id must be checked independently of matching metadata.
+  update public.publishing_attempts set external_post_id = 'other-external' where id = attempt;
+  foreach outcome in array array['pending', 'published', 'failed'] loop
+    select jsonb_build_array(to_jsonb(a), to_jsonb(j), to_jsonb(d)) into before_rows
+      from public.publishing_attempts a join public.publishing_jobs j on j.id = a.job_id
+      join public.content_drafts d on d.id = j.draft_id where a.id = attempt;
+    perform test.throws('publishing_settlement', outcome || ' rejects conflicting persisted external id',
+      format('select public.settle_publishing_receipt(%L,%L,%L::jsonb,%L,null)', attempt, outcome,
+        '{"postSubmissionId":"receipt","confirmedAfterAwaiting":true}', 'receipt'));
+    select jsonb_build_array(to_jsonb(a), to_jsonb(j), to_jsonb(d)) into after_rows
+      from public.publishing_attempts a join public.publishing_jobs j on j.id = a.job_id
+      join public.content_drafts d on d.id = j.draft_id where a.id = attempt;
+    perform test.ok('publishing_settlement', outcome || ' conflicting external id leaves rows unchanged',
+      before_rows = after_rows and
+      (select status = 'awaiting_confirmation' and external_post_id = 'other-external'
+        and provider_metadata->>'postSubmissionId' = 'receipt' from public.publishing_attempts where id = attempt)
+      and (select status = 'awaiting_confirmation' from public.publishing_jobs where id = job)
+      and (select status = 'publishing' from public.content_drafts where id = draft));
+  end loop;
+  update public.publishing_attempts set external_post_id = null where id = attempt;
   select awaiting_confirmation_since into original_anchor from public.publishing_jobs where id = job;
   -- Discard RPC response and replay, as a restarted client would.
-  perform public.settle_publishing_receipt(attempt, 'pending', '{"postSubmissionId":"receipt"}', null, null);
+  perform public.settle_publishing_receipt(attempt, 'pending', '{"postSubmissionId":"receipt"}', 'receipt', null);
   perform test.ok('publishing_settlement', 'pending receipt durable and replay preserves horizon',
     (select next_status_check_at is not null and awaiting_confirmation_since = original_anchor from public.publishing_jobs where id = job)
     and (select provider_metadata->>'postSubmissionId' = 'receipt' from public.publishing_attempts where id = attempt));
   update public.publishing_jobs set next_status_check_at = null where id = job;
-  perform public.settle_publishing_receipt(attempt, 'pending', '{"postSubmissionId":"receipt"}', null, null);
+  perform public.settle_publishing_receipt(attempt, 'pending', '{"postSubmissionId":"receipt"}', 'receipt', null);
   perform test.ok('publishing_settlement', 'replay cannot restart an intentionally stopped schedule',
     (select next_status_check_at is null from public.publishing_jobs where id = job));
   perform public.settle_publishing_receipt(attempt, 'published', '{"postSubmissionId":"receipt"}', 'receipt', 'https://example.test/post');
   perform public.settle_publishing_receipt(attempt, 'published', '{"postSubmissionId":"receipt"}', 'receipt', 'https://example.test/post');
-  perform public.settle_publishing_receipt(attempt, 'pending', '{"postSubmissionId":"receipt"}', null, null);
+  perform public.settle_publishing_receipt(attempt, 'pending', '{"postSubmissionId":"receipt"}', 'receipt', null);
   perform test.ok('publishing_settlement', 'terminal replay is immutable and cannot reopen job',
     (select status = 'published' and next_status_check_at is null from public.publishing_jobs where id = job)
     and (select status = 'completed' from public.publishing_attempts where id = attempt)
     and (select status = 'published' from public.content_drafts where id = draft));
 
+  perform test.reject_mismatched_receipts(attempt);
   perform test.throws('publishing_settlement', 'completed attempt remains immutable',
     format('update public.publishing_attempts set status = %L where id = %L', 'started', attempt), '42501');
   perform test.ok('publishing_settlement', 'completed attempt unchanged after rejected mutation',
@@ -234,10 +287,11 @@ begin
   end loop;
   perform public.settle_publishing_receipt(attempt, 'failed',
     '{"postSubmissionId":"receipt","confirmedAfterAwaiting":true,"errorMessage":"rejected"}', 'receipt', null);
+  perform test.reject_mismatched_receipts(attempt);
   select to_jsonb(a) into original from public.publishing_attempts a where id = attempt;
   perform public.settle_publishing_receipt(attempt, 'failed',
     '{"postSubmissionId":"receipt","confirmedAfterAwaiting":true,"errorMessage":"changed"}', 'receipt', null);
-  perform public.settle_publishing_receipt(attempt, 'pending', '{"postSubmissionId":"receipt"}', null, null);
+  perform public.settle_publishing_receipt(attempt, 'pending', '{"postSubmissionId":"receipt"}', 'receipt', null);
   perform public.settle_publishing_receipt(attempt, 'published', '{"postSubmissionId":"receipt"}', 'receipt', null);
   perform test.ok('publishing_settlement', 'confirmed failure response loss replay is immutable and terminal',
     (select status = 'failed' and next_status_check_at is null from public.publishing_jobs where id = job)
@@ -250,3 +304,5 @@ drop trigger test_settlement_attempt on public.publishing_attempts;
 drop trigger test_settlement_job on public.publishing_jobs;
 drop trigger test_settlement_draft on public.content_drafts;
 drop function test.reject_settlement_write();
+
+drop function test.reject_mismatched_receipts(uuid);
