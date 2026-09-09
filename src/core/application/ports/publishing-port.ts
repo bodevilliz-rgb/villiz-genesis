@@ -70,6 +70,13 @@ export interface ReconcileFailedTimeoutInput {
   actorId: string;
 }
 
+export interface PublishingWorkerCapability {
+  livePublishingEnabled: boolean;
+  generationId: string | null;
+  /** Opaque verifier supplied to the database; never log or persist it. */
+  proof: string | null;
+}
+
 export interface PublishingRepository {
   /** Service-role only: atomically append a terminal legacy reconciliation, settle job/draft and audit. */
   reconcileFailedTimeout(input: ReconcileFailedTimeoutInput): Promise<PublishingJob>;
@@ -120,12 +127,14 @@ export interface PublishingRepository {
   /** Atomically fail an owned pre-submission claim, its active attempts and draft. */
   settleFailedClaim(jobId: string, workerId: string, failure: Pick<FailPublishingAttemptInput, "errorCode" | "errorMessage">): Promise<boolean>;
   /** Worker-only — must be called with the service-role client. Atomic (`for update skip locked`) at the database level. */
-  claimNextJob(workerId: string, preSubmissionRecovery?: boolean): Promise<PublishingJob | null>;
+  claimNextJob(workerId: string, preSubmissionRecovery?: boolean, capability?: PublishingWorkerCapability): Promise<PublishingJob | null>;
   /** Worker-only — must be called with the service-role client. */
   recoverStaleJobs(staleAfterSeconds: number): Promise<PublishingJob[]>;
 
   createAttempt(input: CreatePublishingAttemptInput): Promise<PublishingAttempt>;
   startAttempt(attemptId: string): Promise<PublishingAttempt>;
+  /** Revalidates the claimed generation immediately before provider submission. */
+  beginSubmission(jobId: string, attemptId: string, workerId: string, capability?: PublishingWorkerCapability): Promise<void>;
   /** Atomically completes the attempt, job and draft. Safe to replay after a lost response. */
   completeAttempt(attemptId: string, input: CompletePublishingAttemptInput): Promise<PublishingAttempt>;
   /** Confirmed-after-awaiting blotato_publish_failed atomically settles attempt, job and draft. */

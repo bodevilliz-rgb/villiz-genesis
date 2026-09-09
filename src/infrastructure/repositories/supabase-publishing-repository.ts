@@ -6,6 +6,7 @@ import type {
   FailPublishingAttemptInput,
   PublishingQueueFilters,
   PublishingRepository,
+  PublishingWorkerCapability,
   ReconcileFailedTimeoutInput,
 } from "@/core/application/ports/publishing-port";
 import type { PublishingAttempt, PublishingJobStatus, PublishingPlatform } from "@/core/domain/entities/publishing";
@@ -224,8 +225,14 @@ export class SupabasePublishingRepository implements PublishingRepository {
     return toPublishingJob(unwrap(result, "Publishing job") as unknown as PublishingJobRowWithRelations);
   }
 
-  async claimNextJob(workerId: string, preSubmissionRecovery = false) {
-    const { data, error, status } = await this.client.rpc(preSubmissionRecovery ? "claim_pre_submission_publishing_job" : "claim_next_publishing_job", { p_worker_id: workerId });
+  async claimNextJob(workerId: string, preSubmissionRecovery = false, capability?: PublishingWorkerCapability) {
+    const args = preSubmissionRecovery ? {
+      p_worker_id: workerId,
+      p_live_publishing_enabled: capability?.livePublishingEnabled === true,
+      p_worker_generation: capability?.generationId ?? null,
+      p_live_capability_proof: capability?.proof ?? null,
+    } : { p_worker_id: workerId };
+    const { data, error, status } = await this.client.rpc(preSubmissionRecovery ? "claim_pre_submission_publishing_job" : "claim_next_publishing_job", args);
     if (error) translateError({ ...error, status }, "Publishing job claim");
     // Shape-independent by design — see toClaimedPublishingJob.
     return toClaimedPublishingJob(data, "claim_next_publishing_job");
@@ -316,9 +323,11 @@ export class SupabasePublishingRepository implements PublishingRepository {
     return data === true;
   }
 
-  async beginSubmission(jobId: string, attemptId: string, workerId: string) {
+  async beginSubmission(jobId: string, attemptId: string, workerId: string, capability?: PublishingWorkerCapability) {
     const { error, status } = await this.client.rpc("begin_publishing_submission", {
       p_job_id: jobId, p_attempt_id: attemptId, p_worker_id: workerId,
+      p_worker_generation: capability?.generationId ?? null,
+      p_live_capability_proof: capability?.proof ?? null,
     });
     if (error) translateError({ ...error, status }, "Publishing submission barrier");
   }

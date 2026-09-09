@@ -56,6 +56,7 @@ import {
 } from "../src/core/application/use-cases/publishing";
 import { createConfirmationErrorGate, runProviderConfirmationPass } from "../src/core/application/use-cases/publishing/confirmation";
 import type { PublishingAttempt, PublishingJob } from "../src/core/domain/entities/publishing";
+import type { PublishingWorkerCapability } from "../src/core/application/ports/publishing-port";
 
 const POLL_INTERVAL_MS = Number(process.env.PUBLISHING_WORKER_POLL_INTERVAL_MS ?? 2000);
 const WORKER_ID = `worker-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
@@ -288,7 +289,7 @@ async function processJob(job: PublishingJob, deps: ReturnType<typeof buildDeps>
         // A lost barrier response or an expired lease must not mutate a
         // recovered claim. If it did not commit, bounded recovery owns it.
         submissionMayHaveStarted = true;
-        await deps.publishing.beginSubmission(job.id, attempt!.id, WORKER_ID);
+        await deps.publishing.beginSubmission(job.id, attempt!.id, WORKER_ID, deps.workerCapability);
       },
     });
 
@@ -370,6 +371,8 @@ async function processJob(job: PublishingJob, deps: ReturnType<typeof buildDeps>
 
 function buildDeps(client: ReturnType<typeof createAdminClient>) {
   const blotato = blotatoConfig();
+  const generationId = process.env.PUBLISHING_WORKER_GENERATION_ID?.trim() || null;
+  const proof = process.env.PUBLISHING_LIVE_CAPABILITY_PROOF?.trim() || null;
   return {
     publishing: new SupabasePublishingRepository(client),
     content: new SupabaseContentRepository(client),
@@ -378,6 +381,11 @@ function buildDeps(client: ReturnType<typeof createAdminClient>) {
     blotatoAccounts: new SupabaseBlotatoAccountRepository(client),
     blotatoClient: new HttpBlotatoClient(blotato.apiKey),
     blotatoLivePublishingEnabled: blotato.livePublishingEnabled,
+    workerCapability: {
+      livePublishingEnabled: blotato.livePublishingEnabled,
+      generationId,
+      proof,
+    } satisfies PublishingWorkerCapability,
     media: new SupabaseMediaRepository(client),
     storage: new SupabaseStoragePort(client),
   };
@@ -416,7 +424,7 @@ export function createPublishingPoller(deps: ReturnType<typeof buildDeps>, now =
         await deps.publishing.recoverStaleJobs(300);
         recoverAt = now() + 60_000;
       }
-      const job = await deps.publishing.claimNextJob(WORKER_ID, true);
+      const job = await deps.publishing.claimNextJob(WORKER_ID, true, deps.workerCapability);
       if (job) await processJob(job, deps);
       else await runConfirmationPass(deps);
       circuit.succeed();

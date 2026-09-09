@@ -51,6 +51,13 @@ declare
   draft uuid; job uuid; attempt uuid; boundary text; outcome text;
   n integer; recovered integer; original_anchor timestamptz; before_rows jsonb; after_rows jsonb;
 begin
+  insert into public.publishing_worker_generations(
+    generation_id, live_publishing_capable, capability_proof_sha256, status, valid_until
+  ) values (
+    'settlement-test-generation', true,
+    encode(extensions.digest('settlement-test-proof', 'sha256'), 'hex'),
+    'active', now() + interval '1 hour'
+  );
   insert into public.content_drafts(organisation_id, title, status)
     values(org, 'Settlement fault injection', 'publishing') returning id into draft;
   insert into public.publishing_jobs(organisation_id, draft_id, platform, trigger_type, idempotency_key,
@@ -91,8 +98,9 @@ begin
   insert into public.content_drafts(organisation_id, title, status)
     values(org, 'Reassignment fixture', 'publishing') returning id into draft;
   insert into public.publishing_jobs(organisation_id, draft_id, platform, trigger_type, idempotency_key,
-    status, execution_mode, claimed_by, claimed_at, pre_submission_recovery)
-    values(org, draft, 'facebook', 'immediate', 'reassignment-test', 'processing', 'live', 'new-worker', now(), true)
+    status, execution_mode, claimed_by, claimed_at, pre_submission_recovery, claimed_generation_id)
+    values(org, draft, 'facebook', 'immediate', 'reassignment-test', 'processing', 'live', 'new-worker', now(), true,
+      'settlement-test-generation')
     returning id into job;
   insert into public.publishing_attempts(job_id, organisation_id, draft_id, platform, attempt_number, status)
     values(job, org, draft, 'facebook', 1, 'started') returning id into attempt;
@@ -107,7 +115,8 @@ begin
   foreach boundary in array array['publishing_jobs', 'publishing_attempts'] loop
     perform set_config('test.fail_table', boundary, true);
     begin
-      perform public.begin_publishing_submission(job, attempt, 'test-worker');
+      perform public.begin_publishing_submission(job, attempt, 'test-worker',
+        'settlement-test-generation', 'settlement-test-proof');
       raise exception 'Fault did not fire';
     exception when no_data_found then null;
     end;
@@ -116,7 +125,8 @@ begin
       (select status = 'processing' and pre_submission_recovery from public.publishing_jobs where id = job)
       and (select status = 'started' from public.publishing_attempts where id = attempt));
   end loop;
-  perform public.begin_publishing_submission(job, attempt, 'test-worker');
+  perform public.begin_publishing_submission(job, attempt, 'test-worker',
+    'settlement-test-generation', 'settlement-test-proof');
   update public.publishing_jobs set claimed_at = now() - interval '1 hour' where id = job;
   select count(*) into recovered from public.recover_stale_publishing_jobs(300);
   perform test.eq('publishing_settlement', 'restart never recovers a post-barrier job', recovered, 0);
@@ -241,6 +251,8 @@ begin
   perform test.eq('publishing_settlement', 'bounded next recovery batch', recovered, 1);
   perform test.ok('publishing_settlement', 'legacy processing remains excluded',
     (select status = 'processing' from public.publishing_jobs where id = job));
+  update public.publishing_worker_generations set status = 'retired'
+    where generation_id = 'settlement-test-generation';
 end;
 $$;
 

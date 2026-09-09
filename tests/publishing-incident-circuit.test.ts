@@ -42,6 +42,23 @@ it("poller refuses overlapping calls and makes no claim during quota cooldown; s
   now = 900_000; await poll(); await poll(); expect(claimNextJob).toHaveBeenCalledTimes(3);
 });
 
+it("passes effective mode and opaque generation proof into every pre-submission claim", async () => {
+  const claimNextJob = vi.fn().mockResolvedValue(null);
+  const capability = { livePublishingEnabled: true, generationId: "generation-current", proof: "opaque-proof" };
+  const deps = {
+    workerCapability: capability,
+    publishing: {
+      recoverStaleJobs: vi.fn().mockResolvedValue([]),
+      claimNextJob,
+      claimJobForConfirmation: vi.fn().mockResolvedValue(null),
+    },
+  };
+
+  await createPublishingPoller(deps as never)();
+
+  expect(claimNextJob).toHaveBeenCalledExactlyOnceWith(expect.any(String), true, capability);
+});
+
 it.each([[{ code: "exceed_egress_quota", message: "Request rejected" }, 403, "quota"], [{ message: "Too many requests" }, 429, "rate_limit"], [{ message: "Unavailable" }, 503, "service"]] as const)("retains classification through the actual publishing repository", async (error, status, category) => {
   const { SupabasePublishingRepository } = await import("@/infrastructure/repositories/supabase-publishing-repository");
   const repo = new SupabasePublishingRepository({ rpc: async () => ({ error, data: null, status }) } as never);
