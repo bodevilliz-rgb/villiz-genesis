@@ -76,9 +76,11 @@ export function assessRecommendationDistributionEligibility(
   recommendation: EngagementRecommendation | null,
   currentDraftVersion: number,
   latestFeedback: EngagementFeedbackEvent | null = null,
-): { eligible: boolean; score: number; blockers: string[] } {
+): { eligible: boolean; score: number; blockers: string[]; warnings: string[] } {
   if (!recommendation) {
-    return { eligible: false, score: 0, blockers: ["Generate an Awo recommendation before approval."] };
+    // No recommendation is a warning, not a blocker — operators can still
+    // approve content that doesn't need Awo recommendations.
+    return { eligible: true, score: 0, blockers: [], warnings: ["Generate an Awo recommendation to receive distribution guidance."] };
   }
   // Applying a recommendation atomically creates the next draft version. That
   // version remains covered only when the recorded application points to this
@@ -87,18 +89,68 @@ export function assessRecommendationDistributionEligibility(
     && latestFeedback.recommendationId === recommendation.id
     && latestFeedback.appliedDraftVersion === currentDraftVersion;
   if (recommendation.draftVersion !== currentDraftVersion && !appliedToCurrentVersion) {
-    return { eligible: false, score: 0, blockers: ["Generate a new recommendation for the current draft version before approval."] };
+    // Stale recommendation is a warning, not a blocker — the operator can
+    // generate a new one or proceed with caution.
+    return {
+      eligible: true,
+      score: 0,
+      blockers: [],
+      warnings: ["Generate a new recommendation for the current draft version before publishing."],
+    };
   }
   const plan = recommendation.creativeGuidance.visibilityPlan;
   if (!plan || !Array.isArray(plan.distributionBlockers)) {
-    return { eligible: false, score: 0, blockers: ["This recommendation predates the Audience Distribution Gate. Generate a new recommendation before approval."] };
+    return {
+      eligible: true,
+      score: 0,
+      blockers: [],
+      warnings: ["This recommendation predates the Audience Distribution Gate. Generate a new recommendation before approval."],
+    };
   }
   const score = plan.distributionReadinessScore ?? 0;
-  const blockers = plan.distributionBlockers;
+  const blockers: string[] = plan.distributionBlockers.filter((blocker) =>
+    CRITICAL_BLOCKER_PATTERNS.some((pattern) => pattern.test(blocker)),
+  );
+  const warnings: string[] = plan.distributionBlockers.filter((blocker) =>
+    !CRITICAL_BLOCKER_PATTERNS.some((pattern) => pattern.test(blocker)),
+  );
   return {
-    eligible: plan.distributionGate === "pass" && score >= DISTRIBUTION_READINESS_THRESHOLD && blockers.length === 0,
+    eligible: blockers.length === 0,
     score,
     blockers,
+    warnings,
+  };
+}
+
+// Patterns that identify critical blockers — these still prevent approval.
+// Non-matching blockers are treated as warnings and do not block.
+const CRITICAL_BLOCKER_PATTERNS = [
+  /no publishing destination/i,
+  /disconnected.*account/i,
+  /missing required media/i,
+  /unverified.*version/i,
+  /rights.*check/i,
+  /consent.*check/i,
+  /identity.*check/i,
+  /platform.safety/i,
+  /platform policy/i,
+];
+
+/**
+ * Assesses ONLY critical safety blockers that must prevent approval.
+ * This is the authoritative gate used by the review workflow.
+ * Distribution-readiness scores and non-critical warnings do NOT block.
+ */
+export function assessCriticalApprovalBlockers(
+  recommendation: EngagementRecommendation | null,
+  currentDraftVersion: number,
+  latestFeedback: EngagementFeedbackEvent | null = null,
+): { blocked: boolean; blockers: string[]; warnings: string[] } {
+  const result = assessRecommendationDistributionEligibility(recommendation, currentDraftVersion, latestFeedback);
+  return {
+    blocked: !result.eligible,
+    blockers: result.blockers,
+    warnings: result.warnings,
   };
 }
 
@@ -652,6 +704,45 @@ export async function getLatestEngagementRecommendation(
   const role = await deps.organisations.viewerRole(organisationId);
   if (!deps.actor.isPlatformAdmin && !role) throw new ForbiddenError();
   return deps.engagement.findLatest(organisationId, draftId);
+}
+
+/**
+ * Automatically refresh the engagement recommendation when a draft is saved or
+ * materially changed. This eliminates the requirement for operators to manually
+ * click "Generate New Recommendation" before approval.
+ */
+export async function refreshRecommendation(
+  deps: EngagementDeps,
+  draftVersion: number,
+  organisationId: string,
+  draftId: string,
+): Promise<void> {
+  const role = await deps.organisations.viewerRole(organisationId);
+  if (!deps.actor.isPlatformAdmin && !role) return;
+
+  try {
+    const [draft, existingRecommendation] = await Promise.all([
+      deps.content.findDraft(organisationId, draftId),
+      deps.engagement.findLatest(organisationId, draftId),
+    ]);
+
+    if (!draft || !draft.body.trim()) return;
+
+    // Only refresh if the existing recommendation is stale (different version)
+    if (existingRecommendation && existingRecommendation.draftVersion === draftVersion) {
+      return;
+    }
+
+    // Generate a new recommendation (delegates to the existing function which
+    // already checks content type, brief detection, etc.)
+    await generateEngagementRecommendation(deps, {
+      organisationId,
+      draftId,
+    });
+  } catch (err) {
+    // Non-fatal: auto-refresh failures should not block draft saving
+    console.debug("Auto-refresh recommendation failed:", err);
+  }
 }
 
 export async function getEngagementLearningOverview(

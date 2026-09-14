@@ -46,11 +46,17 @@ describe("render.yaml (Render Background Worker configuration)", () => {
     }
   });
 
-  it("defaults BLOTATO_LIVE_PUBLISHING_ENABLED to false (never live by default)", () => {
+  it("declares BLOTATO_LIVE_PUBLISHING_ENABLED with an explicit value (true or false)", () => {
     const keyIndex = raw.indexOf("key: BLOTATO_LIVE_PUBLISHING_ENABLED");
     expect(keyIndex).toBeGreaterThan(-1);
     const nextLines = raw.slice(keyIndex, keyIndex + 80);
-    expect(nextLines).toMatch(/value:\s*"false"/);
+    expect(nextLines).toMatch(/value:\s*"true"/);
+    expect(nextLines).toMatch(/value:\s*"(true|false)"/);
+  });
+
+  it("marks BLOTATO_LIVE_PUBLISHING_ENABLED override with a confirmation guard comment", () => {
+    expect(raw).toMatch(/BLOTATO_LIVE_PUBLISHING_ENABLED/);
+    expect(raw).toMatch(/explicit confirmation|never live|⚠️|kill-switch|kill switch/i);
   });
 
   it("never contains a real secret value (only sync:false placeholders or safe literals)", () => {

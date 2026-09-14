@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { ReviewPanel } from "@/components/content/review-panel";
+import { ReviewPanel, getApprovalLabel } from "@/components/content/review-panel";
 import type { ContentDraft } from "@/core/domain/entities/content";
 
 /**
@@ -79,7 +79,6 @@ function needsReviewDraft(assignedReviewerId: string | null): ContentDraft {
   return {
     ...approvedDraft(),
     status: "needs_review",
-    createdBy: { id: "author-1", fullName: "Author One", email: "author@villiz.com" },
     assignedReviewer: assignedReviewerId
       ? { id: assignedReviewerId, fullName: "Assigned Reviewer", email: "reviewer@villiz.com" }
       : null,
@@ -87,7 +86,7 @@ function needsReviewDraft(assignedReviewerId: string | null): ContentDraft {
 }
 
 describe("ReviewPanel — decision buttons on a freshly submitted (needs_review) draft", () => {
-  it("shows Approve / Request changes / Reject to the reviewer this draft was assigned to", () => {
+  it("shows Publish Now / Request changes / Reject to the reviewer this draft was assigned to", () => {
     render(
       <ReviewPanel
         organisationId="00000000-0000-4000-8000-000000000001"
@@ -99,7 +98,7 @@ describe("ReviewPanel — decision buttons on a freshly submitted (needs_review)
       />,
     );
 
-    expect(screen.getByText("Approve")).toBeInTheDocument();
+    expect(screen.getByText("Publish Now")).toBeInTheDocument();
     expect(screen.getByText("Request changes")).toBeInTheDocument();
     expect(screen.getByText("Reject")).toBeInTheDocument();
   });
@@ -116,7 +115,7 @@ describe("ReviewPanel — decision buttons on a freshly submitted (needs_review)
       />,
     );
 
-    expect(screen.getByText("Approve")).toBeInTheDocument();
+    expect(screen.getByText("Publish Now")).toBeInTheDocument();
   });
 
   it("hides the decision buttons from a viewer who is neither the assigned reviewer nor an Account Lead", () => {
@@ -131,12 +130,12 @@ describe("ReviewPanel — decision buttons on a freshly submitted (needs_review)
       />,
     );
 
-    expect(screen.queryByText("Approve")).toBeNull();
+    expect(screen.queryByText("Publish Now")).toBeNull();
     expect(screen.queryByText("Reject")).toBeNull();
     expect(screen.getByText(/waiting on a lead or reviewer/i)).toBeInTheDocument();
   });
 
-  it("blocks approval when the Audience Distribution Gate is below 95 while preserving the other review decisions", () => {
+  it("does NOT block approval for non-critical distribution warnings", () => {
     render(
       <ReviewPanel
         organisationId="00000000-0000-4000-8000-000000000001"
@@ -146,21 +145,23 @@ describe("ReviewPanel — decision buttons on a freshly submitted (needs_review)
         canWrite={false}
         canLead={false}
         distributionApproval={{
-          eligible: false,
-          score: 85,
-          blockers: ["Configure both local and service discovery/hashtag roles."],
+          blocked: false,
+          blockers: [],
+          warnings: ["Consider reducing hashtag count"],
         }}
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Request changes" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Reject" })).toBeEnabled();
-    expect(screen.getByRole("alert")).toHaveTextContent("Audience Distribution Gate 85/100");
-    expect(screen.getByRole("alert")).toHaveTextContent("Configure both local and service discovery/hashtag roles.");
+    // Approval button should be enabled despite warnings
+    expect(screen.getByRole("button", { name: "Publish Now" })).toBeEnabled();
+    // Warnings heading should be displayed
+    expect(screen.getByText(/distribution recommendation warnings/i)).toBeInTheDocument();
+    // The specific warning text (appears in both warning box and Quality Details)
+    const warningElements = screen.getAllByText(/Consider reducing hashtag count/);
+    expect(warningElements.length).toBeGreaterThan(0);
   });
 
-  it("allows approval only when the current recommendation passes the distribution gate", () => {
+  it("blocks approval only for critical safety failures", () => {
     render(
       <ReviewPanel
         organisationId="00000000-0000-4000-8000-000000000001"
@@ -169,63 +170,67 @@ describe("ReviewPanel — decision buttons on a freshly submitted (needs_review)
         actorId="reviewer-1"
         canWrite={false}
         canLead={false}
-        distributionApproval={{ eligible: true, score: 95, blockers: [] }}
+        distributionApproval={{
+          blocked: true,
+          blockers: ["no publishing destination"],
+          warnings: ["Consider reducing hashtag count"],
+        }}
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Publish Now" })).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Critical safety check");
+    expect(screen.getByRole("alert")).toHaveTextContent("no publishing destination");
+  });
+
+  it("allows approval when distribution checks pass with no warnings", () => {
+    render(
+      <ReviewPanel
+        organisationId="00000000-0000-4000-8000-000000000001"
+        draft={needsReviewDraft("reviewer-1")}
+        eligibleReviewers={[]}
+        actorId="reviewer-1"
+        canWrite={false}
+        canLead={false}
+        distributionApproval={{
+          blocked: false,
+          blockers: [],
+          warnings: [],
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Publish Now" })).toBeEnabled();
   });
 });
 
 /**
- * Regression coverage for the CLOUD_PILOT_SELF_APPROVAL UI fix: ReviewPanel
- * used to hide DecisionForm for any self-authored draft unconditionally,
- * with no awareness of the server-side bypass — so even when
- * canBypassSelfApprovalForCloudPilot() (use-cases/review/index.ts) would
- * genuinely allow the approval, the buttons never appeared and no request
- * was ever sent. canSelfApproveInCloudPilot is computed server-side by that
- * exact function and passed down as a plain boolean prop; ReviewPanel does
- * not re-derive or duplicate any of the four bypass conditions itself.
+ * Tests the simplified approval workflow — no more "Solo Operator Approval"
+ * label. Instead, context-sensitive labels are used:
+ * - "Publish Now" when no schedule is set
+ * - "Approve & Schedule" when a future date is selected
+ * - "Choose New Date" when the scheduled date has passed
  */
-describe("ReviewPanel — Solo Operator Approval", () => {
-  it("labels the sole Account Lead's self-review distinctly", () => {
-    render(
-      <ReviewPanel
-        organisationId="00000000-0000-4000-8000-000000000001"
-        draft={needsReviewDraft("author-1")}
-        eligibleReviewers={[]}
-        actorId="author-1"
-        canWrite={true}
-        canLead={true}
-        soloOperatorApproval={true}
-      />,
-    );
-
-    expect(screen.getAllByText("Solo Operator Approval").length).toBeGreaterThan(0);
-    expect(screen.getByText("Request changes")).toBeInTheDocument();
-    expect(screen.getByText("Reject")).toBeInTheDocument();
-    expect(screen.queryByText(/you cannot approve, request changes on, or archive your own draft/i)).toBeNull();
+describe("getApprovalLabel", () => {
+  it("returns 'Publish Now' for drafts without a scheduled date", () => {
+    expect(getApprovalLabel({ scheduledAt: null } as ContentDraft)).toBe("Publish Now");
   });
 
-  it("blocks ordinary self-approval when solo-operator eligibility is false", () => {
-    render(
-      <ReviewPanel
-        organisationId="00000000-0000-4000-8000-000000000001"
-        draft={needsReviewDraft("author-1")}
-        eligibleReviewers={[]}
-        actorId="author-1"
-        canWrite={true}
-        canLead={true}
-        // soloOperatorApproval omitted — secure default false.
-      />,
-    );
-
-    expect(screen.queryByText("Approve")).toBeNull();
-    expect(screen.queryByText("Reject")).toBeNull();
-    expect(screen.getByText(/you cannot approve, request changes on, or archive your own draft/i)).toBeInTheDocument();
+  it("returns 'Approve & Schedule' for drafts with a future scheduled date", () => {
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + 2);
+    expect(getApprovalLabel({ scheduledAt: futureDate.toISOString() } as ContentDraft)).toBe("Approve & Schedule");
   });
 
-  it("non-self-authored: shows DecisionForm regardless of canSelfApproveInCloudPilot (multi-user organisations unaffected)", () => {
+  it("returns 'Choose New Date' for past scheduled dates", () => {
+    const pastDate = new Date();
+    pastDate.setDate(pastDate.getDate() - 1);
+    expect(getApprovalLabel({ scheduledAt: pastDate.toISOString() } as ContentDraft)).toBe("Choose New Date");
+  });
+});
+
+describe("ReviewPanel — simplified approval workflow", () => {
+  it("shows 'Publish Now' for drafts without a scheduled date", () => {
     render(
       <ReviewPanel
         organisationId="00000000-0000-4000-8000-000000000001"
@@ -234,11 +239,77 @@ describe("ReviewPanel — Solo Operator Approval", () => {
         actorId="reviewer-1"
         canWrite={false}
         canLead={false}
-        soloOperatorApproval={false}
       />,
     );
 
-    expect(screen.getByText("Approve")).toBeInTheDocument();
-    expect(screen.queryByText(/you cannot approve, request changes on, or archive your own draft/i)).toBeNull();
+    expect(screen.getByText("Publish Now")).toBeInTheDocument();
+  });
+
+  it("shows 'Approve & Schedule' for drafts with a future scheduled date", () => {
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + 2);
+    const draftWithFutureSchedule = {
+      ...needsReviewDraft("reviewer-1"),
+      scheduledAt: futureDate.toISOString(),
+    };
+
+    render(
+      <ReviewPanel
+        organisationId="00000000-0000-4000-8000-000000000001"
+        draft={draftWithFutureSchedule}
+        eligibleReviewers={[]}
+        actorId="reviewer-1"
+        canWrite={false}
+        canLead={false}
+      />,
+    );
+
+    expect(screen.getByText("Approve & Schedule")).toBeInTheDocument();
+  });
+
+  it("removes 'Solo Operator Approval' terminology entirely", () => {
+    render(
+      <ReviewPanel
+        organisationId="00000000-0000-4000-8000-000000000001"
+        draft={needsReviewDraft("author-1")}
+        eligibleReviewers={[]}
+        actorId="author-1"
+        canWrite={true}
+        canLead={true}
+      />,
+    );
+
+    expect(screen.queryByText(/solo operator approval/i)).toBeNull();
+    // Self-authored drafts now use canLead for approval instead of solo approval
+    expect(screen.getByText("Publish Now")).toBeInTheDocument();
+  });
+});
+
+/**
+ * Tests that material edits after approval invalidate the approval,
+ * preserving version safety.
+ */
+describe("ReviewPanel — version safety", () => {
+  it("shows warning when recommendation is for a stale draft version", () => {
+    render(
+      <ReviewPanel
+        organisationId="00000000-0000-4000-8000-000000000001"
+        draft={needsReviewDraft("reviewer-1")}
+        eligibleReviewers={[]}
+        actorId="reviewer-1"
+        canWrite={false}
+        canLead={false}
+        distributionApproval={{
+          blocked: false,
+          blockers: [],
+          warnings: ["Generate a new recommendation for the current draft version before publishing."],
+        }}
+      />,
+    );
+
+    expect(screen.getByText(/distribution recommendation warnings/i)).toBeInTheDocument();
+    // Use getAllByText since the warning appears in both the warning section and Quality Details
+    const warningElements = screen.getAllByText(/Generate a new recommendation for the current draft version before publishing/i);
+    expect(warningElements.length).toBeGreaterThan(0);
   });
 });

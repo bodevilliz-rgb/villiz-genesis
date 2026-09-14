@@ -18,13 +18,39 @@ import { toBlotatoPlatform } from "@/core/domain/entities/blotato";
 import { DISTRIBUTION_READINESS_THRESHOLD, VISIBILITY_STRATEGY_VERSION } from "@/core/application/use-cases/market-intelligence/visibility";
 import { isPublishingPlatform } from "@/core/domain/entities/publishing";
 import { buildApprovedPillarChoices, PILLAR_CHOICE_CONTRACT_VERSION } from "./awo-grounding";
+import { refreshRecommendation } from "@/core/application/use-cases/engagement";
+import type { Actor } from "@/core/domain/entities/identity";
+import { getAIProvider } from "@/infrastructure/ai/provider-factory";
 
 function contentDeps(context: Awaited<ReturnType<typeof requireContext>>) {
   return {
-    actor: context.actor,
+    actor: context.actor as Actor,
     content: context.content,
     membrain: context.membrain,
     organisations: context.organisations,
+    campaigns: context.campaigns,
+    engagement: context.engagement,
+    blotatoAccounts: context.blotatoAccounts,
+    marketIntelligence: context.marketIntelligence,
+    // Note: ai is set lazily from context.ai if available
+  };
+}
+
+// Wrapper for server actions that need engagement support
+async function buildEngagementDeps(context: Awaited<ReturnType<typeof requireContext>>) {
+  const baseDeps = contentDeps(context);
+  return {
+    ...baseDeps,
+    actor: context.actor as Actor,
+    content: context.content,
+    campaigns: context.campaigns,
+    engagement: context.engagement,
+    blotatoAccounts: context.blotatoAccounts,
+    marketIntelligence: context.marketIntelligence,
+    membrain: context.membrain,
+    organisations: context.organisations,
+    ai: getAIProvider(),
+    media: context.media,
   };
 }
 
@@ -241,6 +267,16 @@ export async function updateDraftAction(_prev: ActionState, formData: FormData):
       changeSummary: textOrEmpty(formData, "changeSummary"),
     });
     await persistAwoAttribution(context, draft, parseAwoAttribution(formData));
+
+    // Auto-refresh engagement recommendation silently in the background
+    void refreshRecommendation(
+      await buildEngagementDeps(context),
+      draft.version,
+      draft.organisationId,
+      draft.id,
+    ).catch((err) => {
+      console.debug("Auto-refresh recommendation failed:", err);
+    });
 
     revalidateContent(draft.organisationId, draft.id);
     revalidatePath(routes.organisations.content.history(draft.organisationId, draft.id));

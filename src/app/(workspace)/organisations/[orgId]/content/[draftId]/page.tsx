@@ -4,8 +4,8 @@ import { History } from "lucide-react";
 import { requireContext } from "@/server/container";
 import { getDraft, getLatestGenerationRequest } from "@/core/application/use-cases/content";
 import { getGenerationReadiness } from "@/core/application/use-cases/generation";
-import { assessRecommendationDistributionEligibility, getEngagementLearningOverview, getLatestEngagementRecommendation } from "@/core/application/use-cases/engagement";
-import { canUseSoloOperatorApproval, getReviewHistory, listEligibleReviewers } from "@/core/application/use-cases/review";
+import { assessCriticalApprovalBlockers, getEngagementLearningOverview, getLatestEngagementRecommendation } from "@/core/application/use-cases/engagement";
+import { getReviewHistory, listEligibleReviewers } from "@/core/application/use-cases/review";
 import { PageHeader } from "@/components/common/page-header";
 import { DraftForm } from "@/components/content/draft-form";
 import { ReviewPanel } from "@/components/content/review-panel";
@@ -45,7 +45,7 @@ export default async function DraftDetailPage({
 
   if (!draft) notFound();
 
-  const [categories, campaigns, latestRequest, readiness, latestEngagementRecommendation, reviewHistory, eligibleReviewers, allAssets, attachedAssets, soloOperatorApproval, channels] =
+  const [categories, campaigns, latestRequest, readiness, latestEngagementRecommendation, reviewHistory, eligibleReviewers, allAssets, attachedAssets, channels] =
     await Promise.all([
       context.membrain.listCategories(orgId),
       context.campaigns.listCampaigns({ organisationId: orgId, limit: 100, offset: 0 }),
@@ -60,7 +60,6 @@ export default async function DraftDetailPage({
       listEligibleReviewers(deps, orgId),
       context.media.listAssets(orgId),
       context.media.listAssetsForDraft(draftId),
-      canUseSoloOperatorApproval({ actor: context.actor, organisations: context.organisations }, orgId),
       context.blotatoAccounts.listActiveForOrganisation(orgId).catch(() => []),
     ]);
 
@@ -153,8 +152,7 @@ export default async function DraftDetailPage({
                 actorId={context.actor.id}
                 canWrite={canWrite}
                 canLead={canLead}
-                soloOperatorApproval={soloOperatorApproval}
-                distributionApproval={assessRecommendationDistributionEligibility(
+                distributionApproval={assessCriticalApprovalBlockers(
                   latestEngagementRecommendation,
                   draft.version,
                   initialLearningOverview.latestFeedback,

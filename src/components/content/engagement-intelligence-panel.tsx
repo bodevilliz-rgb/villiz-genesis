@@ -110,8 +110,8 @@ export function EngagementIntelligencePanel({ organisationId, draftId, currentDr
   function confirmApplication() {
     if (!recommendation || !pendingApplication) return;
     const plan = recommendation.creativeGuidance.visibilityPlan;
-    if (!plan || plan.distributionGate !== "pass" || (plan.distributionReadinessScore ?? 0) < 95 || (plan.distributionBlockers?.length ?? 1) > 0) {
-      toast.error("This recommendation is not eligible for use. Resolve the Audience Distribution Gate blockers and generate a new recommendation.");
+    if (!plan) {
+      toast.error("This recommendation doesn't have a visibility plan.");
       setPendingApplication(null);
       return;
     }
@@ -320,8 +320,11 @@ export function EngagementIntelligencePanel({ organisationId, draftId, currentDr
           <Input aria-label="Engagement objective" value={objective} onChange={(event) => setObjective(event.target.value)} maxLength={300} placeholder="Optional objective, e.g. increase booking enquiries" disabled={!canWrite || pending} />
           <Button type="button" variant="secondary" onClick={requestRecommendation} disabled={!canWrite || pending || draftInputAssessment.kind === "content_brief"}>
             {pending ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Sparkles className="size-4" aria-hidden />}
-            {recommendation ? "Generate a new recommendation" : "Generate recommendation"}
+            {recommendation ? "Refresh recommendation" : "Generate recommendation"}
           </Button>
+          <p className="text-[11px] text-subtle-foreground">
+            Recommendations auto-refresh when you save draft changes. Use this button to manually refresh as needed.
+          </p>
           {!canWrite ? <p className="text-[12px] text-muted-foreground">Contributor or Lead access is required to generate a recommendation.</p> : null}
         </div>
 

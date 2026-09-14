@@ -14,6 +14,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { Field } from "@/components/ui/field";
+import { ChevronRight } from "lucide-react";
 import {
   CONTENT_DRAFT_STATUS_LABELS,
   isContentDraftLocked,
@@ -118,19 +119,36 @@ const DECISION_COMMENT_REQUIRED: Record<ReviewDecision, boolean> = {
   reject: true,
 };
 
-function DecisionForm({ organisationId, draftId, soloOperatorApproval = false, approvalBlocked = false }: { organisationId: string; draftId: string; soloOperatorApproval?: boolean; approvalBlocked?: boolean }) {
+// Determine the approval button label based on draft scheduling status
+export function getApprovalLabel(draft: ContentDraft): string {
+  if (draft.scheduledAt) {
+    const scheduledDate = new Date(draft.scheduledAt);
+    const now = new Date();
+    if (scheduledDate <= now) {
+      return "Choose New Date";
+    }
+    return "Approve & Schedule";
+  }
+  return "Publish Now";
+}
+
+function DecisionForm({
+  organisationId,
+  draftId,
+  draft,
+  approvalBlocked = false,
+  blockedByPastDate = false,
+}: {
+  organisationId: string;
+  draftId: string;
+  draft: ContentDraft;
+  approvalBlocked?: boolean;
+  blockedByPastDate?: boolean;
+}) {
   const [state, formAction] = useActionState(recordReviewDecisionAction, idleState);
   useActionToast(state);
   const [decision, setDecision] = useState<ReviewDecision | null>(null);
 
-  // Reset to the initial button state only AFTER the server action reports
-  // success. The previous implementation called setTimeout(setDecision(null), 0)
-  // inside an onSubmit handler, which unmounted the form immediately — before
-  // the action completed. That dropped useFormStatus's pending signal, making
-  // the SubmitButton appear idle while the action was still in flight. Operators
-  // saw the UI snap back, assumed the click failed, and clicked a second time,
-  // sending a duplicate mutation. Watching state.status here means the form
-  // stays mounted and the button stays disabled for the full action duration.
   useEffect(() => {
     if (state.status === "success") setDecision(null);
   }, [state.status]);
@@ -138,8 +156,13 @@ function DecisionForm({ organisationId, draftId, soloOperatorApproval = false, a
   if (!decision) {
     return (
       <div className="flex flex-wrap gap-2">
-        <Button variant="primary" size="sm" onClick={() => setDecision("approve")} disabled={approvalBlocked}>
-          {soloOperatorApproval ? "Solo Operator Approval" : REVIEW_DECISION_LABELS.approve}
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => setDecision("approve")}
+          disabled={approvalBlocked || blockedByPastDate}
+        >
+          {getApprovalLabel(draft)}
         </Button>
         <Button variant="secondary" size="sm" onClick={() => setDecision("request_changes")}>
           {REVIEW_DECISION_LABELS.request_changes}
@@ -173,8 +196,9 @@ function DecisionForm({ organisationId, draftId, soloOperatorApproval = false, a
           variant={decision === "reject" ? "danger" : "primary"}
           size="sm"
           pendingLabel="Saving…"
+          disabled={approvalBlocked || blockedByPastDate}
         >
-          {decision === "approve" && soloOperatorApproval ? "Confirm Solo Operator Approval" : `Confirm ${REVIEW_DECISION_LABELS[decision].toLowerCase()}`}
+          {decision === "approve" ? getApprovalLabel(draft) : `Confirm ${REVIEW_DECISION_LABELS[decision].toLowerCase()}`}
         </SubmitButton>
         <Button type="button" variant="ghost" size="sm" onClick={() => setDecision(null)}>
           Cancel
@@ -191,7 +215,6 @@ export function ReviewPanel({
   actorId,
   canWrite,
   canLead,
-  soloOperatorApproval = false,
   distributionApproval,
 }: {
   organisationId: string;
@@ -202,25 +225,17 @@ export function ReviewPanel({
   canLead: boolean;
   /** Server-derived display hint. The approval use-case independently
    * rechecks organisation membership before accepting the decision. */
-  soloOperatorApproval?: boolean;
-  distributionApproval?: { eligible: boolean; score: number; blockers: string[] };
+  distributionApproval?: { blocked: boolean; blockers: string[]; warnings: string[] };
 }) {
-  const isSelfAuthored = draft.createdBy?.id === actorId;
-  /** The one place the ordinary self-authorship block is visibly relaxed. */
-  const blocksSelfApproval = isSelfAuthored && !soloOperatorApproval;
   const isAssignedReviewer = draft.assignedReviewer?.id === actorId;
-  /**
-   * submitForReview() lands a fresh submission on "needs_review", not
-   * "in_review" — CONTENT_DRAFT_STATUS_LABELS displays both as "In review",
-   * so the two are already treated as the same state everywhere else in the
-   * UI. The decision buttons must recognise both too, or a draft fresh out
-   * of Submit for Review shows no Approve/Reject/Request Changes controls
-   * even though the backend's review engine already accepts decisions from
-   * either status (see REVIEW_TRANSITIONS' "needs_review" rows).
-   */
   const isAwaitingReviewDecision = draft.status === "in_review" || draft.status === "needs_review";
-  /** Buttons are visible only to the reviewer this draft was actually assigned to, or an Account Lead — not just anyone with org-wide reviewer permission. */
   const canDecide = isAssignedReviewer || canLead;
+
+  // Check if scheduled date has passed
+  const scheduledDate = draft.scheduledAt ? new Date(draft.scheduledAt) : null;
+  const now = new Date();
+  const isPastDate = scheduledDate ? scheduledDate <= now : false;
+  const blockedByPastDate = draft.status === "approved" && isPastDate;
 
   return (
     <div className="flex flex-col gap-4">
@@ -253,27 +268,81 @@ export function ReviewPanel({
 
         {isAwaitingReviewDecision ? (
           canDecide ? (
-            blocksSelfApproval ? (
-              <p className="text-[12px] text-subtle-foreground">
-                You cannot approve, request changes on, or archive your own draft. Ask another Lead or Reviewer.
-              </p>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {isSelfAuthored && soloOperatorApproval ? (
-                  <div className="rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-[12px] text-muted-foreground">
-                    <p className="font-semibold text-foreground">Solo Operator Approval</p>
-                    <p>This account has one eligible active operator. Your approval remains a recorded review decision and will be labelled in its immutable history.</p>
+            <div className="flex flex-col gap-2">
+              {/* Past date warning — show inline reschedule action */}
+              {blockedByPastDate && (
+                <div className="rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-[12px] text-muted-foreground">
+                  <p className="font-semibold text-foreground">Scheduled date has passed</p>
+                  <p>The scheduled date is in the past. Update the scheduling section to choose a new date.</p>
+                </div>
+              )}
+
+              {/* Critical blockers only — these still block approval */}
+              {distributionApproval && distributionApproval.blocked && (
+                <div className="rounded-md border border-danger/40 bg-danger-soft p-3 text-[12px] text-danger" role="alert">
+                  <p className="font-semibold">Approval blocked · Critical safety check</p>
+                  <ul className="mt-2 grid gap-1 pl-4">{distributionApproval.blockers.map((blocker) => <li className="list-disc" key={blocker}>{blocker}</li>)}</ul>
+                </div>
+              )}
+
+              {/* Non-critical warnings — shown but don't block approval */}
+              {distributionApproval && distributionApproval.warnings && distributionApproval.warnings.length > 0 && (
+                <div className="rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-[12px] text-muted-foreground">
+                  <p className="font-semibold text-foreground">Distribution recommendation warnings</p>
+                  <ul className="mt-1 grid gap-0.5 pl-4 list-disc">
+                    {distributionApproval.warnings.map((warning) => (
+                      <li key={warning} className="list-disc pl-1">{warning}</li>
+                    ))}
+                  </ul>
+                  <p className="mt-1">These are advisory only and will not block approval.</p>
+                </div>
+              )}
+
+              {/* Collapsed Quality Details section */}
+              {distributionApproval && (
+                <details className="rounded-md border border-border/50 bg-background/50">
+                  <summary className="flex cursor-pointer items-center gap-2 px-3 py-2 text-[12px] text-subtle-foreground hover:text-foreground">
+                    <ChevronRight className="size-3.5 transition-transform" />
+                    Quality Details — Distribution Gate
+                  </summary>
+                  <div className="px-3 pb-2 text-[12px]">
+                    {distributionApproval.blocked ? (
+                      <p className="text-danger">Status: Blocked by critical safety issues</p>
+                    ) : (
+                      <p className="text-positive">Status: Passed critical safety checks</p>
+                    )}
+                    {distributionApproval.warnings.length > 0 && (
+                      <>
+                        <p className="mt-1.5 font-semibold text-foreground">Advisory warnings:</p>
+                        <ul className="pl-4 list-disc">
+                          {distributionApproval.warnings.map((warning) => (
+                            <li key={warning}>{warning}</li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                    {distributionApproval.blockers.length > 0 && (
+                      <>
+                        <p className="mt-1.5 font-semibold text-foreground">Critical blockers:</p>
+                        <ul className="pl-4 list-disc">
+                          {distributionApproval.blockers.map((blocker) => (
+                            <li key={blocker}>{blocker}</li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
                   </div>
-                ) : null}
-                {distributionApproval && !distributionApproval.eligible ? (
-                  <div className="rounded-md border border-danger/40 bg-danger-soft p-3 text-[12px] text-danger" role="alert">
-                    <p className="font-semibold">Approval blocked · Audience Distribution Gate {distributionApproval.score}/100</p>
-                    <ul className="mt-2 grid gap-1 pl-4">{distributionApproval.blockers.map((blocker) => <li className="list-disc" key={blocker}>{blocker}</li>)}</ul>
-                  </div>
-                ) : null}
-                <DecisionForm organisationId={organisationId} draftId={draft.id} soloOperatorApproval={isSelfAuthored && soloOperatorApproval} approvalBlocked={Boolean(distributionApproval && !distributionApproval.eligible)} />
-              </div>
-            )
+                </details>
+              )}
+
+              <DecisionForm
+                organisationId={organisationId}
+                draftId={draft.id}
+                draft={draft}
+                approvalBlocked={Boolean(distributionApproval && distributionApproval.blocked)}
+                blockedByPastDate={blockedByPastDate}
+              />
+            </div>
           ) : (
             <p className="text-[12px] text-subtle-foreground">Waiting on a Lead or Reviewer.</p>
           )

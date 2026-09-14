@@ -73,12 +73,19 @@ describe("Awo Audience Distribution Gate", () => {
       eligible: true,
       score: 100,
       blockers: [],
+      warnings: [],
     });
-    expect(assessRecommendationDistributionEligibility(recommendation, 5, feedback).eligible).toBe(false);
-    expect(assessRecommendationDistributionEligibility(
+    // Stale version: eligible is true (warning), but blockers array is empty and 
+    // warnings contains guidance
+    const staleResult = assessRecommendationDistributionEligibility(recommendation, 5, feedback);
+    expect(staleResult.eligible).toBe(true); // Not blocked anymore - non-critical
+    expect(staleResult.warnings).toContain("Generate a new recommendation for the current draft version before publishing.");
+    const differentResult = assessRecommendationDistributionEligibility(
       recommendation,
       4,
       { ...feedback, recommendationId: "different-recommendation" },
-    ).eligible).toBe(false);
+    );
+    expect(differentResult.eligible).toBe(true); // Not blocked
+    expect(differentResult.warnings).toContain("Generate a new recommendation for the current draft version before publishing.");
   });
 });

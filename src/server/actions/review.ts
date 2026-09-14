@@ -12,7 +12,7 @@ import {
 import { errorState, successState, text, textOrEmpty, type ActionState } from "../action-result";
 import { routes } from "@/lib/routes";
 import { SOLO_OPERATOR_APPROVAL_MARKER } from "@/core/domain/entities/review";
-import { assessRecommendationDistributionEligibility } from "@/core/application/use-cases/engagement";
+import { assessCriticalApprovalBlockers } from "@/core/application/use-cases/engagement";
 import { ValidationError } from "@/core/domain/errors";
 
 function reviewDeps(context: RequestContext) {
@@ -159,14 +159,14 @@ export async function recordReviewDecisionAction(_prev: ActionState, formData: F
           : Promise.resolve(null),
       ]);
       if (!currentDraft) throw new ValidationError("Draft not found.");
-      const distribution = assessRecommendationDistributionEligibility(
+      const { blocked, blockers, warnings } = assessCriticalApprovalBlockers(
         latestRecommendation,
         currentDraft.version,
         latestFeedback,
       );
-      if (!distribution.eligible) {
+      if (blocked) {
         throw new ValidationError(
-          `Approval blocked by the Audience Distribution Gate (${distribution.score}/100). ${distribution.blockers.join(" ")}`,
+          `Approval blocked by a critical safety issue. ${blockers.join(" ")}`,
         );
       }
       draft = await approveDraft(deps, input);
@@ -181,9 +181,12 @@ export async function recordReviewDecisionAction(_prev: ActionState, formData: F
       description = soloOperatorApproval
         ? `Solo Operator Approval recorded for draft "${draft.title}"; creator and approver were the same Account Lead.`
         : `Approved draft "${draft.title}".`;
-      // Notify creator
+      // Notify creator — include warnings if present
       if (draft.createdBy) {
-        await notifyUser(context, organisationId, draft.createdBy.id, "approval_granted", `Your draft "${draft.title}" has been approved!`);
+        const notificationMsg = warnings.length > 0
+          ? `Your draft "${draft.title}" has been approved with warnings: ${warnings.join(" ")}`
+          : `Your draft "${draft.title}" has been approved!`;
+        await notifyUser(context, organisationId, draft.createdBy.id, "approval_granted", notificationMsg);
       }
     } else if (decision === "reject") {
       draft = await rejectDraft(deps, input);

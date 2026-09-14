@@ -318,6 +318,19 @@ export function PublishingPanel({
             <p><strong>Platform:</strong> <span className="uppercase">{draft.scheduledPlatform}</span></p>
             <p><strong>Date:</strong> {draft.scheduledAt ? formatRelative(draft.scheduledAt) : ""}</p>
             <p><strong>Timezone:</strong> {draft.scheduledTimezone}</p>
+            {draft.scheduledAt && new Date(draft.scheduledAt) <= new Date() && canWrite && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="self-start text-[11px] text-warning hover:bg-warning/5"
+                onClick={() => {
+                  setScheduledAt("");
+                  toast.info("Choose a new date in the scheduling section below.");
+                }}
+              >
+                Choose New Date
+              </Button>
+            )}
           </div>
         )}
       </div>
