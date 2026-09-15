@@ -170,6 +170,7 @@ function dependencies(options: { role?: "lead" | "contributor" | "reviewer"; wit
       };
     }),
     findLatest: vi.fn(async () => null),
+    findLatestForDraftVersion: vi.fn(async () => null),
   } as EngagementRepository;
 
   const blotatoAccounts = {

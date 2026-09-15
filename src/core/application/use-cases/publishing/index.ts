@@ -32,7 +32,7 @@ interface PublishingDeps {
   audits: AuditRepository;
   notifications: NotificationRepository;
   /** Optional for backward-compatible workers/tests; request paths provide it to protect AGIE destination attribution. */
-  engagement?: Pick<EngagementRepository, "findLatest">;
+  engagement?: Pick<EngagementRepository, "findLatest" | "findLatestForDraftVersion" | "findLatestFeedback">;
 }
 
 async function requireRole(
@@ -108,10 +108,24 @@ async function requireMatchingAgieDestination(
   deps: Pick<PublishingDeps, "engagement">,
   organisationId: string,
   draftId: string,
+  draftVersion: number,
   platform: PublishingPlatform,
   resolvedAccountId: string,
 ) {
-  const recommendation = await deps.engagement?.findLatest(organisationId, draftId);
+  let recommendation = await deps.engagement?.findLatestForDraftVersion(organisationId, draftId, draftVersion);
+  if (!recommendation && deps.engagement?.findLatest) {
+    const historicalRecommendation = await deps.engagement.findLatest(organisationId, draftId);
+    if (historicalRecommendation) {
+      const latestFeedback = await deps.engagement.findLatestFeedback?.(organisationId, draftId);
+      const appliedToCurrentVersion = latestFeedback?.action === "selected"
+        && latestFeedback.recommendationId === historicalRecommendation.id
+        && latestFeedback.appliedDraftVersion === draftVersion;
+      if (!appliedToCurrentVersion) {
+        throw new ValidationError("This draft changed after its Awo Growth Decision was generated. Generate a new recommendation for the current draft version before publishing.");
+      }
+      recommendation = historicalRecommendation;
+    }
+  }
   const strategy = recommendation?.strategyMetadata;
   if (!strategy) return;
   if (strategy.destinationPlatform && strategy.destinationPlatform !== platform) {
@@ -166,7 +180,7 @@ export async function createImmediatePublishingJob(
   }
 
   const resolvedAccountId = await resolveAndLockAccountId(deps, input.organisationId, input.platform, input.resolvedAccountId);
-  await requireMatchingAgieDestination(deps, input.organisationId, input.draftId, input.platform, resolvedAccountId);
+  await requireMatchingAgieDestination(deps, input.organisationId, input.draftId, draft.version, input.platform, resolvedAccountId);
 
   const job = await deps.publishing.createJob({
     organisationId: input.organisationId,
@@ -249,7 +263,7 @@ export async function createScheduledPublishingJob(
   }
 
   const resolvedAccountId = await resolveAndLockAccountId(deps, input.organisationId, input.platform, input.resolvedAccountId);
-  await requireMatchingAgieDestination(deps, input.organisationId, input.draftId, input.platform, resolvedAccountId);
+  await requireMatchingAgieDestination(deps, input.organisationId, input.draftId, draft.version, input.platform, resolvedAccountId);
 
   const job = await deps.publishing.createJob({
     organisationId: input.organisationId,

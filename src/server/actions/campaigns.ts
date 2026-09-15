@@ -47,7 +47,10 @@ function campaignFormPayload(formData: FormData) {
 
 function revalidateCampaigns(organisationId: string, campaignId?: string) {
   revalidatePath(routes.organisations.campaigns.index(organisationId));
+  revalidatePath(routes.organisations.content.index(organisationId));
   revalidatePath(routes.organisations.detail(organisationId));
+  revalidatePath(routes.review);
+  revalidatePath(routes.dashboard);
   if (campaignId) revalidatePath(routes.organisations.campaigns.detail(organisationId, campaignId));
 }
 

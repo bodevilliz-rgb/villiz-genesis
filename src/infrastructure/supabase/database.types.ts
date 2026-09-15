@@ -1366,6 +1366,7 @@ export type Database = {
           p_new_status: ContentDraftStatusDb;
           p_assigned_reviewer_id: string;
           p_comment: string;
+          p_expected_version: number;
         };
         Returns: unknown;
       };

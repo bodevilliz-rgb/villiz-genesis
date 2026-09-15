@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   cancelPublishingJob,
   completePublishingAttempt,
@@ -358,6 +358,49 @@ function createHarness(input: {
 }
 
 describe("createImmediatePublishingJob", () => {
+  it("allows publishing when applying the latest recommendation produced the current draft version", async () => {
+    const { deps, getJobs } = createHarness({ draft: baseDraft({ status: "approved", version: 2 }), viewerRole: "contributor" });
+    Object.assign(deps, {
+      engagement: {
+        findLatestForDraftVersion: vi.fn(async () => null),
+        findLatest: vi.fn(async () => ({ id: "recommendation-1", draftVersion: 1 })),
+        findLatestFeedback: vi.fn(async () => ({
+          action: "selected",
+          recommendationId: "recommendation-1",
+          appliedDraftVersion: 2,
+        })),
+      },
+    });
+
+    await expect(createImmediatePublishingJob(deps as never, {
+      organisationId: ORG_ID,
+      draftId: DRAFT_ID,
+      platform: "linkedin",
+      idempotencyKey: "applied-current-version",
+      executionMode: "simulation",
+    })).resolves.toBeDefined();
+    expect(getJobs()).toHaveLength(1);
+  });
+
+  it("refuses immediate publishing when only an outdated recommendation exists", async () => {
+    const { deps, getJobs } = createHarness({ draft: baseDraft({ status: "approved", version: 2 }), viewerRole: "contributor" });
+    Object.assign(deps, {
+      engagement: {
+        findLatestForDraftVersion: vi.fn(async () => null),
+        findLatest: vi.fn(async () => ({ draftVersion: 1 })),
+      },
+    });
+
+    await expect(createImmediatePublishingJob(deps as never, {
+      organisationId: ORG_ID,
+      draftId: DRAFT_ID,
+      platform: "linkedin",
+      idempotencyKey: "stale-immediate",
+      executionMode: "simulation",
+    })).rejects.toThrow(/current draft version/i);
+    expect(getJobs()).toHaveLength(0);
+  });
+
   it("queues a job and flips the draft to publishing for an approved draft", async () => {
     const { deps, getDraft, getJobs } = createHarness({ draft: baseDraft({ status: "approved" }), viewerRole: "contributor" });
     const job = await createImmediatePublishingJob(deps, {
@@ -406,6 +449,27 @@ describe("createImmediatePublishingJob", () => {
 
 describe("createScheduledPublishingJob", () => {
   const future = "2099-01-01T10:00:00.000Z";
+
+  it("refuses scheduled publishing when only an outdated recommendation exists", async () => {
+    const { deps, getJobs } = createHarness({ draft: baseDraft({ status: "approved", version: 2 }), viewerRole: "contributor" });
+    Object.assign(deps, {
+      engagement: {
+        findLatestForDraftVersion: vi.fn(async () => null),
+        findLatest: vi.fn(async () => ({ draftVersion: 1 })),
+      },
+    });
+
+    await expect(createScheduledPublishingJob(deps as never, {
+      organisationId: ORG_ID,
+      draftId: DRAFT_ID,
+      platform: "facebook",
+      scheduledFor: future,
+      timezone: "UTC",
+      idempotencyKey: "stale-scheduled",
+      executionMode: "simulation",
+    })).rejects.toThrow(/current draft version/i);
+    expect(getJobs()).toHaveLength(0);
+  });
 
   it("schedules an approved draft and dual-writes the draft's scheduledAt/platform/timezone fields", async () => {
     const { deps, getDraft } = createHarness({ draft: baseDraft({ status: "approved" }), viewerRole: "contributor" });
@@ -795,14 +859,28 @@ describe("destination lock — account pre-check at scheduling time", () => {
 
   it("scheduled publish preserves the AGIE-selected destination attribution", async () => {
     const { deps } = createHarness({ draft: baseDraft({ status: "approved" }), viewerRole: "contributor", activeAccountCount: 1 });
-    Object.assign(deps, { engagement: { findLatest: async () => ({ platform: "instagram", strategyMetadata: { destinationPlatform: "instagram", destinationAccountId: "fake-blotato-instagram-0" } }) } });
+    Object.assign(deps, { engagement: { findLatestForDraftVersion: async () => ({ platform: "instagram", strategyMetadata: { destinationPlatform: "instagram", destinationAccountId: "fake-blotato-instagram-0" } }) } });
     const job = await createScheduledPublishingJob(deps, { organisationId: ORG_ID, draftId: DRAFT_ID, platform: "instagram", scheduledFor: future, timezone: "UTC", idempotencyKey: "agie-destination-match", executionMode: "simulation" });
     expect(job.resolvedAccountId).toBe("fake-blotato-instagram-0");
   });
 
+  it("scheduled publish reads destination attribution from the current draft version", async () => {
+    const draft = baseDraft({ status: "approved", version: 7 });
+    const { deps } = createHarness({ draft, viewerRole: "contributor", activeAccountCount: 1 });
+    const findLatestForDraftVersion = vi.fn(async () => ({
+      platform: "instagram",
+      strategyMetadata: { destinationPlatform: "instagram", destinationAccountId: "fake-blotato-instagram-0" },
+    }));
+    Object.assign(deps, { engagement: { findLatestForDraftVersion } });
+
+    await createScheduledPublishingJob(deps, { organisationId: ORG_ID, draftId: DRAFT_ID, platform: "instagram", scheduledFor: future, timezone: "UTC", idempotencyKey: "agie-current-version", executionMode: "simulation" });
+
+    expect(findLatestForDraftVersion).toHaveBeenCalledWith(ORG_ID, DRAFT_ID, 7);
+  });
+
   it("scheduled publish refuses to silently move an AGIE decision to another account", async () => {
     const { deps, getJobs } = createHarness({ draft: baseDraft({ status: "approved" }), viewerRole: "contributor", activeAccountCount: 2 });
-    Object.assign(deps, { engagement: { findLatest: async () => ({ platform: "instagram", strategyMetadata: { destinationPlatform: "instagram", destinationAccountId: "fake-blotato-instagram-0" } }) } });
+    Object.assign(deps, { engagement: { findLatestForDraftVersion: async () => ({ platform: "instagram", strategyMetadata: { destinationPlatform: "instagram", destinationAccountId: "fake-blotato-instagram-0" } }) } });
     await expect(createScheduledPublishingJob(deps, { organisationId: ORG_ID, draftId: DRAFT_ID, platform: "instagram", scheduledFor: future, timezone: "UTC", idempotencyKey: "agie-destination-mismatch", resolvedAccountId: "fake-blotato-instagram-1", executionMode: "simulation" })).rejects.toThrow(/another destination account/i);
     expect(getJobs()).toHaveLength(0);
   });
