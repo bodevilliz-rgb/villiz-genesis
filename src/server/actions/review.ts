@@ -151,16 +151,18 @@ export async function recordReviewDecisionAction(_prev: ActionState, formData: F
     let soloOperatorApproval = false;
 
     if (decision === "approve") {
-      const [currentDraft, latestRecommendation, latestFeedback] = await Promise.all([
-        context.content.findDraft(organisationId, draftId),
+      const currentDraft = await context.content.findDraft(organisationId, draftId);
+      if (!currentDraft) throw new ValidationError("Draft not found.");
+      const [latestRecommendation, currentRecommendation, latestFeedback] = await Promise.all([
         context.engagement.findLatest(organisationId, draftId),
+        context.engagement.findLatestForDraftVersion(organisationId, draftId, currentDraft.version),
         context.engagement.findLatestFeedback
           ? context.engagement.findLatestFeedback(organisationId, draftId)
           : Promise.resolve(null),
       ]);
-      if (!currentDraft) throw new ValidationError("Draft not found.");
+      const recommendationForCurrentState = currentRecommendation ?? latestRecommendation;
       const distribution = assessRecommendationDistributionEligibility(
-        latestRecommendation,
+        recommendationForCurrentState,
         currentDraft.version,
         latestFeedback,
       );
@@ -169,7 +171,7 @@ export async function recordReviewDecisionAction(_prev: ActionState, formData: F
           `Approval blocked by the Audience Distribution Gate (${distribution.score}/100). ${distribution.blockers.join(" ")}`,
         );
       }
-      draft = await approveDraft(deps, input);
+      draft = await approveDraft(deps, { ...input, expectedDraftVersion: currentDraft.version });
       const [decisionEntry] = await context.reviews.listHistory(organisationId, draftId);
       soloOperatorApproval = Boolean(
         decisionEntry?.action === "approved"

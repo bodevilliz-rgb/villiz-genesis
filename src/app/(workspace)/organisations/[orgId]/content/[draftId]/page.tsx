@@ -4,7 +4,7 @@ import { History } from "lucide-react";
 import { requireContext } from "@/server/container";
 import { getDraft, getLatestGenerationRequest } from "@/core/application/use-cases/content";
 import { getGenerationReadiness } from "@/core/application/use-cases/generation";
-import { assessRecommendationDistributionEligibility, getEngagementLearningOverview, getLatestEngagementRecommendation } from "@/core/application/use-cases/engagement";
+import { assessRecommendationDistributionEligibility, getCurrentEngagementRecommendation, getEngagementLearningOverview, getLatestEngagementRecommendation } from "@/core/application/use-cases/engagement";
 import { canUseSoloOperatorApproval, getReviewHistory, listEligibleReviewers } from "@/core/application/use-cases/review";
 import { PageHeader } from "@/components/common/page-header";
 import { DraftForm } from "@/components/content/draft-form";
@@ -45,7 +45,7 @@ export default async function DraftDetailPage({
 
   if (!draft) notFound();
 
-  const [categories, campaigns, latestRequest, readiness, latestEngagementRecommendation, reviewHistory, eligibleReviewers, allAssets, attachedAssets, soloOperatorApproval, channels] =
+  const [categories, campaigns, latestRequest, readiness, latestEngagementRecommendation, currentEngagementRecommendation, reviewHistory, eligibleReviewers, allAssets, attachedAssets, soloOperatorApproval, channels] =
     await Promise.all([
       context.membrain.listCategories(orgId),
       context.campaigns.listCampaigns({ organisationId: orgId, limit: 100, offset: 0 }),
@@ -56,6 +56,12 @@ export default async function DraftDetailPage({
         orgId,
         draftId,
       ),
+      getCurrentEngagementRecommendation(
+        { actor: context.actor, organisations: context.organisations, engagement: context.engagement },
+        orgId,
+        draftId,
+        draft.version,
+      ),
       getReviewHistory(deps, orgId, draftId),
       listEligibleReviewers(deps, orgId),
       context.media.listAssets(orgId),
@@ -63,6 +69,10 @@ export default async function DraftDetailPage({
       canUseSoloOperatorApproval({ actor: context.actor, organisations: context.organisations }, orgId),
       context.blotatoAccounts.listActiveForOrganisation(orgId).catch(() => []),
     ]);
+  // The exact-version record drives score, selection and approval. The latest
+  // historical record is retained only so an invalidated recommendation can be
+  // shown as outdated and direct the operator to regenerate it.
+  const recommendationForCurrentState = currentEngagementRecommendation ?? latestEngagementRecommendation;
 
   const isLivePublishing = blotatoConfig().livePublishingEnabled;
 
@@ -103,8 +113,8 @@ export default async function DraftDetailPage({
   }, {
     organisationId: orgId,
     draftId,
-    platform: latestEngagementRecommendation?.platform ?? initialEngagementPlatform,
-    objectiveType: latestEngagementRecommendation?.objectiveType ?? "engagement",
+    platform: recommendationForCurrentState?.platform ?? initialEngagementPlatform,
+    objectiveType: recommendationForCurrentState?.objectiveType ?? "engagement",
   });
 
   return (
@@ -155,7 +165,7 @@ export default async function DraftDetailPage({
                 canLead={canLead}
                 soloOperatorApproval={soloOperatorApproval}
                 distributionApproval={assessRecommendationDistributionEligibility(
-                  latestEngagementRecommendation,
+                  recommendationForCurrentState,
                   draft.version,
                   initialLearningOverview.latestFeedback,
                 )}
@@ -168,7 +178,7 @@ export default async function DraftDetailPage({
             draftId={draftId}
             currentDraftVersion={draft.version}
             initialPlatform={initialEngagementPlatform}
-            initialRecommendation={latestEngagementRecommendation}
+            initialRecommendation={recommendationForCurrentState}
             initialLearningOverview={initialLearningOverview}
             initialDraftBody={draft.body}
             initialDraftHashtags={draft.hashtags}

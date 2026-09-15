@@ -144,6 +144,52 @@ describe("EngagementIntelligencePanel", () => {
     expect(screen.getByText(/used draft v3; the current draft is v4/i)).toBeInTheDocument();
   });
 
+  it("invalidates the displayed recommendation when its platform or objective selection changes", () => {
+    render(
+      <EngagementIntelligencePanel
+        organisationId="org-1" draftId="draft-1" currentDraftVersion={3}
+        initialPlatform="instagram" initialRecommendation={recommendation}
+        initialLearningOverview={learningOverview} initialDraftBody="Existing caption"
+        initialDraftHashtags={[]} draftLocked={false} canWrite={true}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Engagement platform"), { target: { value: "facebook" } });
+
+    expect(screen.getByText("Outdated")).toBeInTheDocument();
+    expect(screen.getByText(/settings changed after this recommendation was generated/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review caption + hashtags" })).toBeDisabled();
+  });
+
+  it("hydrates the objective control from the current recommendation", () => {
+    render(
+      <EngagementIntelligencePanel
+        organisationId="org-1" draftId="draft-1" currentDraftVersion={3}
+        initialPlatform="instagram" initialRecommendation={recommendation}
+        initialLearningOverview={learningOverview} initialDraftBody="Existing caption"
+        initialDraftHashtags={[]} draftLocked={false} canWrite={true}
+      />,
+    );
+
+    expect(screen.getByRole("textbox", { name: "Engagement objective" })).toHaveValue("Increase booking enquiries");
+  });
+
+  it("marks the recommendation outdated when its non-empty objective is cleared", () => {
+    render(
+      <EngagementIntelligencePanel
+        organisationId="org-1" draftId="draft-1" currentDraftVersion={3}
+        initialPlatform="instagram" initialRecommendation={recommendation}
+        initialLearningOverview={learningOverview} initialDraftBody="Existing caption"
+        initialDraftHashtags={[]} draftLocked={false} canWrite={true}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Engagement objective" }), { target: { value: "" } });
+
+    expect(screen.getByText("Outdated")).toBeInTheDocument();
+    expect(screen.getByText(/settings changed after this recommendation was generated/i)).toBeInTheDocument();
+  });
+
   it("renders and blocks a recommendation created before the distribution gate existed", () => {
     const legacyVisibilityPlan = { ...recommendation.creativeGuidance.visibilityPlan } as Record<string, unknown>;
     delete legacyVisibilityPlan.distributionGate;

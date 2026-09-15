@@ -60,6 +60,22 @@ export class SupabaseEngagementRepository implements EngagementRepository {
     return data ? toEngagementRecommendation(data) : null;
   }
 
+  async findLatestForDraftVersion(organisationId: string, draftId: string, draftVersion: number) {
+    const { data, error } = await this.client
+      .from("engagement_recommendations")
+      .select("*")
+      .eq("organisation_id", organisationId)
+      .eq("draft_id", draftId)
+      .eq("draft_version", draftVersion)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) translateError(error, "Current draft recommendation");
+    return data ? toEngagementRecommendation(data) : null;
+  }
+
   async findById(organisationId: string, recommendationId: string) {
     const { data, error } = await this.client.from("engagement_recommendations").select("*")
       .eq("organisation_id", organisationId).eq("id", recommendationId).maybeSingle();

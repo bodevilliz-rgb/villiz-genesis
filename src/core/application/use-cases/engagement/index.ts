@@ -654,6 +654,17 @@ export async function getLatestEngagementRecommendation(
   return deps.engagement.findLatest(organisationId, draftId);
 }
 
+export async function getCurrentEngagementRecommendation(
+  deps: Pick<EngagementDeps, "actor" | "organisations" | "engagement">,
+  organisationId: string,
+  draftId: string,
+  draftVersion: number,
+): Promise<EngagementRecommendation | null> {
+  const role = await deps.organisations.viewerRole(organisationId);
+  if (!deps.actor.isPlatformAdmin && !role) throw new ForbiddenError();
+  return deps.engagement.findLatestForDraftVersion(organisationId, draftId, draftVersion);
+}
+
 export async function getEngagementLearningOverview(
   deps: Pick<EngagementDeps, "actor" | "organisations" | "engagement" | "blotatoAccounts"> & { publishing?: PublishingRepository },
   input: { organisationId: string; draftId: string; platform: CampaignPlatform; objectiveType: EngagementLearningOverview["objectiveType"] },

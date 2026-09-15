@@ -83,7 +83,7 @@ async function requireRole(
  */
 async function applyTransition(
   deps: ReviewDeps,
-  input: { organisationId: string; draftId: string; comment?: string },
+  input: { organisationId: string; draftId: string; comment?: string; expectedDraftVersion?: number },
   resolveTarget: (status: ContentDraftStatus) => ContentDraftStatus | null,
   opts: { checkSelfApproval?: boolean } = {},
 ): Promise<ContentDraft> {
@@ -129,6 +129,7 @@ async function applyTransition(
     comment: soloOperatorApproval
       ? [SOLO_OPERATOR_APPROVAL_MARKER, blank(input.comment)].filter(Boolean).join("\n\n")
       : blank(input.comment),
+    expectedDraftVersion: input.expectedDraftVersion ?? null,
   });
 }
 
@@ -209,6 +210,7 @@ export async function assignReviewer(deps: ReviewDeps, raw: unknown): Promise<Co
     newStatus: null,
     assignedReviewerId: reviewerId,
     comment: null,
+    expectedDraftVersion: null,
   });
 }
 

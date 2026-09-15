@@ -16,6 +16,8 @@ export interface ReviewRepository {
     newStatus: ContentDraftStatus | null;
     assignedReviewerId: string | null;
     comment: string | null;
+    /** Locks approval to the version whose recommendation was assessed. */
+    expectedDraftVersion: number | null;
   }): Promise<ContentDraft>;
 
   /** The full, chronological review timeline for one draft — content_draft_reviews, newest first. */
