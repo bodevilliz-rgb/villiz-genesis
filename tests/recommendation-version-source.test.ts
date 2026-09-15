@@ -46,6 +46,16 @@ describe("current draft recommendation source", () => {
     expect(migration).toContain("after update of objective, platforms on public.campaigns");
     expect(migration).toContain("p_expected_version integer");
     expect(migration).toContain("v_current_version <> p_expected_version");
+    expect(migration).toContain(`create function public.perform_content_draft_review(
+  p_draft_id uuid,
+  p_action public.content_draft_review_action,
+  p_new_status public.content_draft_status,
+  p_assigned_reviewer_id uuid,
+  p_comment text
+)`);
+    expect(migration).toContain("p_comment,\n    null::integer");
+    expect(migration.match(/create function public\.perform_content_draft_review\(/g)).toHaveLength(2);
+    expect(migration).not.toMatch(/p_(?:draft_id|action|new_status|assigned_reviewer_id|comment|expected_version)[^,\n)]*\sdefault\s/i);
     const reviewFunction = migration.split("create function public.perform_content_draft_review(")[1] ?? "";
     expect(reviewFunction).toContain("v_updated_rows int");
     expect(reviewFunction).toContain("get diagnostics v_updated_rows = row_count");

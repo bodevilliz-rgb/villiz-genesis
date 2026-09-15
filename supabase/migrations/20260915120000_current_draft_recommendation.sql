@@ -183,8 +183,15 @@ create trigger content_draft_version_cancel_outdated_publishing_jobs
   when (new.version is distinct from old.version)
   execute function app.cancel_outdated_draft_publishing_jobs();
 
--- Replace the five-argument primitive so the recommendation assessment and
--- approval status transition share one row lock and one expected version.
+-- Expand the five-argument primitive so the recommendation assessment and
+-- approval status transition can share one row lock and one expected version.
+--
+-- Deploy order is expand then application: this migration keeps the exact
+-- legacy signature while adding the canonical six-argument form. Old instances
+-- and an application rollback therefore remain compatible while a rolling
+-- deployment starts sending p_expected_version. The legacy path deliberately
+-- delegates with NULL, preserving its historical no-version-check behaviour;
+-- it can be contracted only after every deployed application uses six args.
 drop function if exists public.perform_content_draft_review(
   uuid,
   public.content_draft_review_action,
@@ -247,6 +254,32 @@ begin
   ) values (
     p_draft_id, v_organisation_id, p_action, (select auth.uid()), p_assigned_reviewer_id,
     v_previous_status, coalesce(p_new_status, v_previous_status), p_comment
+  );
+end;
+$$;
+
+-- Exact legacy overload: no DEFAULT parameters, so PostgREST can resolve five
+-- and six named arguments without ambiguity. Like the original function and
+-- the canonical overload above, this remains SECURITY INVOKER, inherits the
+-- caller's search_path, and receives the existing default EXECUTE grants.
+create function public.perform_content_draft_review(
+  p_draft_id uuid,
+  p_action public.content_draft_review_action,
+  p_new_status public.content_draft_status,
+  p_assigned_reviewer_id uuid,
+  p_comment text
+)
+returns void
+language plpgsql
+as $$
+begin
+  perform public.perform_content_draft_review(
+    p_draft_id,
+    p_action,
+    p_new_status,
+    p_assigned_reviewer_id,
+    p_comment,
+    null::integer
   );
 end;
 $$;
