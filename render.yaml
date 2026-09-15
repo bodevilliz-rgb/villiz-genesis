@@ -33,7 +33,7 @@ services:
       - key: BLOTATO_ENABLED
         value: "true"
       - key: BLOTATO_LIVE_PUBLISHING_ENABLED
-        value: "true"
+        value: "false"
         # ⚠️ Only override via Render dashboard for live campaigns.
         #    Reverting requires explicit confirmation from Olabode.
       - key: AI_PROVIDER

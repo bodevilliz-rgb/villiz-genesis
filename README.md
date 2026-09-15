@@ -64,7 +64,7 @@ src/
     container.ts            Composition root (request-scoped, React-cached)
     actions/                Server Actions — the only mutation entry points
   lib/                      Framework-agnostic helpers (routes, format, env)
-supabase/migrations/        8 migrations, ordered, idempotent-safe
+supabase/migrations/        67 migrations, ordered, idempotent-safe
 ```
 
 **The dependency rule:** `app` → `server` → `core` ← `infrastructure`.
@@ -79,8 +79,8 @@ in place of a repository, the boundary has been broken.
 npm install
 cp .env.example .env.local        # then fill in the values
 npx supabase link --project-ref <your-project-ref>
-npx supabase db push              # applies all 8 migrations
-npm run dev                       # http://localhost:3000
+npx supabase db push              # applies all 67 migrations
+npm run dev                       # http://localhost:3001
 ```
 
 You will not be able to sign in until a user exists — see
@@ -169,7 +169,6 @@ broken every MemBrain search in production. All are documented in
 exchange and middleware redirects need a manual pass on a real Supabase project.
 Everything else about auth is proven at the database layer.
 
-Sprint 2 — Content Studio, Campaign Manager, Publishing Queue, Media Library —
-is not started. Navigation entries for it are visible but disabled, so the shape
+**Sprint 2 is in progress.** Content Studio, Campaign Manager, Publishing Queue, and Media Library migrations are present in `supabase/migrations/` (through `20260831161000_awo_campaign_jobs.sql` and later). Navigation entries for these features are visible but disabled, so the shape
 of the product is legible from day one without pretending the features exist.
 

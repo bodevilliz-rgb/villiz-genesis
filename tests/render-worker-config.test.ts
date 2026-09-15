@@ -50,7 +50,7 @@ describe("render.yaml (Render Background Worker configuration)", () => {
     const keyIndex = raw.indexOf("key: BLOTATO_LIVE_PUBLISHING_ENABLED");
     expect(keyIndex).toBeGreaterThan(-1);
     const nextLines = raw.slice(keyIndex, keyIndex + 80);
-    expect(nextLines).toMatch(/value:\s*"true"/);
+    expect(nextLines).toMatch(/value:\s*"false"/);
     expect(nextLines).toMatch(/value:\s*"(true|false)"/);
   });
 
