@@ -191,13 +191,24 @@ function createHarness(input: {
       jobs.set(created.id, created);
       return created;
     },
+    async createImmediateJob(jobInput: CreatePublishingJobInput) {
+      const created = await publishing.createJob!(jobInput);
+      draft = { ...draft, status: "publishing", updatedBy: profileRef(jobInput.requestedBy) };
+      const label = { linkedin: "LinkedIn", facebook: "Facebook", instagram: "Instagram", x: "X", tiktok: "TikTok" }[jobInput.platform];
+      auditEvents.push({
+        eventType: "publishing_job_queued",
+        description: `Queued an immediate publish to ${label}.`,
+        draftId: jobInput.draftId,
+      });
+      return created;
+    },
     async findJobById(_organisationId, jobId) {
       return jobs.get(jobId) ?? null;
     },
     async findActiveJobForDraftPlatform(draftId, platform) {
       return (
         [...jobs.values()].find(
-          (j) => j.draftId === draftId && j.platform === platform && (j.status === "queued" || j.status === "processing"),
+          (j) => j.draftId === draftId && j.platform === platform && (j.status === "queued" || j.status === "processing" || j.status === "awaiting_confirmation"),
         ) ?? null
       );
     },

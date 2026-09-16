@@ -27,6 +27,11 @@ export interface CreatePublishingJobInput {
   isBrandedContent: boolean | null;
 }
 
+export interface CreateImmediatePublishingJobInput extends CreatePublishingJobInput {
+  /** Draft version whose approval and Awo decision were assessed before this transaction. */
+  expectedDraftVersion: number;
+}
+
 export interface PublishingQueueFilters {
   organisationId?: string;
   status?: PublishingJobStatus;
@@ -87,6 +92,11 @@ export interface PublishingRepository {
    * re-select) — this is what makes a double-click or an action retry safe.
    */
   createJob(input: CreatePublishingJobInput): Promise<PublishingJob>;
+  /**
+   * Atomically creates an immediate job, advances its draft to publishing,
+   * and records the queue audit event. Replays return the existing job.
+   */
+  createImmediateJob(input: CreateImmediatePublishingJobInput): Promise<PublishingJob>;
   findJobById(organisationId: string, jobId: string): Promise<PublishingJob | null>;
   findActiveJobForDraftPlatform(draftId: string, platform: PublishingPlatform): Promise<PublishingJob | null>;
   listJobs(filters: PublishingQueueFilters): Promise<PublishingJob[]>;

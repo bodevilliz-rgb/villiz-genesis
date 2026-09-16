@@ -12,12 +12,12 @@ select test.eq('organisations', 'default MemBrain entry limit is 2000',
   (select max_membrain_entries from public.organisation_limits
     where organisation_id = '00000000-0000-4000-b000-000000000001'), 2000);
 
-select test.eq('organisations', 'seven system categories seeded per organisation',
+select test.eq('organisations', 'nine system categories seeded per organisation',
   (select count(*)::int from public.membrain_categories
-    where organisation_id = '00000000-0000-4000-b000-000000000001'), 7);
+    where organisation_id = '00000000-0000-4000-b000-000000000001'), 9);
 
 select test.eq('organisations', 'categories seeded independently per organisation',
-  (select count(*)::int from public.membrain_categories), 14);
+  (select count(*)::int from public.membrain_categories), 18);
 
 select test.ok('organisations', 'onboarded_at stamped when status is active',
   (select onboarded_at is not null from public.organisations
