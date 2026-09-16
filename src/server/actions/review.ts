@@ -143,6 +143,7 @@ export async function recordReviewDecisionAction(_prev: ActionState, formData: F
     const draftId = text(formData, "draftId") || "";
     const comment = textOrEmpty(formData, "comment");
     const decision = text(formData, "decision") || "";
+    const approvalBasis = text(formData, "approvalBasis") === "manual_no_awo" ? "manual_no_awo" : "awo";
 
     const input = { organisationId, draftId, comment };
     let draft;
@@ -166,12 +167,12 @@ export async function recordReviewDecisionAction(_prev: ActionState, formData: F
         currentDraft.version,
         latestFeedback,
       );
-      if (!distribution.eligible) {
+      if (!distribution.eligible && approvalBasis !== "manual_no_awo") {
         throw new ValidationError(
           `Approval blocked by the Audience Distribution Gate (${distribution.score}/100). ${distribution.blockers.join(" ")}`,
         );
       }
-      draft = await approveDraft(deps, { ...input, expectedDraftVersion: currentDraft.version });
+      draft = await approveDraft(deps, { ...input, approvalBasis, expectedDraftVersion: currentDraft.version });
       const [decisionEntry] = await context.reviews.listHistory(organisationId, draftId);
       soloOperatorApproval = Boolean(
         decisionEntry?.action === "approved"
@@ -179,8 +180,10 @@ export async function recordReviewDecisionAction(_prev: ActionState, formData: F
         && decisionEntry.assignedReviewer?.id === context.actor.id
         && decisionEntry.comment?.includes(SOLO_OPERATOR_APPROVAL_MARKER),
       );
-      eventType = "approved";
-      description = soloOperatorApproval
+      eventType = approvalBasis === "manual_no_awo" ? "approved_without_awo" : "approved";
+      description = approvalBasis === "manual_no_awo"
+        ? `Approved draft "${draft.title}" without Awo support; no intelligence or readiness claim was made.`
+        : soloOperatorApproval
         ? `Solo Operator Approval recorded for draft "${draft.title}"; creator and approver were the same Account Lead.`
         : `Approved draft "${draft.title}".`;
       // Notify creator
@@ -210,13 +213,16 @@ export async function recordReviewDecisionAction(_prev: ActionState, formData: F
     // Audit Log
     await recordAudit(context, organisationId, draftId, eventType, description, {
       comment,
+      ...(decision === "approve" ? { approvalBasis } : {}),
       ...(soloOperatorApproval ? { reviewMode: "solo_operator", creatorId: context.actor.id, approverId: context.actor.id } : {}),
     });
 
     revalidateReview(organisationId, draftId);
     return successState(
       decision === "approve"
-        ? soloOperatorApproval ? "Solo Operator Approval recorded." : "Approved."
+        ? approvalBasis === "manual_no_awo"
+          ? "Approved as a manual decision that is not Awo-supported."
+          : soloOperatorApproval ? "Solo Operator Approval recorded." : "Approved."
         : decision === "reject" ? "Rejected." : "Sent back for changes.",
       draft.id
     );
