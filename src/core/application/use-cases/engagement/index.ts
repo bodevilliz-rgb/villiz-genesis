@@ -343,10 +343,6 @@ export async function generateEngagementRecommendation(
     },
   );
 
-  if (contextPack.items.length === 0) {
-    throw new ValidationError("Add active MemBrain knowledge before requesting engagement intelligence.");
-  }
-
   const minimumContext = assessGenerationMinimumContext({
     hasBrandDescription: contextPack.items.some((item) => item.categoryKey === "brand_description"),
     sourceText: draft.body,
@@ -356,6 +352,10 @@ export async function generateEngagementRecommendation(
       `Awo needs attention before generation: ${minimumContext.missingContext.join(" ")}`,
       { missingContext: minimumContext.missingContext },
     );
+  }
+
+  if (contextPack.items.length === 0) {
+    throw new ValidationError("Add active MemBrain knowledge before requesting engagement intelligence.");
   }
 
   const approvedContentPillar = resolveApprovedContentPillar({

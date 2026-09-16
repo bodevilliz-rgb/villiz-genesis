@@ -328,7 +328,7 @@ describe("AWO Engagement Intelligence", () => {
     expect(fixture.ai.generateObject).not.toHaveBeenCalled();
   });
 
-  it("does not call AI without active MemBrain evidence", async () => {
+  it("returns the shared needs-attention result without calling AI when MemBrain is empty", async () => {
     const fixture = dependencies({ withContext: false });
 
     await expect(
@@ -337,7 +337,9 @@ describe("AWO Engagement Intelligence", () => {
         draftId: DRAFT_ID,
         platform: "instagram",
       }),
-    ).rejects.toThrow("Add active MemBrain knowledge");
+    ).rejects.toMatchObject({
+      details: { missingContext: ["An active Brand Description entry is required in MemBrain."] },
+    });
     expect(fixture.ai.generateObject).not.toHaveBeenCalled();
   });
 
