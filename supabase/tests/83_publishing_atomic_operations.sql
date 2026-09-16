@@ -30,13 +30,6 @@ insert into public.content_drafts (
 begin;
   select test.act_as('00000000-0000-4000-a000-000000000002');
 
-  select current_user as atomic_test_role,
-         auth.uid() as atomic_test_uid,
-         app.is_org_member('00000000-0000-4000-b000-000000000001') as atomic_test_is_member;
-  select blotato_account_id, organisation_id, platform, active, provider_active
-  from public.blotato_accounts
-  where blotato_account_id = 'villiz-instagram';
-
   select public.enqueue_immediate_publishing_job(
     '00000000-0000-4000-b000-000000000001',
     '00000000-0000-4000-d000-000000000090',

@@ -115,8 +115,7 @@ begin
     and accounts.organisation_id = p_organisation_id
     and accounts.platform = v_blotato_platform
     and accounts.active is true
-    and accounts.provider_active is true
-  for share of accounts;
+    and accounts.provider_active is true;
   if not found then
     raise exception 'The selected publishing destination is unavailable for this organisation and platform'
       using errcode = '22023';

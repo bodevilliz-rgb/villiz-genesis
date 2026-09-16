@@ -267,7 +267,8 @@ begin
   insert into public.publishing_jobs(organisation_id, draft_id, platform, trigger_type, idempotency_key, status, execution_mode)
     values(org, draft, 'facebook', 'immediate', 'confirmed-failure-test', 'awaiting_confirmation', 'live') returning id into job;
   insert into public.publishing_attempts(job_id, organisation_id, draft_id, platform, attempt_number, status, provider_metadata)
-    values(job, org, draft, 'facebook', 1, 'awaiting_confirmation', '{"postSubmissionId":"receipt"}') returning id into attempt;
+    values(job, org, draft, 'facebook', 1, 'awaiting_confirmation',
+      '{"postSubmissionId":"receipt","providerSubmissionAuthorized":true}') returning id into attempt;
   perform test.throws('publishing_settlement', 'failure rejects wrong receipt',
     format('select public.settle_publishing_receipt(%L,%L,%L::jsonb,%L,null)', attempt, 'failed',
       '{"postSubmissionId":"wrong","confirmedAfterAwaiting":true}', 'wrong'));
