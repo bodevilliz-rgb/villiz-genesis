@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { ReviewPanel } from "@/components/content/review-panel";
 import type { ContentDraft } from "@/core/domain/entities/content";
 
@@ -158,10 +158,6 @@ describe("ReviewPanel — decision buttons on a freshly submitted (needs_review)
     expect(screen.getByRole("button", { name: "Reject" })).toBeEnabled();
     expect(screen.getByRole("alert")).toHaveTextContent("Audience Distribution Gate 85/100");
     expect(screen.getByRole("alert")).toHaveTextContent("Configure both local and service discovery/hashtag roles.");
-    expect(screen.getByRole("button", { name: /approve without Awo basis/i })).toBeEnabled();
-    fireEvent.click(screen.getByRole("button", { name: /approve without Awo basis/i }));
-    expect(screen.getByText(/this approval is not Awo-supported/i)).toHaveTextContent(/no intelligence or readiness claim/i);
-    expect(screen.getByLabelText(/reason/i)).toBeRequired();
   });
 
   it("allows approval only when the current recommendation passes the distribution gate", () => {

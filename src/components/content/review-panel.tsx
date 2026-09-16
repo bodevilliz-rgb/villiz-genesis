@@ -118,12 +118,10 @@ const DECISION_COMMENT_REQUIRED: Record<ReviewDecision, boolean> = {
   reject: true,
 };
 
-type ReviewDecisionSelection = ReviewDecision | "manual_approve";
-
 function DecisionForm({ organisationId, draftId, soloOperatorApproval = false, approvalBlocked = false }: { organisationId: string; draftId: string; soloOperatorApproval?: boolean; approvalBlocked?: boolean }) {
   const [state, formAction] = useActionState(recordReviewDecisionAction, idleState);
   useActionToast(state);
-  const [decision, setDecision] = useState<ReviewDecisionSelection | null>(null);
+  const [decision, setDecision] = useState<ReviewDecision | null>(null);
 
   // Reset to the initial button state only AFTER the server action reports
   // success. The previous implementation called setTimeout(setDecision(null), 0)
@@ -143,11 +141,6 @@ function DecisionForm({ organisationId, draftId, soloOperatorApproval = false, a
         <Button variant="primary" size="sm" onClick={() => setDecision("approve")} disabled={approvalBlocked}>
           {soloOperatorApproval ? "Solo Operator Approval" : REVIEW_DECISION_LABELS.approve}
         </Button>
-        {approvalBlocked ? (
-          <Button variant="secondary" size="sm" onClick={() => setDecision("manual_approve")}>
-            Approve without Awo basis
-          </Button>
-        ) : null}
         <Button variant="secondary" size="sm" onClick={() => setDecision("request_changes")}>
           {REVIEW_DECISION_LABELS.request_changes}
         </Button>
@@ -165,22 +158,14 @@ function DecisionForm({ organisationId, draftId, soloOperatorApproval = false, a
     >
       <input type="hidden" name="organisationId" value={organisationId} />
       <input type="hidden" name="draftId" value={draftId} />
-      <input type="hidden" name="decision" value={decision === "manual_approve" ? "approve" : decision} />
-      {decision === "manual_approve" ? <input type="hidden" name="approvalBasis" value="manual_no_awo" /> : null}
-
-      {decision === "manual_approve" ? (
-        <div className="rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-[12px] text-muted-foreground" role="alert">
-          <p className="font-semibold text-foreground">Manual approval without Awo basis</p>
-          <p>This approval is not Awo-supported and makes no intelligence or readiness claim. Your identity, timestamp, and reason will be recorded in immutable review history.</p>
-        </div>
-      ) : null}
+      <input type="hidden" name="decision" value={decision} />
 
       <Field
         id="comment"
-        label={decision === "manual_approve" ? "Reason" : `Comment${DECISION_COMMENT_REQUIRED[decision] ? "" : " (optional)"}`}
+        label={`Comment${DECISION_COMMENT_REQUIRED[decision] ? "" : " (optional)"}`}
         errors={state.fieldErrors?.comment}
       >
-        <Textarea id="comment" name="comment" rows={3} placeholder="Explain your decision" required={decision === "manual_approve"} />
+        <Textarea id="comment" name="comment" rows={3} placeholder="Explain your decision" />
       </Field>
 
       <div className="flex items-center gap-2">
@@ -189,11 +174,7 @@ function DecisionForm({ organisationId, draftId, soloOperatorApproval = false, a
           size="sm"
           pendingLabel="Saving…"
         >
-          {decision === "manual_approve"
-            ? "Confirm manual approval without Awo basis"
-            : decision === "approve" && soloOperatorApproval
-              ? "Confirm Solo Operator Approval"
-              : `Confirm ${REVIEW_DECISION_LABELS[decision].toLowerCase()}`}
+          {decision === "approve" && soloOperatorApproval ? "Confirm Solo Operator Approval" : `Confirm ${REVIEW_DECISION_LABELS[decision].toLowerCase()}`}
         </SubmitButton>
         <Button type="button" variant="ghost" size="sm" onClick={() => setDecision(null)}>
           Cancel
