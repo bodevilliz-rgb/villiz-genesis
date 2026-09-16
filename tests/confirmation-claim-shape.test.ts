@@ -180,6 +180,7 @@ function makeDeps(claimed: unknown, statusValue: "published" | "in-progress" = "
     deps: {
       publishing: {
         claimJobForConfirmation,
+        findLatestAttemptForJob: vi.fn(async () => ({ id: "attempt-1", attemptNumber: 1, providerMetadata: { postSubmissionId: SUBMISSION_ID } })),
         listAttemptsForJob: vi.fn(async () => [
           { id: "attempt-1", attemptNumber: 1, providerMetadata: { postSubmissionId: SUBMISSION_ID } },
         ]),

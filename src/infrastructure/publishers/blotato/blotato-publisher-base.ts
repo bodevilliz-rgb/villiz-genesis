@@ -1,4 +1,5 @@
 import "server-only";
+import { classifyPollError, infrastructureErrorDetails } from "@/core/domain/entities/infrastructure-error";
 import type { PublisherPort, PublishInput } from "@/core/application/ports/publisher-port";
 import type { PublisherResult, PublishingPlatform } from "@/core/domain/entities/publishing";
 import type { BlotatoAccountRepository } from "@/core/application/ports/blotato-account-port";
@@ -160,7 +161,15 @@ export abstract class BlotatoPublisherBase implements PublisherPort {
         } else {
           mediaUploadFailedCount += 1;
         }
-      } catch {
+      } catch (error) {
+        if (classifyPollError(error) !== "unknown") {
+          return {
+            success: false,
+            errorCode: "media_resolution_failed",
+            errorMessage: "Provider media upload stopped by an infrastructure failure. Operator retry required.",
+            metadata: { infrastructureError: infrastructureErrorDetails(error) },
+          };
+        }
         mediaUploadFailedCount += 1;
       }
     }
@@ -193,6 +202,7 @@ export abstract class BlotatoPublisherBase implements PublisherPort {
       mediaUploadFailedCount,
     });
 
+    await input.onBeforeSubmission?.();
     const submission = await this.deps.blotatoClient.publishPost({
       accountId: account.id,
       platform: blotatoPlatform,
@@ -208,7 +218,17 @@ export abstract class BlotatoPublisherBase implements PublisherPort {
       postSubmissionId: submission.postSubmissionId,
     };
 
-    const finalStatus = await this.pollForFinalStatus(submission.postSubmissionId);
+    let finalStatus: BlotatoPostStatus | null;
+    try {
+      finalStatus = await this.pollForFinalStatus(submission.postSubmissionId);
+    } catch (error) {
+      // The POST already succeeded. Preserve its ID for confirmation, never retry it.
+      return {
+        success: "pending",
+        providerSubmissionId: submission.postSubmissionId,
+        metadata: { ...baseMetadata, confirmationError: infrastructureErrorDetails(error) },
+      };
+    }
 
     if (!finalStatus) {
       // P0 fix: this is NOT a failure. The submission was accepted and we

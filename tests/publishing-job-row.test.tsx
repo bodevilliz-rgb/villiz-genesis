@@ -235,3 +235,17 @@ describe("PublishingJobRow — actions are gated by status", () => {
     expect(screen.queryByText("View Job")).toBeNull();
   });
 });
+
+
+it.each([
+  [true, "live", "failed", "failed", "blotato_status_timeout", "receipt", true],
+  [false, "live", "failed", "failed", "blotato_status_timeout", "receipt", false],
+  [true, "simulation", "failed", "failed", "blotato_status_timeout", "receipt", false],
+  [true, "live", "published", "failed", "blotato_status_timeout", "receipt", false],
+  [true, "live", "failed", "completed", "blotato_status_timeout", "receipt", false],
+  [true, "live", "failed", "failed", "blotato_publish_failed", "receipt", false],
+  [true, "live", "failed", "failed", "blotato_status_timeout", "  ", false],
+] as const)("legacy recovery eligibility %j %s %s %s %s %s", (canWrite, executionMode, status, attemptStatus, errorCode, receipt, visible) => {
+  render(<PublishingJobRow organisationId={ORG_ID} job={job({ executionMode, status })} draftTitle="Legacy" campaign={null} organisationName="Org" attempts={[attempt({ status: attemptStatus, errorCode, providerMetadata: { postSubmissionId: receipt } })]} canWrite={canWrite} />);
+  expect(!!screen.queryByRole("button", { name: "Check provider status" })).toBe(visible);
+});

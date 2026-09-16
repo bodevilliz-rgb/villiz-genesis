@@ -14,13 +14,14 @@ import type { Database } from "./database.types";
  *
  * It must never be used to serve a page or fulfil a user-supplied filter.
  */
-export function createAdminClient() {
+export function createAdminClient(backendFetch?: typeof fetch) {
   const env = serverEnv();
   if (!env.SUPABASE_SERVICE_ROLE_KEY) {
     throw new Error("SUPABASE_SERVICE_ROLE_KEY is not configured");
   }
 
   return createClient<Database>(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+    ...(backendFetch ? { global: { fetch: backendFetch } } : {}),
     auth: { autoRefreshToken: false, persistSession: false },
   });
 }

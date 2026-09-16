@@ -259,6 +259,7 @@ function inMemoryPublishingRepository(seed: PublishingJob[] = []) {
      * the honest representation of "this check seeds no attempts", and the
      * guard correctly treats that as nothing to block on.
      */
+    async findLatestAttemptForJob(organisationId: string, jobId: string) { return (await this.listAttemptsForJob!(organisationId, jobId)).at(-1) ?? null; },
     async listAttemptsForJob() {
       return [];
     },
@@ -695,6 +696,7 @@ export const retryPublishCheck: ReliabilityCheck = {
        * that rule: an ordinary failed attempt (no blotato_status_timeout, no
        * submission id) is still freely retryable.
        */
+      async findLatestAttemptForJob(organisationId: string, jobId: string) { return (await this.listAttemptsForJob!(organisationId, jobId)).at(-1) ?? null; },
       async listAttemptsForJob() {
         return attempts;
       },
@@ -722,6 +724,7 @@ export const retryPublishCheck: ReliabilityCheck = {
     const exhausted = publishingJob({ id: "job-retry-2", status: "failed", retryCount: 3, maxRetries: 3 });
     const exhaustedRepo: Partial<PublishingRepository> = {
       async findJobById() { return exhausted; },
+      async findLatestAttemptForJob(organisationId: string, jobId: string) { return (await this.listAttemptsForJob!(organisationId, jobId)).at(-1) ?? null; },
       async listAttemptsForJob() { return []; },
     };
     let threw = false;

@@ -12,28 +12,42 @@ export function CampaignAwoActions({ organisationId, campaignId, totalSlots, opt
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [job, setJob] = useState<CampaignAwoJobView | null>(null);
+  const [pollGeneration, setPollGeneration] = useState(0);
+  const inFlight = useRef<Promise<CampaignAwoJobView | null> | null>(null);
   const progressRef = useRef("");
   const complete = totalSlots > 0 && optimisedCount >= totalSlots;
   const active = job?.status === "queued" || job?.status === "processing";
 
   useEffect(() => {
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let checks = 0;
     const check = async () => {
+      if (cancelled || checks++ >= 100) return;
       try {
-        const next = await getCampaignAwoJobStatusAction(organisationId, campaignId);
+        // An effect restart (including Strict Mode or an explicit new run)
+        // waits for the old request before starting a fresh one.
+        if (inFlight.current) await inFlight.current.catch(() => null);
+        if (cancelled) return;
+        const request = getCampaignAwoJobStatusAction(organisationId, campaignId);
+        inFlight.current = request;
+        const next = await request.finally(() => {
+          if (inFlight.current === request) inFlight.current = null;
+        });
         if (cancelled) return;
         setJob(next);
         const key = next ? `${next.id}:${next.status}:${next.completedPosts}:${next.failedPosts}` : "none";
-        if (progressRef.current && progressRef.current !== key) router.refresh();
+        const running = next?.status === "queued" || next?.status === "processing";
+        if (progressRef.current && progressRef.current !== key && !running) router.refresh();
         progressRef.current = key;
+        if (running && checks < 100) timer = setTimeout(() => void check(), 3000);
       } catch {
         // The command centre's normal refresh is still a fallback if a poll is interrupted.
       }
     };
     void check();
-    const timer = window.setInterval(() => void check(), 3000);
-    return () => { cancelled = true; window.clearInterval(timer); };
-  }, [campaignId, organisationId, router]);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [campaignId, organisationId, router, pollGeneration]);
 
   const label = pending
     ? "Queuing Awo…"
@@ -54,8 +68,7 @@ export function CampaignAwoActions({ organisationId, campaignId, totalSlots, opt
         : "Queues platform-specific captions, hooks, CTAs and discovery hashtags. The work continues even if you leave this page.";
 
   const refreshJob = async () => {
-    const next = await getCampaignAwoJobStatusAction(organisationId, campaignId).catch(() => null);
-    setJob(next);
+    setPollGeneration(value => value + 1);
     router.refresh();
   };
 

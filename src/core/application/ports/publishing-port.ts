@@ -59,7 +59,27 @@ export interface FailPublishingAttemptInput {
   providerMetadata: Record<string, unknown>;
 }
 
+export interface ReconcileFailedTimeoutInput {
+  outcome?: "published" | "failed";
+  errorMessage?: string;
+  organisationId: string;
+  jobId: string;
+  attemptId: string;
+  postSubmissionId: string;
+  externalUrl: string;
+  actorId: string;
+}
+
+export interface PublishingWorkerCapability {
+  livePublishingEnabled: boolean;
+  generationId: string | null;
+  /** Opaque verifier supplied to the database; never log or persist it. */
+  proof: string | null;
+}
+
 export interface PublishingRepository {
+  /** Service-role only: atomically append a terminal legacy reconciliation, settle job/draft and audit. */
+  reconcileFailedTimeout(input: ReconcileFailedTimeoutInput): Promise<PublishingJob>;
   /**
    * Deterministic idempotency: a repeated call with the same
    * `idempotencyKey` returns the row that already exists instead of
@@ -101,18 +121,26 @@ export interface PublishingRepository {
    * of an already-submitted post, never a new publish.
    */
   claimJobForConfirmation(workerId: string): Promise<PublishingJob | null>;
-  /** Marks an attempt as awaiting provider confirmation, preserving its provider metadata (including the submission id). Never a terminal state. */
+  /** Atomically saves the receipt and schedules the job for confirmation. Replays cannot reopen a terminal attempt/job. */
   awaitAttemptConfirmation(attemptId: string, providerMetadata: Record<string, unknown>): Promise<PublishingAttempt>;
 
+  /** Atomically fail an owned pre-submission claim, its active attempts and draft. */
+  settleFailedClaim(jobId: string, workerId: string, failure: Pick<FailPublishingAttemptInput, "errorCode" | "errorMessage">): Promise<boolean>;
   /** Worker-only — must be called with the service-role client. Atomic (`for update skip locked`) at the database level. */
-  claimNextJob(workerId: string): Promise<PublishingJob | null>;
+  claimNextJob(workerId: string, preSubmissionRecovery?: boolean, capability?: PublishingWorkerCapability): Promise<PublishingJob | null>;
   /** Worker-only — must be called with the service-role client. */
   recoverStaleJobs(staleAfterSeconds: number): Promise<PublishingJob[]>;
 
   createAttempt(input: CreatePublishingAttemptInput): Promise<PublishingAttempt>;
   startAttempt(attemptId: string): Promise<PublishingAttempt>;
+  /** Revalidates the claimed generation immediately before provider submission. */
+  beginSubmission(jobId: string, attemptId: string, workerId: string, capability?: PublishingWorkerCapability): Promise<void>;
+  /** Atomically completes the attempt, job and draft. Safe to replay after a lost response. */
   completeAttempt(attemptId: string, input: CompletePublishingAttemptInput): Promise<PublishingAttempt>;
+  /** Confirmed-after-awaiting blotato_publish_failed atomically settles attempt, job and draft. */
   failAttempt(attemptId: string, input: FailPublishingAttemptInput): Promise<PublishingAttempt>;
+  findLatestAttemptForJob(organisationId: string, jobId: string): Promise<PublishingAttempt | null>;
+  /** Most recent 100 attempts, in ascending attempt order, for UI history. */
   listAttemptsForJob(organisationId: string, jobId: string): Promise<PublishingAttempt[]>;
   listAttemptsForDraft(organisationId: string, draftId: string): Promise<PublishingAttempt[]>;
 

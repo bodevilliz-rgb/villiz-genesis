@@ -5,6 +5,13 @@ import type { MediaRepository, MediaAssetWriteModel, MediaLibraryPageFilters } f
 import type { MediaAsset, MediaCollection, MediaAssetVersion, MediaAssetListItem, PaginatedMediaAssets, MediaLibraryStats, MediaDeletionBlockCode, MediaDeletionResult, MediaDeletionStatus } from "../../core/domain/entities/media";
 import type { BrandKit } from "../../core/domain/entities/brand";
 
+// Conservative caps for legacy array APIs. The library grid remains paginated.
+const MEDIA_PICKER_LIMIT = 200;
+const MEDIA_GROUP_LIMIT = 20;
+const MEDIA_ATTACHMENT_LIMIT = 50;
+const MEDIA_PAGE_LIMIT = 100;
+const MEDIA_COLUMNS = "id, organisation_id, storage_path, file_name, mime_type, size_bytes, width, height, created_at, updated_at, title, thumbnail_path, category, description, alt_text, tags, brand, duration, copyright_owner, usage_rights, expires_at, is_ai_generated, is_archived";
+
 export class SupabaseMediaRepository implements MediaRepository {
   private client: any;
   constructor(client: SupabaseClient<Database>) {
@@ -71,7 +78,7 @@ export class SupabaseMediaRepository implements MediaRepository {
   async listAssets(organisationId: string, options?: { category?: string; isArchived?: boolean; typePrefix?: string }): Promise<MediaAsset[]> {
     let query = this.client
       .from("media_assets")
-      .select()
+      .select(MEDIA_COLUMNS)
       .eq("organisation_id", organisationId);
 
     if (options?.category) {
@@ -84,7 +91,7 @@ export class SupabaseMediaRepository implements MediaRepository {
       query = query.like("mime_type", `${options.typePrefix}%`);
     }
 
-    query = query.order("created_at", { ascending: false });
+    query = query.order("created_at", { ascending: false }).limit(MEDIA_PICKER_LIMIT);
 
     const result = await query;
     if (result.error) throw result.error;
@@ -126,7 +133,7 @@ export class SupabaseMediaRepository implements MediaRepository {
 
     query = query
       .order("created_at", { ascending: false })
-      .range(filters.offset, filters.offset + filters.limit - 1);
+      .range(filters.offset, filters.offset + Math.max(1, Math.min(MEDIA_PAGE_LIMIT, Number.isFinite(filters.limit) ? Math.floor(filters.limit) : MEDIA_PAGE_LIMIT)) - 1);
 
     const result = await query;
     if (result.error) throw result.error;
@@ -136,32 +143,16 @@ export class SupabaseMediaRepository implements MediaRepository {
     return { items, total, hasMore: filters.offset + items.length < total };
   }
 
-  /**
-   * Four bounded aggregate queries (count/count/count/skinny-column-sum) —
-   * never fetches full asset rows. The size-bytes sum is the only one that
-   * scans every row, but only that single narrow column, unlike the former
-   * page.tsx which fetched every column of every asset just to sum one field.
-   */
+  /** Database aggregate returns one row while preserving the caller's RLS visibility. */
   async getLibraryStats(organisationId: string): Promise<MediaLibraryStats> {
-    const [totalRes, imageRes, videoRes, sizesRes] = await Promise.all([
-      this.client.from("media_assets").select("id", { count: "exact", head: true }).eq("organisation_id", organisationId),
-      this.client.from("media_assets").select("id", { count: "exact", head: true }).eq("organisation_id", organisationId).like("mime_type", "image/%"),
-      this.client.from("media_assets").select("id", { count: "exact", head: true }).eq("organisation_id", organisationId).like("mime_type", "video/%"),
-      this.client.from("media_assets").select("size_bytes").eq("organisation_id", organisationId),
-    ]);
-
-    if (totalRes.error) throw totalRes.error;
-    if (imageRes.error) throw imageRes.error;
-    if (videoRes.error) throw videoRes.error;
-    if (sizesRes.error) throw sizesRes.error;
-
-    const totalStorageBytes = (sizesRes.data ?? []).reduce((sum: number, row: any) => sum + (row.size_bytes ?? 0), 0);
-
+    const { data, error } = await this.client.rpc("get_media_library_stats", { p_organisation_id: organisationId });
+    if (error) throw error;
+    const row = data?.[0];
     return {
-      totalAssets: totalRes.count ?? 0,
-      imageCount: imageRes.count ?? 0,
-      videoCount: videoRes.count ?? 0,
-      totalStorageBytes,
+      totalAssets: Number(row?.total_assets ?? 0),
+      imageCount: Number(row?.image_count ?? 0),
+      videoCount: Number(row?.video_count ?? 0),
+      totalStorageBytes: Number(row?.total_storage_bytes ?? 0),
     };
   }
 
@@ -327,9 +318,9 @@ export class SupabaseMediaRepository implements MediaRepository {
   async getAssetVersions(assetId: string): Promise<MediaAssetVersion[]> {
     const result = await this.client
       .from("media_asset_versions" as any)
-      .select()
+      .select("id, asset_id, storage_path, file_name, mime_type, size_bytes, width, height, replaced_by, created_at")
       .eq("asset_id", assetId)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false }).limit(100);
 
     if (result.error) throw result.error;
     return (result.data ?? []).map((row: any) => ({
@@ -351,14 +342,16 @@ export class SupabaseMediaRepository implements MediaRepository {
     const result = await this.client
       .from("media_collections")
       .select(`
-        *,
+        id, organisation_id, name, description, created_at, updated_at,
         media_collection_assets (
           asset_id,
-          media_assets (*)
+          media_assets (${MEDIA_COLUMNS})
         )
       `)
       .eq("organisation_id", organisationId)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(MEDIA_GROUP_LIMIT)
+      .limit(MEDIA_ATTACHMENT_LIMIT, { referencedTable: "media_collection_assets" });
 
     if (result.error) throw result.error;
     return (result.data ?? []).map((row: any) => {
@@ -435,10 +428,10 @@ export class SupabaseMediaRepository implements MediaRepository {
     const result = await this.client
       .from("media_collection_assets")
       .select(`
-        media_assets (*)
+        media_assets (${MEDIA_COLUMNS})
       `)
       .eq("collection_id", collectionId)
-      .order("position" as any, { ascending: true });
+      .order("position" as any, { ascending: true }).limit(MEDIA_ATTACHMENT_LIMIT);
 
     if (result.error) throw result.error;
     return (result.data ?? [])
@@ -451,15 +444,17 @@ export class SupabaseMediaRepository implements MediaRepository {
     const result = await this.client
       .from("brand_kits")
       .select(`
-        *,
+        id, organisation_id, name, colors, typography, tone_notes, usage_guidance, created_at, updated_at,
         brand_kit_assets (
           role,
           asset_id,
-          media_assets (*)
+          media_assets (${MEDIA_COLUMNS})
         )
       `)
       .eq("organisation_id", organisationId)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .limit(MEDIA_GROUP_LIMIT)
+      .limit(MEDIA_ATTACHMENT_LIMIT, { referencedTable: "brand_kit_assets" });
 
     if (result.error) throw result.error;
     return (result.data ?? []).map((row: any) => {
@@ -552,11 +547,13 @@ export class SupabaseMediaRepository implements MediaRepository {
     const result = await this.client
       .from("content_draft_assets")
       .select(`
-        media_assets (*)
+        media_assets (${MEDIA_COLUMNS})
       `)
-      .eq("draft_id", draftId);
+      .eq("draft_id", draftId).order("asset_id").limit(MEDIA_ATTACHMENT_LIMIT + 1);
 
     if (result.error) throw result.error;
+    // Fail closed instead of publishing a silently truncated attachment set.
+    if ((result.data ?? []).length > MEDIA_ATTACHMENT_LIMIT) throw new Error("Draft exceeds the 50 attachment publishing limit.");
     return (result.data ?? [])
       .map((row: any) => row.media_assets ? this.mapToDomain(row.media_assets) : null)
       .filter((x: any): x is MediaAsset => x !== null);
@@ -576,9 +573,9 @@ export class SupabaseMediaRepository implements MediaRepository {
     const result = await this.client
       .from("campaign_assets")
       .select(`
-        media_assets (*)
+        media_assets (${MEDIA_COLUMNS})
       `)
-      .eq("campaign_id", campaignId);
+      .eq("campaign_id", campaignId).order("asset_id").limit(MEDIA_ATTACHMENT_LIMIT);
 
     if (result.error) throw result.error;
     return (result.data ?? [])
@@ -601,7 +598,7 @@ export class SupabaseMediaRepository implements MediaRepository {
     const linkResult = await (this.client as any)
       .from("content_draft_assets")
       .select("draft_id")
-      .eq("asset_id", assetId);
+      .eq("asset_id", assetId).order("draft_id").limit(100);
 
     if (linkResult.error) throw linkResult.error;
     const draftIds: string[] = (linkResult.data ?? []).map((r: any) => r.draft_id);
@@ -611,7 +608,7 @@ export class SupabaseMediaRepository implements MediaRepository {
     const draftsResult = await (this.client as any)
       .from("content_drafts")
       .select("id, title")
-      .in("id", draftIds);
+      .in("id", draftIds).order("id").limit(100);
 
     if (draftsResult.error) throw draftsResult.error;
     return (draftsResult.data ?? []).map((r: any) => ({
@@ -625,7 +622,7 @@ export class SupabaseMediaRepository implements MediaRepository {
     const linkResult = await (this.client as any)
       .from("campaign_assets")
       .select("campaign_id")
-      .eq("asset_id", assetId);
+      .eq("asset_id", assetId).order("campaign_id").limit(100);
 
     if (linkResult.error) throw linkResult.error;
     const campaignIds: string[] = (linkResult.data ?? []).map((r: any) => r.campaign_id);
@@ -635,7 +632,7 @@ export class SupabaseMediaRepository implements MediaRepository {
     const campaignsResult = await (this.client as any)
       .from("campaigns")
       .select("id, name")
-      .in("id", campaignIds);
+      .in("id", campaignIds).order("id").limit(100);
 
     if (campaignsResult.error) throw campaignsResult.error;
     return (campaignsResult.data ?? []).map((r: any) => ({
