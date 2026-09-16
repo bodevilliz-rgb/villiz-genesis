@@ -290,17 +290,22 @@ async function requireOrgWriteAccess(context: Awaited<ReturnType<typeof requireC
   return org;
 }
 
-function requireMinimumGenerationContext(ctx: { brandDescription: string[] }, sourceText: string): void {
+export type GenerationNeedsAttentionResult = {
+  status: "needs_attention";
+  missingContext: string[];
+};
+
+function assessMinimumGenerationContext(
+  ctx: { brandDescription: string[] },
+  sourceText: string,
+): GenerationNeedsAttentionResult | null {
   const assessment = assessGenerationMinimumContext({
     hasBrandDescription: ctx.brandDescription.length > 0,
     sourceText,
   });
-  if (assessment.status === "needs_attention") {
-    throw new ValidationError(
-      `Awo needs attention before generation: ${assessment.missingContext.join(" ")}`,
-      { missingContext: assessment.missingContext },
-    );
-  }
+  return assessment.status === "needs_attention"
+    ? { status: assessment.status, missingContext: assessment.missingContext }
+    : null;
 }
 
 /** Surfaces the provider's real failure class without leaking credentials — a generic "failed" toast hid a billing outage for days. */
@@ -319,7 +324,7 @@ export async function generateCaption(
   culturalVoiceLevel?: CulturalVoiceLevel,
   mediaAssetIds: string[] = [],
   destinationAccountId?: string,
-): Promise<{ text: string; complianceWarning?: string; visibilityPlan: EngagementVisibilityPlan; commercialIntent: CommercialIntent; commercialIntentSource: "operator" | "recommended"; culturalVoiceLevel: CulturalVoiceLevel; attribution: AwoGenerationAttribution }> {
+): Promise<{ text: string; complianceWarning?: string; visibilityPlan: EngagementVisibilityPlan; commercialIntent: CommercialIntent; commercialIntentSource: "operator" | "recommended"; culturalVoiceLevel: CulturalVoiceLevel; attribution: AwoGenerationAttribution } | GenerationNeedsAttentionResult> {
   const context = await requireContext();
   const org = await requireOrgWriteAccess(context, organisationId);
   const orgName = org.name;
@@ -329,7 +334,8 @@ export async function generateCaption(
   const membrain = await getMembrainOverview(membrainDeps, organisationId);
 
   const ctx = extractAwoMembrainContext(membrain);
-  requireMinimumGenerationContext(ctx, prompt);
+  const minimumContext = assessMinimumGenerationContext(ctx, prompt);
+  if (minimumContext) return minimumContext;
   if (rejectsCompetitorImitation(prompt)) throw new Error("Awo can apply approved market patterns, but cannot imitate or copy a named competitor.");
   const intent = classifyContentIntent(prompt, ctx, intentHints ?? {});
   const resolvedPlatform = marketPlatform(platform);
@@ -483,7 +489,7 @@ export async function rewriteContent(
   organisationId: string,
   content: string,
   instruction: "expand" | "shorten" | "professional" | "casual" | "punchy",
-): Promise<{ text: string; complianceWarning?: string }> {
+): Promise<{ text: string; complianceWarning?: string } | GenerationNeedsAttentionResult> {
   const context = await requireContext();
   const org = await requireOrgWriteAccess(context, organisationId);
   const orgName = org.name;
@@ -493,7 +499,8 @@ export async function rewriteContent(
   const membrain = await getMembrainOverview(membrainDeps, organisationId);
 
   const ctx = extractAwoMembrainContext(membrain);
-  requireMinimumGenerationContext(ctx, content);
+  const minimumContext = assessMinimumGenerationContext(ctx, content);
+  if (minimumContext) return minimumContext;
 
   let modifier = "";
   if (instruction === "expand") modifier = "Expand this content, adding more detail and depth.";
@@ -522,7 +529,7 @@ export async function generateHashtags(
   count: number = 5,
   platform: CampaignPlatform = "instagram",
   commercialIntent?: "convert" | "engage" | "build_trust",
-): Promise<{ hashtags: string[] }> {
+): Promise<{ hashtags: string[] } | GenerationNeedsAttentionResult> {
   const context = await requireContext();
   await requireOrgWriteAccess(context, organisationId);
 
@@ -531,7 +538,8 @@ export async function generateHashtags(
   const membrain = await getMembrainOverview(membrainDeps, organisationId);
 
   const ctx = extractAwoMembrainContext(membrain);
-  requireMinimumGenerationContext(ctx, content);
+  const minimumContext = assessMinimumGenerationContext(ctx, content);
+  if (minimumContext) return minimumContext;
   const market = await assembleMarketGenerationContext({ marketIntelligence: context.marketIntelligence, organisationId, platform, commercialIntent });
 
   const ai = getAIProvider();
