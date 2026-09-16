@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { PlatformBadge } from "@/components/publishing/platform-badge";
 import { RequesterName } from "@/components/publishing/requester-name";
-import { cancelPublishingJobAction, retryPublishingJobAction } from "@/server/actions/publishing";
+import { cancelPublishingJobAction, retryPublishingJobAction, reconcilePublishingJobAction } from "@/server/actions/publishing";
 import { idleState } from "@/server/action-result";
 import {
   PUBLISHING_JOB_STATUS_LABELS,
@@ -71,6 +71,12 @@ export function PublishingJobRow({
   attempts: PublishingAttempt[];
   canWrite: boolean;
 }) {
+  const [reconcileState, reconcileAction] = useActionState(reconcilePublishingJobAction, idleState);
+  useEffect(() => {
+    if (reconcileState.status === "success") toast.success(reconcileState.message);
+    if (reconcileState.status === "error") toast.error(reconcileState.message);
+  }, [reconcileState]);
+
   const [retryState, retryAction] = useActionState(retryPublishingJobAction, idleState);
   const [cancelState, cancelAction] = useActionState(cancelPublishingJobAction, idleState);
 
@@ -114,6 +120,8 @@ export function PublishingJobRow({
     job.status === "awaiting_confirmation" ||
     (latest?.errorCode === "blotato_status_timeout" && !!submissionId);
   const canRetry = job.status === "failed" && job.retryCount < job.maxRetries && !retryWouldDuplicate;
+  const canReconcile = job.status === "failed" && job.executionMode === "live" &&
+    latest?.status === "failed" && latest.errorCode === "blotato_status_timeout" && !!submissionId?.trim();
   const canCancel = job.status === "queued";
   const canOpenMockPost = job.status === "published" && !!mockUrl;
 
@@ -255,6 +263,15 @@ export function PublishingJobRow({
             </a>
           ) : null}
 
+          {canReconcile && (
+            <form action={reconcileAction}>
+              <input type="hidden" name="organisationId" value={organisationId} />
+              <input type="hidden" name="jobId" value={job.id} />
+              <SubmitButton variant="secondary" pendingLabel="Checking provider…">
+                Check provider status
+              </SubmitButton>
+            </form>
+          )}
           {canRetry && (
             <form action={retryAction}>
               <input type="hidden" name="organisationId" value={organisationId} />
