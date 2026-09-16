@@ -599,15 +599,10 @@ export const providerStatusPollingCheck: ReliabilityCheck = {
       );
     }
 
-    // 4/5/6. Network error / 429 / 500 from the provider during polling: the
-    // existing architecture has no in-poll retry-after handling (confirmed
-    // by reading HttpBlotatoClient — every non-2xx response, and any thrown
-    // fetch error, propagates as a rejected promise with no special casing).
-    // The reliability property this suite can honestly assert is that such
-    // an error is never silently swallowed into a false "published", and
-    // that it propagates so the worker's own job_processing_error handling
-    // (and later stale-job recovery) is what recovers it — not a retry
-    // inside pollForFinalStatus itself, which does not exist today.
+    // 4/5/6. Network error / 429 / 500 after POST: the provider has already
+    // accepted the submission, so the receipt must be preserved for the
+    // confirmation pass. Treating this as a thrown failure would allow a
+    // retry to submit the same post twice.
     {
       const publisher = new BlotatoLinkedInPublisher(
         blotatoDeps({
@@ -620,13 +615,13 @@ export const providerStatusPollingCheck: ReliabilityCheck = {
           statusPollIntervalMs: 0,
         }),
       );
-      let threw = false;
-      try {
-        await publisher.publish(publishInput());
-      } catch {
-        threw = true;
+      const result = await publisher.publish(publishInput());
+      assertTrue(result.success === "pending", "a provider error after submission must remain pending, never be reported as published or failed");
+      if (result.success === "pending") {
+        assertTrue(typeof result.providerSubmissionId === "string" && result.providerSubmissionId.length > 0, "the accepted provider receipt must be retained for confirmation");
+        assertEqual(result.metadata?.postSubmissionId, result.providerSubmissionId, "diagnostic metadata must reference the same accepted provider receipt");
+        assertTrue(Boolean(result.metadata?.confirmationError), "the confirmation error must be retained as bounded diagnostic metadata");
       }
-      assertTrue(threw, "a provider error during status polling must propagate, never be silently reported as success");
     }
 
     // Existing postSubmissionId is reused during recovery — not re-submitted.
