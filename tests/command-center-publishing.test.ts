@@ -169,10 +169,20 @@ function createHarness(input: {
       jobs.set(created.id, created);
       return created;
     },
+    async createImmediateJob(jobInput: CreatePublishingJobInput) {
+      const created = await publishing.createJob!(jobInput);
+      draft = { ...draft, status: "publishing", updatedBy: profileRef(jobInput.requestedBy) };
+      const label = { linkedin: "LinkedIn", facebook: "Facebook", instagram: "Instagram", x: "X", tiktok: "TikTok" }[jobInput.platform];
+      auditEvents.push({
+        eventType: "publishing_job_queued",
+        description: `Queued an immediate publish to ${label}.`,
+      });
+      return created;
+    },
     async findActiveJobForDraftPlatform(draftId, platform) {
       return (
         [...jobs.values()].find(
-          (j) => j.draftId === draftId && j.platform === platform && (j.status === "queued" || j.status === "processing"),
+          (j) => j.draftId === draftId && j.platform === platform && (j.status === "queued" || j.status === "processing" || j.status === "awaiting_confirmation"),
         ) ?? null
       );
     },
@@ -897,6 +907,42 @@ describe("F: idempotency gate with explicit account selection", () => {
     });
     expect(replay.id).toBe(first.id);
     expect(replay.resolvedAccountId).toBe("blotato-li-alpha"); // original lock preserved
+    expect(getJobs()).toHaveLength(1);
+  });
+
+  it("F4: awaiting-confirmation job blocks a second publish because the provider outcome is unresolved", async () => {
+    const { deps, getJobs } = createHarness({
+      draft: baseDraft({ status: "publishing" }),
+      viewerRole: "contributor",
+      accounts: [],
+    });
+    const existing = await deps.publishing.createJob({
+      organisationId: ORG_ID,
+      draftId: DRAFT_ID,
+      platform: "instagram",
+      triggerType: "immediate",
+      scheduledFor: new Date().toISOString(),
+      idempotencyKey: "f4-original",
+      executionMode: "live",
+      requestedBy: ACTOR_ID,
+      maxRetries: 3,
+      devSimulationMode: null,
+      resolvedAccountId: "instagram-villiz",
+      isAiGenerated: true,
+      isYourBrand: true,
+      isBrandedContent: false,
+    });
+    existing.status = "awaiting_confirmation";
+
+    const replay = await createImmediatePublishingJob(deps, {
+      organisationId: ORG_ID,
+      draftId: DRAFT_ID,
+      platform: "instagram",
+      idempotencyKey: "f4-new-request",
+      executionMode: "live",
+    });
+
+    expect(replay.id).toBe(existing.id);
     expect(getJobs()).toHaveLength(1);
   });
 });

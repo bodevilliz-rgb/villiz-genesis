@@ -182,9 +182,10 @@ export async function createImmediatePublishingJob(
   const resolvedAccountId = await resolveAndLockAccountId(deps, input.organisationId, input.platform, input.resolvedAccountId);
   await requireMatchingAgieDestination(deps, input.organisationId, input.draftId, draft.version, input.platform, resolvedAccountId);
 
-  const job = await deps.publishing.createJob({
+  return deps.publishing.createImmediateJob({
     organisationId: input.organisationId,
     draftId: input.draftId,
+    expectedDraftVersion: draft.version,
     platform: input.platform,
     triggerType: "immediate",
     scheduledFor: new Date().toISOString(),
@@ -198,21 +199,6 @@ export async function createImmediatePublishingJob(
     isYourBrand: input.isYourBrand ?? null,
     isBrandedContent: input.isBrandedContent ?? null,
   });
-
-  if (draft.status !== "publishing") {
-    await deps.content.updateStatus(input.organisationId, input.draftId, "publishing", deps.actor.id);
-  }
-
-  await deps.audits.recordEvent({
-    organisationId: input.organisationId,
-    draftId: input.draftId,
-    actorId: deps.actor.id,
-    eventType: "publishing_job_queued",
-    description: `Queued an immediate publish to ${PUBLISHING_PLATFORM_LABELS[input.platform]}.`,
-    metadata: { jobId: job.id, platform: input.platform, triggerType: "immediate" },
-  });
-
-  return job;
 }
 
 /** Scheduled publish. Draft-level scheduledAt/platform/timezone are kept in sync too, since Content Studio and the Calendar already read those fields directly. */

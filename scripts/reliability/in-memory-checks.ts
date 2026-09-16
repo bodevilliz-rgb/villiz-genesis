@@ -217,11 +217,15 @@ export const approvalTransitionCheck: ReliabilityCheck = {
 // ---------------------------------------------------------------------------
 
 /** An in-memory PublishingRepository faithful to the real one's idempotency contract: findActiveJobForDraftPlatform only ever returns a non-terminal job, and createJob is the sole way a new row appears. */
-function inMemoryPublishingRepository(seed: PublishingJob[] = []) {
+function inMemoryPublishingRepository(
+  seed: PublishingJob[] = [],
+  onImmediate?: (job: PublishingJob) => void | Promise<void>,
+) {
   const jobs = new Map(seed.map((j) => [j.id, j]));
   let seq = jobs.size;
 
-  const isActive = (j: PublishingJob) => j.status === "queued" || j.status === "processing";
+  const isActive = (j: PublishingJob) =>
+    j.status === "queued" || j.status === "processing" || j.status === "awaiting_confirmation";
 
   const repo: Partial<PublishingRepository> = {
     async createJob(input) {
@@ -243,6 +247,11 @@ function inMemoryPublishingRepository(seed: PublishingJob[] = []) {
       });
       jobs.set(created.id, created);
       return created;
+    },
+    async createImmediateJob(input) {
+      const job = await repo.createJob!(input);
+      await onImmediate?.(job);
+      return job;
     },
     async findActiveJobForDraftPlatform(draftId, platform) {
       return [...jobs.values()].find((j) => j.draftId === draftId && j.platform === platform && isActive(j)) ?? null;
@@ -931,7 +940,9 @@ export const auditTrailCheck: ReliabilityCheck = {
       async findDraft() { return draft; },
       async updateStatus() { return draft; },
     };
-    const { repo } = inMemoryPublishingRepository();
+    const { repo } = inMemoryPublishingRepository([], () => {
+      events.push({ eventType: "publishing_job_queued" });
+    });
     const auditsPartial: Partial<AuditRepository> = {
       async recordEvent(event) {
         events.push({ eventType: event.eventType });

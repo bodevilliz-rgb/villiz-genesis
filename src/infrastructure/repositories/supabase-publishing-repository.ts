@@ -2,6 +2,7 @@ import "server-only";
 import type {
   CompletePublishingAttemptInput,
   CreatePublishingAttemptInput,
+  CreateImmediatePublishingJobInput,
   CreatePublishingJobInput,
   FailPublishingAttemptInput,
   PublishingQueueFilters,
@@ -37,6 +38,29 @@ const JOB_SELECT = `
 export class SupabasePublishingRepository implements PublishingRepository {
   constructor(private readonly client: GenesisClient) {}
 
+  async createImmediateJob(input: CreateImmediatePublishingJobInput) {
+    const { data, error } = await this.client.rpc("enqueue_immediate_publishing_job", {
+      p_organisation_id: input.organisationId,
+      p_draft_id: input.draftId,
+      p_expected_draft_version: input.expectedDraftVersion,
+      p_platform: input.platform,
+      p_idempotency_key: input.idempotencyKey,
+      p_requested_by: input.requestedBy,
+      p_max_retries: input.maxRetries,
+      p_dev_simulation_mode: input.devSimulationMode,
+      p_resolved_account_id: input.resolvedAccountId,
+      p_execution_mode: input.executionMode,
+      p_is_ai_generated: input.isAiGenerated,
+      p_is_your_brand: input.isYourBrand,
+      p_is_branded_content: input.isBrandedContent,
+    });
+
+    if (error) translateError(error, "Immediate publishing job creation");
+    const job = toClaimedPublishingJob(data, "enqueue_immediate_publishing_job");
+    if (!job) throw new Error("Immediate publishing job creation returned no job.");
+    return job;
+  }
+
   async createJob(input: CreatePublishingJobInput) {
     const insertResult = await this.client
       .from("publishing_jobs")
@@ -63,7 +87,8 @@ export class SupabasePublishingRepository implements PublishingRepository {
       // 23505 = unique_violation, from either the idempotency-key constraint
       // (an exact replay of the same requested publish) or the active-job
       // partial unique index (a genuinely new request racing an existing,
-      // still-active job for the same draft+platform). Either way, the
+      // still-active or awaiting-confirmation job for the same draft and
+      // platform). Either way, the
       // correct response to a double-click/retry is the existing job, not
       // an error surfaced to the operator.
       if (insertResult.error.code === "23505") {
@@ -101,7 +126,7 @@ export class SupabasePublishingRepository implements PublishingRepository {
       .select(JOB_SELECT)
       .eq("draft_id", draftId)
       .eq("platform", platform)
-      .in("status", ["queued", "processing"])
+      .in("status", ["queued", "processing", "awaiting_confirmation"])
       .maybeSingle();
 
     if (error) translateError(error, "Publishing job");
