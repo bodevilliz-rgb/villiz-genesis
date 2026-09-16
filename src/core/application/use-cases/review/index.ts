@@ -6,7 +6,6 @@ import {
   canApproveOwnAuthorship,
   eligibleActiveApprovers,
   findReviewTransition,
-  MANUAL_NO_AWO_APPROVAL_MARKER,
   SOLO_OPERATOR_APPROVAL_MARKER,
   type ReviewActionType,
   type ReviewHistoryEntry,
@@ -84,7 +83,7 @@ async function requireRole(
  */
 async function applyTransition(
   deps: ReviewDeps,
-  input: { organisationId: string; draftId: string; comment?: string; expectedDraftVersion?: number; approvalBasis?: "awo" | "manual_no_awo" },
+  input: { organisationId: string; draftId: string; comment?: string; expectedDraftVersion?: number },
   resolveTarget: (status: ContentDraftStatus) => ContentDraftStatus | null,
   opts: { checkSelfApproval?: boolean } = {},
 ): Promise<ContentDraft> {
@@ -122,24 +121,14 @@ async function applyTransition(
     throw new ValidationError("A comment is required for this decision.", { comment: ["Explain your decision."] });
   }
 
-  if (input.approvalBasis === "manual_no_awo" && !blank(input.comment)) {
-    throw new ValidationError("A reason is required for approval without Awo support.", {
-      comment: ["Record why the reviewer is approving without an Awo basis."],
-    });
-  }
-
-  const decisionComment = input.approvalBasis === "manual_no_awo"
-    ? [MANUAL_NO_AWO_APPROVAL_MARKER, blank(input.comment)].filter(Boolean).join("\n\n")
-    : blank(input.comment);
-
   return deps.reviews.recordDecision({
     draftId: draft.id,
     action: transition.action,
     newStatus: to,
     assignedReviewerId: soloOperatorApproval ? deps.actor.id : draft.assignedReviewer?.id ?? null,
     comment: soloOperatorApproval
-      ? [SOLO_OPERATOR_APPROVAL_MARKER, decisionComment].filter(Boolean).join("\n\n")
-      : decisionComment,
+      ? [SOLO_OPERATOR_APPROVAL_MARKER, blank(input.comment)].filter(Boolean).join("\n\n")
+      : blank(input.comment),
     expectedDraftVersion: input.expectedDraftVersion ?? null,
   });
 }

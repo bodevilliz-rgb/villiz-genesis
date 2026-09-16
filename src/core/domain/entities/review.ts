@@ -129,9 +129,6 @@ export function eligibleActiveApprovers(members: OrganisationMember[]): Organisa
 export const SOLO_OPERATOR_APPROVAL_MARKER =
   "Solo Operator Approval: creator and approver were the same Account Lead because this organisation had exactly one eligible active member.";
 
-export const MANUAL_NO_AWO_APPROVAL_MARKER =
-  "Manual approval without Awo support: this decision makes no intelligence or readiness claim.";
-
 /**
  * The five Review Queue views. Each pins its own status (and, for
  * "returned_for_changes", its own extra `lastReviewAction` condition) rather
