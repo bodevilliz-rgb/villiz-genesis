@@ -19,6 +19,7 @@ export const approveDraftSchema = z.object({
   draftId: z.string().uuid(),
   comment: commentSchema.optional().or(z.literal("")),
   expectedDraftVersion: z.number().int().positive().optional(),
+  approvalBasis: z.enum(["awo", "manual_no_awo"]).optional().default("awo"),
 });
 
 export const requestDraftChangesSchema = z.object({

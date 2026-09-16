@@ -6,7 +6,8 @@ import { applyEngagementRecommendation, generateEngagementRecommendation, getEng
 import { collectEngagementAnalytics, type EngagementCollectionResult } from "@/core/application/use-cases/engagement/collector";
 import type { AwoGenerationAttribution, EngagementFeedbackEvent, EngagementLearningOverview, EngagementObjectiveType, EngagementRecommendation } from "@/core/domain/entities/engagement";
 import type { CampaignPlatform } from "@/core/domain/entities/campaign";
-import { isDomainError } from "@/core/domain/errors";
+import { isDomainError, ValidationError } from "@/core/domain/errors";
+import { assessGenerationMinimumContext } from "@/core/application/use-cases/generation";
 import { canWriteContent } from "@/core/domain/entities/identity";
 import { createAdminClient } from "@/infrastructure/supabase/admin-client";
 import { SupabaseEngagementRepository } from "@/infrastructure/repositories/supabase-engagement-repository";
@@ -114,7 +115,7 @@ function applyComplianceCheck(
 
 export type EngagementRecommendationActionResult =
   | { ok: true; recommendation: EngagementRecommendation; learningOverview: EngagementLearningOverview }
-  | { ok: false; error: string };
+  | { ok: false; error: string; status?: "needs_attention"; missingContext?: string[] };
 
 export async function generateEngagementRecommendationAction(input: {
   organisationId: string;
@@ -162,6 +163,9 @@ export async function generateEngagementRecommendationAction(input: {
       error: isDomainError(error)
         ? error.message
         : "AWO could not generate an engagement recommendation. Try again shortly.",
+      ...(error instanceof ValidationError && error.details?.missingContext
+        ? { status: "needs_attention" as const, missingContext: error.details.missingContext }
+        : {}),
     };
   }
 }
@@ -286,6 +290,19 @@ async function requireOrgWriteAccess(context: Awaited<ReturnType<typeof requireC
   return org;
 }
 
+function requireMinimumGenerationContext(ctx: { brandDescription: string[] }, sourceText: string): void {
+  const assessment = assessGenerationMinimumContext({
+    hasBrandDescription: ctx.brandDescription.length > 0,
+    sourceText,
+  });
+  if (assessment.status === "needs_attention") {
+    throw new ValidationError(
+      `Awo needs attention before generation: ${assessment.missingContext.join(" ")}`,
+      { missingContext: assessment.missingContext },
+    );
+  }
+}
+
 /** Surfaces the provider's real failure class without leaking credentials — a generic "failed" toast hid a billing outage for days. */
 function describeProviderFailure(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
@@ -312,6 +329,7 @@ export async function generateCaption(
   const membrain = await getMembrainOverview(membrainDeps, organisationId);
 
   const ctx = extractAwoMembrainContext(membrain);
+  requireMinimumGenerationContext(ctx, prompt);
   if (rejectsCompetitorImitation(prompt)) throw new Error("Awo can apply approved market patterns, but cannot imitate or copy a named competitor.");
   const intent = classifyContentIntent(prompt, ctx, intentHints ?? {});
   const resolvedPlatform = marketPlatform(platform);
@@ -475,6 +493,7 @@ export async function rewriteContent(
   const membrain = await getMembrainOverview(membrainDeps, organisationId);
 
   const ctx = extractAwoMembrainContext(membrain);
+  requireMinimumGenerationContext(ctx, content);
 
   let modifier = "";
   if (instruction === "expand") modifier = "Expand this content, adding more detail and depth.";
@@ -512,11 +531,14 @@ export async function generateHashtags(
   const membrain = await getMembrainOverview(membrainDeps, organisationId);
 
   const ctx = extractAwoMembrainContext(membrain);
+  requireMinimumGenerationContext(ctx, content);
   const market = await assembleMarketGenerationContext({ marketIntelligence: context.marketIntelligence, organisationId, platform, commercialIntent });
 
   const ai = getAIProvider();
-  const brandVoiceCtx = ctx.brandVoice.join("\n") || "Professional.";
-  const baselinePrompt = `You are an expert social media manager. Suggest exactly ${count} highly relevant hashtags for the provided content. Ensure they align with the Brand Voice: ${brandVoiceCtx}`;
+  const brandVoiceInstruction = ctx.brandVoice.length
+    ? ` Ensure they align with the recorded Brand Voice: ${ctx.brandVoice.join("\n")}`
+    : "";
+  const baselinePrompt = `You are AWO. Suggest exactly ${count} highly relevant hashtags for the provided content.${brandVoiceInstruction}`;
   const systemPrompt = market.enabled ? `${baselinePrompt}\n\n${market.prompt}\n\nSelect a restrained mix across local, service, audience/cultural, occasion/topic, campaign and brand roles. Empty roles are valid. Never promise reach.` : baselinePrompt;
 
   const schema = z.object({

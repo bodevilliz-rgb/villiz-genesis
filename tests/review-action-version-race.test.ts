@@ -14,6 +14,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { recordReviewDecisionAction } from "@/server/actions/review";
 import { requireContext } from "@/server/container";
 import { ValidationError } from "@/core/domain/errors";
+import { assessRecommendationDistributionEligibility } from "@/core/application/use-cases/engagement";
 
 const ORG_ID = "00000000-0000-4000-8000-000000000001";
 const DRAFT_ID = "00000000-0000-4000-8000-000000000002";
@@ -26,6 +27,13 @@ function approvalForm(): FormData {
   form.set("draftId", DRAFT_ID);
   form.set("decision", "approve");
   form.set("comment", "Ready to publish");
+  return form;
+}
+
+function manualApprovalForm(reason: string): FormData {
+  const form = approvalForm();
+  form.set("approvalBasis", "manual_no_awo");
+  form.set("comment", reason);
   return form;
 }
 
@@ -84,5 +92,83 @@ describe("recordReviewDecisionAction draft-version concurrency", () => {
       expect.objectContaining({ action: "approved", expectedDraftVersion: 7 }),
     );
     expect(result).toMatchObject({ status: "error", message: expect.stringMatching(/changed while approval/i) });
+  });
+});
+
+describe("recordReviewDecisionAction intelligence governance", () => {
+  function context() {
+    const currentDraft = draft(7);
+    return {
+      actor: { id: ACTOR_ID, isPlatformAdmin: false },
+      content: { findDraft: vi.fn(async () => currentDraft) },
+      engagement: {
+        findLatest: vi.fn(async () => null),
+        findLatestForDraftVersion: vi.fn(async () => null),
+        findLatestFeedback: vi.fn(async () => null),
+      },
+      organisations: { viewerRole: vi.fn(async () => "lead"), listMembers: vi.fn(async () => []) },
+      reviews: {
+        recordDecision: vi.fn(async () => ({ ...currentDraft, status: "approved" as const })),
+        listHistory: vi.fn(async () => []),
+      },
+      audits: { recordEvent: vi.fn(async () => undefined) },
+      notifications: { createNotification: vi.fn(async () => undefined) },
+    };
+  }
+
+  it("blocks normal approval when no current Awo recommendation exists", async () => {
+    vi.mocked(assessRecommendationDistributionEligibility).mockReturnValueOnce({
+      eligible: false,
+      score: 0,
+      blockers: ["Generate an Awo recommendation before approval."],
+    });
+    const deps = context();
+    vi.mocked(requireContext).mockResolvedValue(deps as never);
+
+    const result = await recordReviewDecisionAction({ status: "idle", message: "" }, approvalForm());
+
+    expect(result).toMatchObject({ status: "error", message: expect.stringMatching(/approval blocked/i) });
+    expect(deps.reviews.recordDecision).not.toHaveBeenCalled();
+  });
+
+  it("requires a non-empty reason for an explicitly selected manual/no-Awo-basis approval", async () => {
+    vi.mocked(assessRecommendationDistributionEligibility).mockReturnValueOnce({
+      eligible: false,
+      score: 0,
+      blockers: ["Generate an Awo recommendation before approval."],
+    });
+    const deps = context();
+    vi.mocked(requireContext).mockResolvedValue(deps as never);
+
+    const result = await recordReviewDecisionAction({ status: "idle", message: "" }, manualApprovalForm("   "));
+
+    expect(result).toMatchObject({ status: "error", message: expect.stringMatching(/reason/i) });
+    expect(deps.reviews.recordDecision).not.toHaveBeenCalled();
+  });
+
+  it("records an authorised manual/no-Awo-basis approval without claiming intelligence readiness", async () => {
+    vi.mocked(assessRecommendationDistributionEligibility).mockReturnValueOnce({
+      eligible: false,
+      score: 0,
+      blockers: ["Generate an Awo recommendation before approval."],
+    });
+    const deps = context();
+    vi.mocked(requireContext).mockResolvedValue(deps as never);
+
+    const result = await recordReviewDecisionAction(
+      { status: "idle", message: "" },
+      manualApprovalForm("Time-sensitive legal notice reviewed directly by the Account Lead."),
+    );
+
+    expect(result).toMatchObject({ status: "success", message: expect.stringMatching(/not Awo-supported/i) });
+    expect(deps.reviews.recordDecision).toHaveBeenCalledWith(expect.objectContaining({
+      action: "approved",
+      comment: expect.stringMatching(/Manual approval without Awo support[\s\S]*Time-sensitive legal notice/),
+    }));
+    expect(deps.audits.recordEvent).toHaveBeenCalledWith(expect.objectContaining({
+      actorId: ACTOR_ID,
+      eventType: "approved_without_awo",
+      metadata: expect.objectContaining({ approvalBasis: "manual_no_awo" }),
+    }));
   });
 });
