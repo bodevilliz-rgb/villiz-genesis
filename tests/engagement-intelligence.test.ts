@@ -67,7 +67,7 @@ const draft: ContentDraft = {
   updatedBy: null,
 };
 
-function dependencies(options: { role?: "lead" | "contributor" | "reviewer"; withContext?: boolean; draftBody?: string; withContentPillar?: boolean } = {}) {
+function dependencies(options: { role?: "lead" | "contributor" | "reviewer"; withContext?: boolean; draftBody?: string; withContentPillar?: boolean; withoutBrandDescription?: boolean } = {}) {
   const role = options.role ?? "contributor";
   const withContext = options.withContext ?? true;
   let persisted: EngagementRecommendationWriteModel | null = null;
@@ -105,6 +105,17 @@ function dependencies(options: { role?: "lead" | "contributor" | "reviewer"; wit
               version: 2,
               updatedAt: "2026-08-09T00:00:00Z",
             },
+            ...(options.withoutBrandDescription ? [] : [{
+              id: "00000000-0000-4000-8000-000000000011",
+              title: "Brand description",
+              summary: null,
+              body: "Villiz Pixels creates evidence-led portrait photography for clients.",
+              importance: 5,
+              categoryKey: "brand_description",
+              categoryLabel: "Brand description",
+              version: 1,
+              updatedAt: "2026-08-09T00:00:00Z",
+            }]),
           ]
         : [],
     ),
@@ -185,6 +196,17 @@ function dependencies(options: { role?: "lead" | "contributor" | "reviewer"; wit
 }
 
 describe("AWO Engagement Intelligence", () => {
+  it("returns the shared needs-attention missing-context list before AI when Brand Description is absent", async () => {
+    const fixture = dependencies({ withoutBrandDescription: true });
+
+    await expect(generateEngagementRecommendation(fixture.deps, {
+      organisationId: ORG_ID, draftId: DRAFT_ID, platform: "instagram",
+    })).rejects.toMatchObject({
+      details: { missingContext: ["An active Brand Description entry is required in MemBrain."] },
+    });
+    expect(fixture.ai.generateObject).not.toHaveBeenCalled();
+  });
+
   it("blocks an explicit writing brief before retrieval or AI generation", async () => {
     const fixture = dependencies({
       draftBody: "professional introduction of myself as a professional photography and AI solution provider.",
@@ -306,7 +328,7 @@ describe("AWO Engagement Intelligence", () => {
     expect(fixture.ai.generateObject).not.toHaveBeenCalled();
   });
 
-  it("does not call AI without active MemBrain evidence", async () => {
+  it("returns the shared needs-attention result without calling AI when MemBrain is empty", async () => {
     const fixture = dependencies({ withContext: false });
 
     await expect(
@@ -315,7 +337,9 @@ describe("AWO Engagement Intelligence", () => {
         draftId: DRAFT_ID,
         platform: "instagram",
       }),
-    ).rejects.toThrow("Add active MemBrain knowledge");
+    ).rejects.toMatchObject({
+      details: { missingContext: ["An active Brand Description entry is required in MemBrain."] },
+    });
     expect(fixture.ai.generateObject).not.toHaveBeenCalled();
   });
 
