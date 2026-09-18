@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
+import { renderToString } from "react-dom/server";
+import { hydrateRoot } from "react-dom/client";
 import { ReviewPanel } from "@/components/content/review-panel";
 import type { ContentDraft } from "@/core/domain/entities/content";
 
@@ -87,6 +89,37 @@ function needsReviewDraft(assignedReviewerId: string | null): ContentDraft {
 }
 
 describe("ReviewPanel — decision buttons on a freshly submitted (needs_review) draft", () => {
+  it("hydrates the blocked-approval surface without a recoverable React error", async () => {
+    const props = {
+      organisationId: "00000000-0000-4000-8000-000000000001",
+      draft: needsReviewDraft("reviewer-1"),
+      eligibleReviewers: [],
+      actorId: "reviewer-1",
+      canWrite: false,
+      canLead: false,
+      distributionApproval: {
+        eligible: false,
+        score: 85,
+        blockers: ["Configure both local and service discovery/hashtag roles."],
+      },
+    };
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(<ReviewPanel {...props} />);
+    const recoverableErrors: unknown[] = [];
+
+    let root: ReturnType<typeof hydrateRoot> | undefined;
+    await act(async () => {
+      root = hydrateRoot(container, <ReviewPanel {...props} />, {
+        onRecoverableError: (error) => recoverableErrors.push(error),
+      });
+      await Promise.resolve();
+    });
+
+    expect(recoverableErrors).toEqual([]);
+    expect(container.querySelector('button[disabled]')?.textContent).toContain("Approve");
+    await act(async () => root?.unmount());
+  });
+
   it("shows Approve / Request changes / Reject to the reviewer this draft was assigned to", () => {
     render(
       <ReviewPanel
@@ -158,6 +191,7 @@ describe("ReviewPanel — decision buttons on a freshly submitted (needs_review)
     expect(screen.getByRole("button", { name: "Reject" })).toBeEnabled();
     expect(screen.getByRole("alert")).toHaveTextContent("Audience Distribution Gate 85/100");
     expect(screen.getByRole("alert")).toHaveTextContent("Configure both local and service discovery/hashtag roles.");
+    expect(screen.queryByRole("button", { name: /approve without Awo basis/i })).toBeNull();
   });
 
   it("allows approval only when the current recommendation passes the distribution gate", () => {

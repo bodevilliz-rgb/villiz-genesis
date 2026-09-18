@@ -50,6 +50,7 @@ import {
 } from "./draft-input";
 import { assembleMarketGenerationContext, rejectsCompetitorImitation } from "@/core/application/use-cases/market-intelligence/context";
 import { buildVisibilityPlan, deriveClientVisibilityEvidence, DISTRIBUTION_READINESS_THRESHOLD, visibilityPlanPrompt, VISIBILITY_STRATEGY_VERSION } from "@/core/application/use-cases/market-intelligence/visibility";
+import { assessGenerationMinimumContext } from "@/core/application/use-cases/generation";
 
 interface EngagementDeps {
   actor: Actor;
@@ -341,6 +342,17 @@ export async function generateEngagementRecommendation(
       recordUsage: true,
     },
   );
+
+  const minimumContext = assessGenerationMinimumContext({
+    hasBrandDescription: contextPack.items.some((item) => item.categoryKey === "brand_description"),
+    sourceText: draft.body,
+  });
+  if (minimumContext.status === "needs_attention") {
+    throw new ValidationError(
+      `Awo needs attention before generation: ${minimumContext.missingContext.join(" ")}`,
+      { missingContext: minimumContext.missingContext },
+    );
+  }
 
   if (contextPack.items.length === 0) {
     throw new ValidationError("Add active MemBrain knowledge before requesting engagement intelligence.");

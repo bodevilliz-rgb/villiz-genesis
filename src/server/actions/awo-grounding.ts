@@ -393,8 +393,7 @@ export function buildGuidedContextBlock(ctx: GenerationGuidedContext): string | 
 }
 
 function renderSection(label: string, entries: string[]): string {
-  const body = entries.length > 0 ? entries.join("\n") : "(none recorded)";
-  return `[${label}]\n${body}`;
+  return entries.length > 0 ? `[${label}]\n${entries.join("\n")}` : "";
 }
 
 const GROUNDING_RULES = [
