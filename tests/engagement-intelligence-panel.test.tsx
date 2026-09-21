@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { EngagementIntelligencePanel } from "@/components/content/engagement-intelligence-panel";
 import type { EngagementRecommendation } from "@/core/domain/entities/engagement";
+import { generateEngagementRecommendationAction } from "@/server/actions/awo";
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+const { routerRefresh } = vi.hoisted(() => ({ routerRefresh: vi.fn() }));
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: routerRefresh }) }));
 
 vi.mock("@/server/actions/awo", () => ({
   generateEngagementRecommendationAction: vi.fn(),
@@ -100,6 +103,27 @@ const learningOverview = {
 };
 
 describe("EngagementIntelligencePanel", () => {
+  it("refreshes the server-rendered approval gate after generating a recommendation", async () => {
+    routerRefresh.mockClear();
+    vi.mocked(generateEngagementRecommendationAction).mockResolvedValueOnce({
+      ok: true,
+      recommendation: { ...recommendation, id: "rec-current" },
+      learningOverview,
+    });
+
+    render(
+      <EngagementIntelligencePanel
+        organisationId="org-1" draftId="draft-1" currentDraftVersion={3}
+        initialPlatform="instagram" initialRecommendation={recommendation}
+        initialLearningOverview={learningOverview} initialDraftBody="Existing caption"
+        initialDraftHashtags={[]} draftLocked={false} canWrite={true}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate a new recommendation" }));
+    await waitFor(() => expect(routerRefresh).toHaveBeenCalledTimes(1));
+  });
+
   it("shows the recommendation, confidence, hashtags and evidence basis", () => {
     render(
       <EngagementIntelligencePanel
