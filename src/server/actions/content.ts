@@ -336,7 +336,16 @@ export async function restoreArchivedDraftAction(_prev: ActionState, formData: F
     const organisationId = textOrEmpty(formData, "organisationId");
     const draftId = textOrEmpty(formData, "id");
 
-    const draft = await restoreArchivedDraft(contentDeps(context), organisationId, draftId);
+    const jobs = await context.publishing.listJobsForDraft(organisationId, draftId);
+    const hasProviderPublication = jobs.some(
+      (job) => job.status === "published" || job.status === "awaiting_confirmation",
+    );
+    const draft = await restoreArchivedDraft(
+      contentDeps(context),
+      organisationId,
+      draftId,
+      hasProviderPublication ? "published" : "draft",
+    );
     revalidateContent(draft.organisationId, draft.id);
     return successState("Post restored to the published workspace.", draft.id);
   } catch (error) {
