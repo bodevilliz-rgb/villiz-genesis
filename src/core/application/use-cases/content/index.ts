@@ -243,7 +243,8 @@ export async function archiveDraft(
 export async function restoreArchivedDraft(
   deps: ContentDeps,
   organisationId: string,
-  draftId: string
+  draftId: string,
+  restoreStatus: "draft" | "published",
 ): Promise<ContentDraft> {
   await requireRole(deps, organisationId, canWriteContent);
   const existing = await deps.content.findDraft(organisationId, draftId);
@@ -252,9 +253,9 @@ export async function restoreArchivedDraft(
     throw new ValidationError("Only archived posts can be restored.");
   }
 
-  // The archive workspace is for published social posts. Restoring makes the
-  // publishing receipt visible again without creating or repeating a publish.
-  return deps.content.updateStatus(organisationId, draftId, "published", deps.actor.id);
+  // The server derives this from immutable publishing jobs. A post that
+  // reached a provider is restored as published, never as publishable work.
+  return deps.content.updateStatus(organisationId, draftId, restoreStatus, deps.actor.id);
 }
 
 export async function deleteDraft(
