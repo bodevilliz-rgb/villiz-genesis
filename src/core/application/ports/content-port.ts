@@ -64,6 +64,7 @@ export interface ContentRepository {
     status: ContentDraftStatus,
     updatedBy: string
   ): Promise<ContentDraft>;
+  deleteDraft(organisationId: string, draftId: string): Promise<void>;
 
   /** Attaches the reason for a change to the version the trigger just wrote. */
   annotateLatestVersion(draftId: string, changeSummary: string): Promise<void>;
