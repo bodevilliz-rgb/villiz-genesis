@@ -225,13 +225,16 @@ describe("archiveDraft / duplicateDraft", () => {
 });
 
 describe("deleteDraft — unpublished drafts only", () => {
-  it("permanently deletes a plain draft", async () => {
-    const { deps, isDeleted } = createHarness({ draft: baseDraft({ status: "draft" }), viewerRole: "contributor" });
-    await deleteDraft(deps, ORG_ID, DRAFT_ID);
-    expect(isDeleted()).toBe(true);
-  });
+  it.each(["draft", "needs_review", "in_review", "changes_requested", "awaiting_client", "approved", "rejected", "failed", "archived"] as const)(
+    "permanently deletes unpublished %s content",
+    async (status) => {
+      const { deps, isDeleted } = createHarness({ draft: baseDraft({ status }), viewerRole: "contributor" });
+      await deleteDraft(deps, ORG_ID, DRAFT_ID);
+      expect(isDeleted()).toBe(true);
+    },
+  );
 
-  it.each(["approved", "scheduled", "publishing", "published", "failed"] as const)(
+  it.each(["scheduled", "publishing", "published"] as const)(
     "refuses to delete %s content",
     async (status) => {
       const { deps, isDeleted } = createHarness({ draft: baseDraft({ status }), viewerRole: "contributor" });

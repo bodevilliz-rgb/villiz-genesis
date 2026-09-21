@@ -124,15 +124,38 @@ beforeEach(() => {
 });
 
 describe("successful permanent deletion", () => {
-  it("replaces the deleted detail URL with the organisation Content Studio", async () => {
-    vi.mocked(deleteDraftAction).mockResolvedValueOnce({
-      status: "success",
-      message: "Draft permanently deleted.",
-    });
-    vi.spyOn(window, "confirm").mockReturnValueOnce(true);
+  it.each(["draft", "in_review", "approved", "failed", "archived"] as const)(
+    "shows deletion for unpublished %s content and returns to Content Studio",
+    async (status) => {
+      vi.mocked(deleteDraftAction).mockResolvedValueOnce({
+        status: "success",
+        message: "Draft permanently deleted.",
+      });
+      vi.spyOn(window, "confirm").mockReturnValueOnce(true);
 
+      const draft = approvedDraft();
+      draft.status = status;
+      render(
+        <PublishingPanel
+          organisationId={ORG_ID}
+          draft={draft}
+          canWrite={true}
+          channels={[instagramChannel()]}
+          isLivePublishing={true}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Delete Draft Permanently" }));
+
+      await waitFor(() => {
+        expect(routerReplace).toHaveBeenCalledWith(`/organisations/${ORG_ID}/content`);
+      });
+    },
+  );
+
+  it.each(["scheduled", "publishing", "published"] as const)("hides permanent deletion for %s content", (status) => {
     const draft = approvedDraft();
-    draft.status = "draft";
+    draft.status = status;
     render(
       <PublishingPanel
         organisationId={ORG_ID}
@@ -143,11 +166,7 @@ describe("successful permanent deletion", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Delete Draft Permanently" }));
-
-    await waitFor(() => {
-      expect(routerReplace).toHaveBeenCalledWith(`/organisations/${ORG_ID}/content`);
-    });
+    expect(screen.queryByRole("button", { name: "Delete Draft Permanently" })).toBeNull();
   });
 });
 

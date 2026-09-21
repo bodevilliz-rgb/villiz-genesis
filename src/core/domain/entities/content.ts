@@ -28,6 +28,11 @@ export const CONTENT_DRAFT_STATUS_LABELS: Record<ContentDraftStatus, string> = {
   archived: "Archived",
 };
 
+/** Permanent deletion is safe until a post enters active or completed publishing. */
+export function isContentDraftPermanentlyDeletable(status: ContentDraftStatus): boolean {
+  return status !== "scheduled" && status !== "publishing" && status !== "published";
+}
+
 /**
  * Approved, scheduled, published, and archived are decided states — Content Studio blocks
  * further edits until an authorised Lead reopens the review, so the same edit no longer
