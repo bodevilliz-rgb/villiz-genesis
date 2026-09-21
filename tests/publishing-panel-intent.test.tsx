@@ -20,7 +20,14 @@
  * P7 — rapid double-click on confirm submits only once
  * P8 — an invalid timezone/time is rejected before the dialog ever opens
  * P9 — destination selector and scheduling fields are disabled while the review dialog is open
+ * P10 — successful draft deletion returns the operator to Content Studio
  */
+
+const routerReplace = vi.fn();
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: routerReplace }),
+}));
 
 vi.mock("@/server/actions/content", () => ({
   archiveDraftAction: vi.fn(),
@@ -53,6 +60,7 @@ vi.mock("@/server/actions/publish", () => ({
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { PublishingPanel } from "@/components/content/publishing-panel";
+import { deleteDraftAction } from "@/server/actions/content";
 import { createImmediatePublishingJobAction, createScheduledPublishingJobAction } from "@/server/actions/publishing";
 import { runPrePublishReviewAction, getPlatformPreflightAction } from "@/server/actions/publish";
 import type { ContentDraft } from "@/core/domain/entities/content";
@@ -113,6 +121,34 @@ function futureDateTimeLocal(): string {
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+describe("successful permanent deletion", () => {
+  it("replaces the deleted detail URL with the organisation Content Studio", async () => {
+    vi.mocked(deleteDraftAction).mockResolvedValueOnce({
+      status: "success",
+      message: "Draft permanently deleted.",
+    });
+    vi.spyOn(window, "confirm").mockReturnValueOnce(true);
+
+    const draft = approvedDraft();
+    draft.status = "draft";
+    render(
+      <PublishingPanel
+        organisationId={ORG_ID}
+        draft={draft}
+        canWrite={true}
+        channels={[instagramChannel()]}
+        isLivePublishing={true}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete Draft Permanently" }));
+
+    await waitFor(() => {
+      expect(routerReplace).toHaveBeenCalledWith(`/organisations/${ORG_ID}/content`);
+    });
+  });
 });
 
 async function scheduleUpToDialog() {
