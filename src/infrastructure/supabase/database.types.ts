@@ -225,6 +225,8 @@ export type ContentDraftRow = {
   priority: string;
   review_deadline: string | null;
   hashtags: string[];
+  deleted_at: string | null;
+  deleted_by: string | null;
 };
 
 export type ContentGenerationRequestRow = {
@@ -1020,6 +1022,7 @@ export type Database = {
           Fk<"content_drafts_campaign_id_fkey", "campaign_id", "campaigns">,
           Fk<"content_drafts_category_id_fkey", "category_id", "membrain_categories">,
           Fk<"content_drafts_created_by_fkey", "created_by", "profiles">,
+          Fk<"content_drafts_deleted_by_fkey", "deleted_by", "profiles">,
           Fk<"content_drafts_organisation_id_fkey", "organisation_id", "organisations">,
           Fk<"content_drafts_updated_by_fkey", "updated_by", "profiles">,
         ]
