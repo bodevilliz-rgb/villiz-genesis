@@ -10,6 +10,7 @@ import { Stat } from "@/components/common/stat";
 import { Button } from "@/components/ui/button";
 import { DraftSearchFilters } from "@/components/content/draft-search-filters";
 import { DraftCard, type DraftPublishingSummary } from "@/components/content/draft-card";
+import { ArchivedDraftCard } from "@/components/content/archived-draft-card";
 import { KnowledgeCoverage } from "@/components/content/knowledge-coverage";
 import { canWriteContent } from "@/core/domain/entities/identity";
 import { CONTENT_DRAFT_STATUS_LABELS, type ContentDraftStatus } from "@/core/domain/entities/content";
@@ -56,14 +57,15 @@ export default async function ContentStudioPage({
   const status = contentDraftStatusSchema.safeParse(filters.status).success
     ? (filters.status as ContentDraftStatus)
     : undefined;
+  const isArchiveView = filters.view === "archive";
   const contentType = contentDraftTypeSchema.safeParse(filters.type).success ? filters.type : undefined;
 
-  const [overview, drafts, members, viewerRole, membrainOverview] = await Promise.all([
+  const [overview, fetchedDrafts, members, viewerRole, membrainOverview] = await Promise.all([
     getContentOverview(contentDeps, orgId),
     listDrafts(contentDeps, {
       organisationId: orgId,
       query: filters.q,
-      status,
+      status: isArchiveView ? "archived" : status,
       contentType,
       authorId: filters.author,
       limit: 50,
@@ -74,6 +76,9 @@ export default async function ContentStudioPage({
     getMembrainOverview(membrainDeps, orgId),
   ]);
 
+  const drafts = isArchiveView || status
+    ? fetchedDrafts
+    : fetchedDrafts.filter((draft) => draft.status !== "archived");
   const canWrite = canWriteContent(context.actor, viewerRole);
   const isFiltered = Boolean(filters.q || filters.status || filters.type || filters.author);
   const hasAnyDrafts = overview.totalDrafts > 0;
@@ -165,9 +170,41 @@ export default async function ContentStudioPage({
         <Button asChild variant={filters.view === "queue" ? "primary" : "secondary"} size="sm">
           <Link href={`/organisations/${orgId}/content?view=queue`}>Publishing Queue</Link>
         </Button>
+        <Button asChild variant={isArchiveView ? "primary" : "secondary"} size="sm">
+          <Link href={`/organisations/${orgId}/content?view=archive`}>Archived</Link>
+        </Button>
       </div>
 
-      {filters.view === "calendar" ? (
+      {isArchiveView ? (
+        <div className="flex flex-col gap-3">
+          <div>
+            <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-subtle-foreground">
+              Archived posts
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Hidden from the active workspace. Publishing history and analytics remain preserved.
+            </p>
+          </div>
+          {drafts.length === 0 ? (
+            <EmptyState
+              icon={<FileText aria-hidden />}
+              title="No archived posts"
+              description="Published posts you archive will appear here."
+            />
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {drafts.map((draft) => (
+                <ArchivedDraftCard
+                  key={draft.id}
+                  organisationId={orgId}
+                  draft={draft}
+                  canRestore={canWrite}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      ) : filters.view === "calendar" ? (
         <ContentCalendar drafts={drafts} organisationId={orgId} jobsByDraftId={calendarJobsByDraftId} />
       ) : filters.view === "board" ? (
         <ContentPipelineBoard initialDrafts={drafts} organisationId={orgId} />

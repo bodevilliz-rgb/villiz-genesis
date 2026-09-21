@@ -240,6 +240,24 @@ export async function archiveDraft(
   return deps.content.updateStatus(organisationId, draftId, "archived", deps.actor.id);
 }
 
+export async function restoreArchivedDraft(
+  deps: ContentDeps,
+  organisationId: string,
+  draftId: string,
+  restoreStatus: "draft" | "published",
+): Promise<ContentDraft> {
+  await requireRole(deps, organisationId, canWriteContent);
+  const existing = await deps.content.findDraft(organisationId, draftId);
+  if (!existing) throw new NotFoundError("Draft");
+  if (existing.status !== "archived") {
+    throw new ValidationError("Only archived posts can be restored.");
+  }
+
+  // The server derives this from immutable publishing jobs. A post that
+  // reached a provider is restored as published, never as publishable work.
+  return deps.content.updateStatus(organisationId, draftId, restoreStatus, deps.actor.id);
+}
+
 export async function deleteDraft(
   deps: ContentDeps,
   organisationId: string,
