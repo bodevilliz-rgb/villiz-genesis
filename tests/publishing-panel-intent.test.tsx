@@ -123,13 +123,13 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("successful permanent deletion", () => {
+describe("successful workspace removal", () => {
   it.each(["draft", "in_review", "approved", "failed", "archived"] as const)(
     "shows deletion for unpublished %s content and returns to Content Studio",
     async (status) => {
       vi.mocked(deleteDraftAction).mockResolvedValueOnce({
         status: "success",
-        message: "Draft permanently deleted.",
+        message: "Draft removed from the workspace. Its publishing audit record was preserved.",
       });
       vi.spyOn(window, "confirm").mockReturnValueOnce(true);
 
@@ -145,7 +145,7 @@ describe("successful permanent deletion", () => {
         />,
       );
 
-      fireEvent.click(screen.getByRole("button", { name: "Delete Draft Permanently" }));
+      fireEvent.click(screen.getByRole("button", { name: "Remove Draft" }));
 
       await waitFor(() => {
         expect(routerReplace).toHaveBeenCalledWith(`/organisations/${ORG_ID}/content`);
@@ -153,7 +153,7 @@ describe("successful permanent deletion", () => {
     },
   );
 
-  it.each(["scheduled", "publishing", "published"] as const)("hides permanent deletion for %s content", (status) => {
+  it.each(["scheduled", "publishing", "published"] as const)("hides removal for %s content", (status) => {
     const draft = approvedDraft();
     draft.status = status;
     render(
