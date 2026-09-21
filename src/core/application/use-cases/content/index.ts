@@ -2,6 +2,7 @@ import { ForbiddenError, NotFoundError, ValidationError } from "@/core/domain/er
 import type { Actor, OrganisationRole } from "@/core/domain/entities/identity";
 import { canWriteContent } from "@/core/domain/entities/identity";
 import {
+  isContentDraftPermanentlyDeletable,
   isContentDraftLocked,
   type ContentDraft,
   type ContentDraftVersion,
@@ -247,8 +248,8 @@ export async function deleteDraft(
   await requireRole(deps, organisationId, canWriteContent);
   const existing = await deps.content.findDraft(organisationId, draftId);
   if (!existing) throw new NotFoundError("Draft");
-  if (existing.status !== "draft") {
-    throw new ValidationError("Only unpublished drafts in Draft status can be permanently deleted. Archive other posts instead.");
+  if (!isContentDraftPermanentlyDeletable(existing.status)) {
+    throw new ValidationError("Scheduled, publishing, and published posts cannot be permanently deleted. Cancel scheduled work or archive published posts instead.");
   }
   await deps.content.deleteDraft(organisationId, draftId);
 }
