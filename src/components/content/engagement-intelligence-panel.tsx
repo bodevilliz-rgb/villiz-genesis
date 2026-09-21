@@ -103,6 +103,10 @@ export function EngagementIntelligencePanel({ organisationId, draftId, currentDr
       setEffectiveDraftVersion(result.recommendation.draftVersion);
       setEditedCaption("");
       setPendingApplication(null);
+      // The Review panel is server-rendered and independently evaluates the
+      // current-version recommendation. Refresh it immediately so approval
+      // cannot remain blocked on the pre-generation 0/100 state.
+      router.refresh();
       toast.success("Engagement recommendation generated and recorded.");
     });
   }
