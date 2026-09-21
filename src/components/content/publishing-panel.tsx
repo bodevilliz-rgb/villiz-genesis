@@ -79,7 +79,7 @@ export function PublishingPanel({
   useActionToast(deleteState);
   useActionToast(duplicateState);
 
-  // A successful permanent delete removes the resource backing this detail
+  // A successful removal hides the resource backing this detail
   // route. Leave immediately so the operator lands on the remaining drafts
   // instead of seeing the deleted URL's not-found boundary.
   useEffect(() => {
@@ -362,15 +362,15 @@ export function PublishingPanel({
             <form
               action={deleteAction}
               onSubmit={(event) => {
-                if (!window.confirm(`Permanently delete \"${draft.title}\"? This cannot be undone.`)) {
+                if (!window.confirm(`Remove \"${draft.title}\" from the workspace? Publishing audit evidence will be preserved.`)) {
                   event.preventDefault();
                 }
               }}
             >
               <input type="hidden" name="organisationId" value={organisationId} />
               <input type="hidden" name="id" value={draft.id} />
-              <SubmitButton variant="ghost" className="w-full text-danger hover:bg-danger/5" pendingLabel="Deleting…">
-                Delete Draft Permanently
+              <SubmitButton variant="ghost" className="w-full text-danger hover:bg-danger/5" pendingLabel="Removing…">
+                Remove Draft
               </SubmitButton>
             </form>
           )}
