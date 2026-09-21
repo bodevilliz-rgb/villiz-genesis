@@ -11,7 +11,7 @@ import { PrePublishDialog } from "./pre-publish-dialog";
 import { archiveDraftAction, deleteDraftAction, duplicateDraftAction } from "@/server/actions/content";
 import { createImmediatePublishingJobAction, createScheduledPublishingJobAction } from "@/server/actions/publishing";
 import { idleState } from "@/server/action-result";
-import type { ContentDraft } from "@/core/domain/entities/content";
+import { isContentDraftPermanentlyDeletable, type ContentDraft } from "@/core/domain/entities/content";
 import type { BlotatoAccount } from "@/core/domain/entities/blotato";
 import { mapBlotatoPlatform } from "@/core/domain/entities/blotato";
 import { PUBLISHING_PLATFORM_LABELS, type PublishingIntent } from "@/core/domain/entities/publishing";
@@ -358,7 +358,7 @@ export function PublishingPanel({
             </form>
           )}
 
-          {draft.status === "draft" && (
+          {isContentDraftPermanentlyDeletable(draft.status) && (
             <form
               action={deleteAction}
               onSubmit={(event) => {
