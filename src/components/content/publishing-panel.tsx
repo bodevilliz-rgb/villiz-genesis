@@ -7,7 +7,7 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { PrePublishDialog } from "./pre-publish-dialog";
-import { archiveDraftAction, duplicateDraftAction } from "@/server/actions/content";
+import { archiveDraftAction, deleteDraftAction, duplicateDraftAction } from "@/server/actions/content";
 import { createImmediatePublishingJobAction, createScheduledPublishingJobAction } from "@/server/actions/publishing";
 import { idleState } from "@/server/action-result";
 import type { ContentDraft } from "@/core/domain/entities/content";
@@ -67,11 +67,13 @@ export function PublishingPanel({
   const [scheduleState, scheduleAction, schedulePending] = useActionState(createScheduledPublishingJobAction, idleState);
   const [publishState, publishAction, publishPending] = useActionState(createImmediatePublishingJobAction, idleState);
   const [archiveState, archiveAction] = useActionState(archiveDraftAction, idleState);
+  const [deleteState, deleteAction] = useActionState(deleteDraftAction, idleState);
   const [duplicateState, duplicateAction] = useActionState(duplicateDraftAction, idleState);
 
   useActionToast(scheduleState);
   useActionToast(publishState);
   useActionToast(archiveState);
+  useActionToast(deleteState);
   useActionToast(duplicateState);
 
   // Detected once, from the operator's own browser — a safe, generic default
@@ -340,6 +342,23 @@ export function PublishingPanel({
               <input type="hidden" name="id" value={draft.id} />
               <SubmitButton variant="ghost" className="w-full text-danger hover:bg-danger/5" pendingLabel="Archiving…">
                 Archive Draft
+              </SubmitButton>
+            </form>
+          )}
+
+          {draft.status === "draft" && (
+            <form
+              action={deleteAction}
+              onSubmit={(event) => {
+                if (!window.confirm(`Permanently delete \"${draft.title}\"? This cannot be undone.`)) {
+                  event.preventDefault();
+                }
+              }}
+            >
+              <input type="hidden" name="organisationId" value={organisationId} />
+              <input type="hidden" name="id" value={draft.id} />
+              <SubmitButton variant="ghost" className="w-full text-danger hover:bg-danger/5" pendingLabel="Deleting…">
+                Delete Draft Permanently
               </SubmitButton>
             </form>
           )}

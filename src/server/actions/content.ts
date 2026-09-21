@@ -9,6 +9,7 @@ import {
   scheduleDraft,
   publishDraft,
   archiveDraft,
+  deleteDraft,
   duplicateDraft,
 } from "@/core/application/use-cases/content";
 import { errorState, successState, textOrEmpty, type ActionState } from "../action-result";
@@ -323,6 +324,20 @@ export async function archiveDraftAction(_prev: ActionState, formData: FormData)
 
     revalidateContent(draft.organisationId, draft.id);
     return successState("Content archived.", draft.id);
+  } catch (error) {
+    return errorState(error);
+  }
+}
+
+export async function deleteDraftAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  try {
+    const context = await requireContext();
+    const organisationId = textOrEmpty(formData, "organisationId");
+    const draftId = textOrEmpty(formData, "id");
+
+    await deleteDraft(contentDeps(context), organisationId, draftId);
+    revalidateContent(organisationId);
+    return successState("Draft permanently deleted.");
   } catch (error) {
     return errorState(error);
   }

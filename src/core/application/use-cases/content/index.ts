@@ -239,6 +239,20 @@ export async function archiveDraft(
   return deps.content.updateStatus(organisationId, draftId, "archived", deps.actor.id);
 }
 
+export async function deleteDraft(
+  deps: ContentDeps,
+  organisationId: string,
+  draftId: string
+): Promise<void> {
+  await requireRole(deps, organisationId, canWriteContent);
+  const existing = await deps.content.findDraft(organisationId, draftId);
+  if (!existing) throw new NotFoundError("Draft");
+  if (existing.status !== "draft") {
+    throw new ValidationError("Only unpublished drafts in Draft status can be permanently deleted. Archive other posts instead.");
+  }
+  await deps.content.deleteDraft(organisationId, draftId);
+}
+
 export async function duplicateDraft(
   deps: ContentDeps,
   organisationId: string,

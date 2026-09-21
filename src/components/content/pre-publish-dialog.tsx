@@ -104,15 +104,15 @@ export function PrePublishDialog({ organisationId, draft, open, onOpenChange, on
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
-        <DialogHeader>
+      <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-xl overflow-hidden flex flex-col">
+        <DialogHeader className="shrink-0">
           <DialogTitle>Pre-Publish Review</DialogTitle>
           <DialogDescription>
             Checking platform requirements and analyzing your draft before publishing.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="py-6 flex flex-col gap-4">
+        <div className="min-h-0 overflow-y-auto overscroll-contain px-5 py-6 flex flex-col gap-4">
           {/* Destination summary — shown whenever a channel is selected */}
           {channel && (() => {
             const genesis = mapBlotatoPlatform(channel.platform);
@@ -290,7 +290,7 @@ export function PrePublishDialog({ organisationId, draft, open, onOpenChange, on
           )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="shrink-0 bg-card">
           <Button variant="ghost" size="lg" onClick={() => onOpenChange(false)}>Back to Draft</Button>
           <Button
             variant={report && report.score >= 80 && !liveBlocked ? "primary" : "secondary"}
