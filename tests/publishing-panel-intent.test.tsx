@@ -24,6 +24,7 @@
 
 vi.mock("@/server/actions/content", () => ({
   archiveDraftAction: vi.fn(),
+  deleteDraftAction: vi.fn(),
   duplicateDraftAction: vi.fn(),
 }));
 
