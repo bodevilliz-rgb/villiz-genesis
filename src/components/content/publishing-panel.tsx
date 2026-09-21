@@ -1,5 +1,6 @@
 "use client";
 import { useActionState, useEffect, useState, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -16,6 +17,7 @@ import { mapBlotatoPlatform } from "@/core/domain/entities/blotato";
 import { PUBLISHING_PLATFORM_LABELS, type PublishingIntent } from "@/core/domain/entities/publishing";
 import { convertLocalTimeToUtc, formatInTimeZone, listSupportedTimeZones } from "@/core/domain/entities/scheduling";
 import { formatRelative } from "@/lib/format";
+import { routes } from "@/lib/routes";
 
 function useActionToast(state: { status: "idle" | "success" | "error"; message: string }) {
   useEffect(() => {
@@ -64,6 +66,7 @@ export function PublishingPanel({
   /** Whether the Blotato integration is in live-publishing mode. False = simulation only. */
   isLivePublishing?: boolean;
 }) {
+  const router = useRouter();
   const [scheduleState, scheduleAction, schedulePending] = useActionState(createScheduledPublishingJobAction, idleState);
   const [publishState, publishAction, publishPending] = useActionState(createImmediatePublishingJobAction, idleState);
   const [archiveState, archiveAction] = useActionState(archiveDraftAction, idleState);
@@ -75,6 +78,15 @@ export function PublishingPanel({
   useActionToast(archiveState);
   useActionToast(deleteState);
   useActionToast(duplicateState);
+
+  // A successful permanent delete removes the resource backing this detail
+  // route. Leave immediately so the operator lands on the remaining drafts
+  // instead of seeing the deleted URL's not-found boundary.
+  useEffect(() => {
+    if (deleteState.status === "success") {
+      router.replace(routes.organisations.content.index(organisationId));
+    }
+  }, [deleteState.status, organisationId, router]);
 
   // Detected once, from the operator's own browser — a safe, generic default
   // for every organisation/region with zero client-specific hardcoding.
