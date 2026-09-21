@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { archiveDraft, duplicateDraft, publishDraft, scheduleDraft } from "@/core/application/use-cases/content";
+import { archiveDraft, deleteDraft, duplicateDraft, publishDraft, scheduleDraft } from "@/core/application/use-cases/content";
 import { ForbiddenError, ValidationError, NotFoundError } from "@/core/domain/errors";
 import type { Actor, OrganisationRole } from "@/core/domain/entities/identity";
 import type { ContentDraft, ContentDraftStatus } from "@/core/domain/entities/content";
@@ -75,11 +75,12 @@ function baseDraft(overrides: Partial<ContentDraft> = {}): ContentDraft {
 /** Same minimal in-memory harness pattern as tests/review-workflow.test.ts. */
 function createHarness(input: { draft: ContentDraft; viewerRole: OrganisationRole | null }) {
   let draft = input.draft;
+  let deleted = false;
   const statusHistory: ContentDraftStatus[] = [draft.status];
 
   const content: Partial<ContentRepository> = {
     async findDraft(_organisationId, draftId) {
-      return draftId === draft.id ? draft : null;
+      return !deleted && draftId === draft.id ? draft : null;
     },
     async updateStatus(_organisationId, _draftId, status, updatedBy) {
       draft = { ...draft, status, updatedBy: profileRef(updatedBy, updatedBy) };
@@ -106,6 +107,9 @@ function createHarness(input: { draft: ContentDraft; viewerRole: OrganisationRol
         createdBy: profileRef(createInput.createdBy, createInput.createdBy),
       });
     },
+    async deleteDraft() {
+      deleted = true;
+    },
   };
 
   const organisations: Partial<OrganisationRepository> = {
@@ -123,6 +127,7 @@ function createHarness(input: { draft: ContentDraft; viewerRole: OrganisationRol
     },
     getDraft: () => draft,
     getStatusHistory: () => statusHistory,
+    isDeleted: () => deleted,
   };
 }
 
@@ -217,4 +222,21 @@ describe("archiveDraft / duplicateDraft", () => {
     // The original is untouched — duplicating never mutates the source draft.
     expect(getDraft().status).toBe("approved");
   });
+});
+
+describe("deleteDraft — unpublished drafts only", () => {
+  it("permanently deletes a plain draft", async () => {
+    const { deps, isDeleted } = createHarness({ draft: baseDraft({ status: "draft" }), viewerRole: "contributor" });
+    await deleteDraft(deps, ORG_ID, DRAFT_ID);
+    expect(isDeleted()).toBe(true);
+  });
+
+  it.each(["approved", "scheduled", "publishing", "published", "failed"] as const)(
+    "refuses to delete %s content",
+    async (status) => {
+      const { deps, isDeleted } = createHarness({ draft: baseDraft({ status }), viewerRole: "contributor" });
+      await expect(deleteDraft(deps, ORG_ID, DRAFT_ID)).rejects.toBeInstanceOf(ValidationError);
+      expect(isDeleted()).toBe(false);
+    },
+  );
 });
