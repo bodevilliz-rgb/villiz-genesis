@@ -6,5 +6,5 @@ create policy content_drafts_delete_unpublished
   to authenticated
   using (
     status = 'draft'
-    and public.can_write_org(organisation_id)
+    and app.can_write_org(organisation_id)
   );
