@@ -251,7 +251,7 @@ export async function deleteDraft(
   if (!isContentDraftPermanentlyDeletable(existing.status)) {
     throw new ValidationError("Scheduled, publishing, and published posts cannot be permanently deleted. Cancel scheduled work or archive published posts instead.");
   }
-  await deps.content.deleteDraft(organisationId, draftId);
+  await deps.content.deleteDraft(organisationId, draftId, deps.actor.id);
 }
 
 export async function duplicateDraft(

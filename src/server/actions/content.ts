@@ -337,7 +337,7 @@ export async function deleteDraftAction(_prev: ActionState, formData: FormData):
 
     await deleteDraft(contentDeps(context), organisationId, draftId);
     revalidateContent(organisationId);
-    return successState("Draft permanently deleted.");
+    return successState("Draft removed from the workspace. Its publishing audit record was preserved.");
   } catch (error) {
     return errorState(error);
   }

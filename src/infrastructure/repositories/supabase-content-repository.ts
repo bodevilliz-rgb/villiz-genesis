@@ -80,6 +80,7 @@ export class SupabaseContentRepository implements ContentRepository {
       .from("content_drafts")
       .select(DRAFT_SELECT)
       .eq("organisation_id", input.organisationId)
+      .is("deleted_at", null)
       .order("updated_at", { ascending: false })
       .range(input.offset, input.offset + input.limit - 1);
 
@@ -102,6 +103,7 @@ export class SupabaseContentRepository implements ContentRepository {
           .from("content_drafts")
           .select("id", { count: "exact", head: true })
           .eq("organisation_id", organisationId)
+          .is("deleted_at", null)
           .eq("status", status);
 
         if (campaignId) query = query.eq("campaign_id", campaignId);
@@ -121,6 +123,7 @@ export class SupabaseContentRepository implements ContentRepository {
       .select(DRAFT_SELECT)
       .eq("organisation_id", organisationId)
       .eq("id", draftId)
+      .is("deleted_at", null)
       .maybeSingle();
 
     if (error) translateError(error, "Draft");
@@ -219,10 +222,14 @@ export class SupabaseContentRepository implements ContentRepository {
     return toDraft(unwrap(result, "Draft") as unknown as DraftRowWithRelations);
   }
 
-  async deleteDraft(organisationId: string, draftId: string): Promise<void> {
+  async deleteDraft(organisationId: string, draftId: string, deletedBy: string): Promise<void> {
     const result = await this.client
       .from("content_drafts")
-      .delete()
+      .update({
+        deleted_at: new Date().toISOString(),
+        deleted_by: deletedBy,
+        updated_by: deletedBy,
+      })
       .eq("id", draftId)
       .eq("organisation_id", organisationId)
       .select("id")
@@ -328,6 +335,7 @@ export class SupabaseContentRepository implements ContentRepository {
     let query = this.client
       .from("content_drafts")
       .select(DRAFT_SELECT)
+      .is("deleted_at", null)
       .order("updated_at", { ascending: false })
       .limit(input.limit);
 
