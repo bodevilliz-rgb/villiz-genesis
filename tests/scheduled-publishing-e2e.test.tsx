@@ -64,6 +64,10 @@ vi.mock("@/server/actions/content", () => ({
   duplicateDraftAction: vi.fn(),
 }));
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: vi.fn() }),
+}));
+
 vi.mock("@/server/actions/publish", () => ({
   runPrePublishReviewAction: vi.fn(async () => ({
     score: 92,
