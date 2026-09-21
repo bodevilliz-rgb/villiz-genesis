@@ -219,6 +219,17 @@ export class SupabaseContentRepository implements ContentRepository {
     return toDraft(unwrap(result, "Draft") as unknown as DraftRowWithRelations);
   }
 
+  async deleteDraft(organisationId: string, draftId: string): Promise<void> {
+    const { error } = await this.client
+      .from("content_drafts")
+      .delete()
+      .eq("id", draftId)
+      .eq("organisation_id", organisationId)
+      .eq("status", "draft");
+
+    if (error) translateError(error, "Draft deletion");
+  }
+
   async annotateLatestVersion(draftId: string, changeSummary: string): Promise<void> {
     const { data, error } = await this.client
       .from("content_draft_versions")
