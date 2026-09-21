@@ -220,14 +220,18 @@ export class SupabaseContentRepository implements ContentRepository {
   }
 
   async deleteDraft(organisationId: string, draftId: string): Promise<void> {
-    const { error } = await this.client
+    const result = await this.client
       .from("content_drafts")
       .delete()
       .eq("id", draftId)
       .eq("organisation_id", organisationId)
-      .eq("status", "draft");
+      .select("id")
+      .maybeSingle();
 
-    if (error) translateError(error, "Draft deletion");
+    // PostgREST can return success with zero affected rows (for example when
+    // an obsolete filter or RLS rule excludes the target). Requiring the
+    // deleted row prevents Genesis from ever reporting a false success.
+    unwrap(result, "Draft deletion");
   }
 
   async annotateLatestVersion(draftId: string, changeSummary: string): Promise<void> {
