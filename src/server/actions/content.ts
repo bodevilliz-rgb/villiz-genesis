@@ -9,6 +9,7 @@ import {
   scheduleDraft,
   publishDraft,
   archiveDraft,
+  restoreArchivedDraft,
   deleteDraft,
   duplicateDraft,
 } from "@/core/application/use-cases/content";
@@ -324,6 +325,20 @@ export async function archiveDraftAction(_prev: ActionState, formData: FormData)
 
     revalidateContent(draft.organisationId, draft.id);
     return successState("Content archived.", draft.id);
+  } catch (error) {
+    return errorState(error);
+  }
+}
+
+export async function restoreArchivedDraftAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  try {
+    const context = await requireContext();
+    const organisationId = textOrEmpty(formData, "organisationId");
+    const draftId = textOrEmpty(formData, "id");
+
+    const draft = await restoreArchivedDraft(contentDeps(context), organisationId, draftId);
+    revalidateContent(draft.organisationId, draft.id);
+    return successState("Post restored to the published workspace.", draft.id);
   } catch (error) {
     return errorState(error);
   }
