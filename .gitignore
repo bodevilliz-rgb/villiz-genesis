@@ -26,3 +26,7 @@ supabase/.branches
 reports/reliability/latest.json
 reports/reliability/latest.md
 .env*
+
+# Task worktrees live in .worktrees/<id> — separate checkouts of this same
+# repo, never part of this repo's working copy itself.
+.worktrees
