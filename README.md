@@ -64,7 +64,7 @@ src/
     container.ts            Composition root (request-scoped, React-cached)
     actions/                Server Actions — the only mutation entry points
   lib/                      Framework-agnostic helpers (routes, format, env)
-supabase/migrations/        67 migrations, ordered, idempotent-safe
+supabase/migrations/        76 migrations, ordered, idempotent-safe
 ```
 
 **The dependency rule:** `app` → `server` → `core` ← `infrastructure`.
@@ -79,7 +79,7 @@ in place of a repository, the boundary has been broken.
 npm install
 cp .env.example .env.local        # then fill in the values
 npx supabase link --project-ref <your-project-ref>
-npx supabase db push              # applies all 67 migrations
+npx supabase db push              # applies all migrations in filename order
 npm run dev                       # http://localhost:3001
 ```
 
@@ -169,10 +169,17 @@ broken every MemBrain search in production. All are documented in
 exchange and middleware redirects need a manual pass on a real Supabase project.
 Everything else about auth is proven at the database layer.
 
-**Sprint 2 is in progress.** Content Studio, Campaign Manager, Publishing Queue, and Media Library migrations are present in `supabase/migrations/` (through `20260831161000_awo_campaign_jobs.sql` and later). Navigation entries for these features are visible but disabled, so the shape
-of the product is legible from day one without pretending the features exist.
+**The sprint-1 gate table above is a 2026-09 snapshot of that report, not the
+current state.**
 
-The schema is larger than Sprint 1's ten now — 67 migrations current, including
-the AWO campaign/distribution work and the September publishing-settlement
-hardening. [`docs/DATABASE.md`](docs/DATABASE.md) is the live schema reference.
+**Sprint 2 shipped.** Content Studio (drafts, approval gates), Campaign Manager,
+the Publishing Queue, and the Media Library are live features behind real
+routes, server actions and RLS — not stubs with disabled navigation. September's
+publishing-settlement hardening (atomic canary operations), safe draft deletion
+with RLS/policy alignment, and archived-post restore are merged on main.
 
+The schema is larger than Sprint 1's ten now — 76 migrations current, including
+the AWO campaign/distribution work, the September publishing-settlement
+hardening, and the Render-API live-publish settlement migration.
+[`docs/DATABASE.md`](docs/DATABASE.md) is the live schema reference, and
+`supabase/migrations/` is the authority on the current count.
