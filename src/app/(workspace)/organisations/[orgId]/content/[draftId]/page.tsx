@@ -17,7 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { canEditOrganisation, canWriteContent } from "@/core/domain/entities/identity";
 import { isContentDraftLocked } from "@/core/domain/entities/content";
-import { blotatoConfig } from "@/infrastructure/blotato/blotato-config";
+import { blotatoConfigAsync } from "@/infrastructure/blotato/blotato-config";
 import { routes } from "@/lib/routes";
 import type { CampaignPlatform } from "@/core/domain/entities/campaign";
 
@@ -63,7 +63,7 @@ export default async function DraftDetailPage({
       context.blotatoAccounts.listActiveForOrganisation(orgId).catch(() => []),
     ]);
 
-  const isLivePublishing = blotatoConfig().livePublishingEnabled;
+  const isLivePublishing = (await blotatoConfigAsync()).livePublishingEnabled;
 
   const signedUrls: Record<string, string> = {};
   for (const asset of allAssets) {
