@@ -154,9 +154,9 @@ exactly the same RLS as the interface. There is no service-role path.
 **Sprint 1 is verified.** Authentication, Dashboard, Organisation Management,
 MemBrain v1.
 
-| Gate | Result |
+| Gate (Sprint 1 report, 2026-09 snapshot) | Result |
 | --- | --- |
-| 10 migrations, replayed from zero | pass |
+| Sprint 1's 10 migrations, replayed from zero | pass |
 | 77 SQL assertions across 7 suites | pass |
 | 22 Vitest assertions | pass |
 | `typecheck` · `lint` · `build` | pass |
@@ -171,4 +171,8 @@ Everything else about auth is proven at the database layer.
 
 **Sprint 2 is in progress.** Content Studio, Campaign Manager, Publishing Queue, and Media Library migrations are present in `supabase/migrations/` (through `20260831161000_awo_campaign_jobs.sql` and later). Navigation entries for these features are visible but disabled, so the shape
 of the product is legible from day one without pretending the features exist.
+
+The schema is larger than Sprint 1's ten now — 67 migrations current, including
+the AWO campaign/distribution work and the September publishing-settlement
+hardening. [`docs/DATABASE.md`](docs/DATABASE.md) is the live schema reference.
 
