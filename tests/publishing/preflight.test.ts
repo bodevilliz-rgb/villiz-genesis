@@ -115,6 +115,7 @@ function makeDeps(overrides: {
     getLatestGenerationRequest: vi.fn(),
     listDraftsForActor: vi.fn(),
     listRecentActivityForActor: vi.fn(),
+    deleteDraft: vi.fn(),
   };
 
   if (overrides.findDraftError) {
