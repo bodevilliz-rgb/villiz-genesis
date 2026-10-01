@@ -80,8 +80,7 @@ export async function runProviderConfirmationPass(
     return { status: "unresolved", jobId: job.id, reason: "missing_submission_id" };
   }
 
-  const attempts = await deps.publishing.listAttemptsForJob(job.organisationId, job.id);
-  const lastAttempt = attempts[attempts.length - 1];
+  const lastAttempt = await deps.publishing.findLatestAttemptForJob(job.organisationId, job.id);
   const submissionId = findSubmissionId(lastAttempt?.providerMetadata);
 
   if (!lastAttempt || !submissionId) {
@@ -101,6 +100,11 @@ export async function runProviderConfirmationPass(
   }
 
   const status = await deps.blotatoClient.getPostStatus(submissionId);
+
+  if (status.postSubmissionId !== submissionId) {
+    throw new Error("Provider response does not match the recorded submission receipt.");
+  }
+
 
   if (status.status === "published") {
     // The awaiting attempt is NOT terminal (the DB's
@@ -156,8 +160,7 @@ export async function runProviderConfirmationPass(
       errorMessage,
       providerMetadata: { ...lastAttempt.providerMetadata, confirmedAfterAwaiting: true },
     });
-    await deps.publishing.markJobFailed(job.id);
-    await deps.content.updateStatus(job.organisationId, job.draftId, "failed", job.requestedBy || "");
+    // failAttempt atomically settles this confirmed receipt, job and draft.
 
     await deps.audits.recordEvent({
       organisationId: job.organisationId,

@@ -1,16 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCampaignPublicationPoll } from "./use-campaign-publication-poll";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
 type Slot = { platformLabel:string; status:string; draftStatus:string|null };
 
 export function CampaignPublicationLiveCard({ weekNumber, scheduledDate, scheduledTime, timezone, slots, optimisedCount, approvedCount, onOptimise }: { weekNumber:number; scheduledDate:string; scheduledTime:string; timezone:string; slots:Slot[]; optimisedCount:number; approvedCount:number; onOptimise:React.ReactNode }) {
-  const router = useRouter();
   const [now, setNow] = useState(() => Date.now());
-  useEffect(() => { const tick = window.setInterval(() => setNow(Date.now()), 1000); const refresh = window.setInterval(() => router.refresh(), 15000); return () => { clearInterval(tick); clearInterval(refresh); }; }, [router]);
+  useEffect(() => { const tick = window.setInterval(() => setNow(Date.now()), 1000); return () => { clearInterval(tick); }; }, []);
   const target = useMemo(() => zonedWallTimeToUtc(scheduledDate, scheduledTime, timezone), [scheduledDate, scheduledTime, timezone]);
   const delta = target - now;
   const allPublished = slots.length > 0 && slots.every(s => s.status === "published" || s.draftStatus === "published");
@@ -18,6 +17,9 @@ export function CampaignPublicationLiveCard({ weekNumber, scheduledDate, schedul
   const anyPublishing = slots.some(s => s.draftStatus === "publishing" || s.status === "publishing" || s.status === "processing");
   const fullyOptimised = optimisedCount >= slots.length;
   const fullyApproved = approvedCount >= slots.length;
+  const blocked = slots.some(s => ["blocked", "cancelled", "canceled"].includes(s.status) || ["blocked", "cancelled", "canceled"].includes(s.draftStatus ?? ""));
+  useCampaignPublicationPoll(!allPublished && !anyFailed && !blocked && slots.length > 0 &&
+    (anyPublishing || (fullyOptimised && fullyApproved && delta <= 60_000)));
   let label = "Scheduled"; let detail = delta > 0 ? `Due in ${formatDuration(delta)}` : "Due now"; let tone: "positive"|"muted"|"accent"|"neutral" = "muted";
   if (allPublished) { label = "Published"; detail = "Provider publication confirmed"; tone = "positive"; }
   else if (anyFailed) { label = "Failed"; detail = "One or more platform posts failed"; tone = "accent"; }
@@ -34,7 +36,7 @@ export function CampaignPublicationLiveCard({ weekNumber, scheduledDate, schedul
     <div className="mt-4 grid grid-cols-2 gap-2">{slots.map(slot => <div key={slot.platformLabel} className="rounded-md border border-border bg-background/60 p-3"><p className="text-xs font-semibold">{slot.platformLabel}</p><p className="mt-1 text-[11px] text-muted-foreground">{slot.draftStatus ?? slot.status}</p></div>)}</div>
     <div className="mt-5">{onOptimise}</div>
     {fullyApproved ? <Button size="sm" variant="secondary" className="mt-3" disabled>Week approved</Button> : <Button size="sm" variant="secondary" className="mt-3" asChild><a href="#campaign-review">Review posts before approval</a></Button>}
-    <p className="mt-3 text-[11px] text-muted-foreground">Approval is completed per platform post in the campaign review workspace. This panel refreshes publication state every 15 seconds.</p>
+    <p className="mt-3 text-[11px] text-muted-foreground">Approval is completed per platform post in the campaign review workspace. Active publication state refreshes periodically for a limited time. Reload to check again.</p>
   </div>;
 }
 

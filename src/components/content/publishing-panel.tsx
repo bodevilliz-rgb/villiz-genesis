@@ -1,5 +1,6 @@
 "use client";
 import { useActionState, useEffect, useState, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -7,15 +8,16 @@ import { SubmitButton } from "@/components/ui/submit-button";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { PrePublishDialog } from "./pre-publish-dialog";
-import { archiveDraftAction, duplicateDraftAction } from "@/server/actions/content";
+import { archiveDraftAction, deleteDraftAction, duplicateDraftAction } from "@/server/actions/content";
 import { createImmediatePublishingJobAction, createScheduledPublishingJobAction } from "@/server/actions/publishing";
 import { idleState } from "@/server/action-result";
-import type { ContentDraft } from "@/core/domain/entities/content";
+import { isContentDraftPermanentlyDeletable, type ContentDraft } from "@/core/domain/entities/content";
 import type { BlotatoAccount } from "@/core/domain/entities/blotato";
 import { mapBlotatoPlatform } from "@/core/domain/entities/blotato";
 import { PUBLISHING_PLATFORM_LABELS, type PublishingIntent } from "@/core/domain/entities/publishing";
 import { convertLocalTimeToUtc, formatInTimeZone, listSupportedTimeZones } from "@/core/domain/entities/scheduling";
 import { formatRelative } from "@/lib/format";
+import { routes } from "@/lib/routes";
 
 function useActionToast(state: { status: "idle" | "success" | "error"; message: string }) {
   useEffect(() => {
@@ -64,15 +66,27 @@ export function PublishingPanel({
   /** Whether the Blotato integration is in live-publishing mode. False = simulation only. */
   isLivePublishing?: boolean;
 }) {
+  const router = useRouter();
   const [scheduleState, scheduleAction, schedulePending] = useActionState(createScheduledPublishingJobAction, idleState);
   const [publishState, publishAction, publishPending] = useActionState(createImmediatePublishingJobAction, idleState);
   const [archiveState, archiveAction] = useActionState(archiveDraftAction, idleState);
+  const [deleteState, deleteAction] = useActionState(deleteDraftAction, idleState);
   const [duplicateState, duplicateAction] = useActionState(duplicateDraftAction, idleState);
 
   useActionToast(scheduleState);
   useActionToast(publishState);
   useActionToast(archiveState);
+  useActionToast(deleteState);
   useActionToast(duplicateState);
+
+  // A successful removal hides the resource backing this detail
+  // route. Leave immediately so the operator lands on the remaining drafts
+  // instead of seeing the deleted URL's not-found boundary.
+  useEffect(() => {
+    if (deleteState.status === "success") {
+      router.replace(routes.organisations.content.index(organisationId));
+    }
+  }, [deleteState.status, organisationId, router]);
 
   // Detected once, from the operator's own browser — a safe, generic default
   // for every organisation/region with zero client-specific hardcoding.
@@ -353,6 +367,23 @@ export function PublishingPanel({
               <input type="hidden" name="id" value={draft.id} />
               <SubmitButton variant="ghost" className="w-full text-danger hover:bg-danger/5" pendingLabel="Archiving…">
                 Archive Draft
+              </SubmitButton>
+            </form>
+          )}
+
+          {isContentDraftPermanentlyDeletable(draft.status) && (
+            <form
+              action={deleteAction}
+              onSubmit={(event) => {
+                if (!window.confirm(`Remove \"${draft.title}\" from the workspace? Publishing audit evidence will be preserved.`)) {
+                  event.preventDefault();
+                }
+              }}
+            >
+              <input type="hidden" name="organisationId" value={organisationId} />
+              <input type="hidden" name="id" value={draft.id} />
+              <SubmitButton variant="ghost" className="w-full text-danger hover:bg-danger/5" pendingLabel="Removing…">
+                Remove Draft
               </SubmitButton>
             </form>
           )}

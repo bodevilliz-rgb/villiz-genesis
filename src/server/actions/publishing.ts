@@ -7,6 +7,7 @@ import {
   createScheduledPublishingJob,
   generateIdempotencyKey,
   retryFailedPublishingJob,
+  reconcileBlotatoStatusTimeout,
 } from "@/core/application/use-cases/publishing";
 import { checkPublishingPreflight } from "@/core/application/use-cases/publishing/preflight";
 import type { CommercialDisclosure } from "@/core/domain/entities/publishing-preflight";
@@ -357,6 +358,30 @@ export async function cancelPublishingJobAction(_prev: ActionState, formData: Fo
 
     revalidatePublishing(organisationId, draftId);
     return successState("Publishing job cancelled.", job.id);
+  } catch (error) {
+    return errorState(error);
+  }
+}
+
+/** Explicit operator recovery: checks only the already recorded submission. */
+export async function reconcilePublishingJobAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  try {
+    const context = await requireContext();
+    const organisationId = textOrEmpty(formData, "organisationId");
+    const jobId = textOrEmpty(formData, "jobId");
+    const result = await reconcileBlotatoStatusTimeout(
+      { ...publishingDeps(context), blotatoClient: { getPostStatus: (id) => context.blotatoClient.getPostStatus(id) } },
+      organisationId, jobId,
+    );
+    revalidatePublishing(organisationId, result.job.draftId);
+    revalidatePath(routes.organisations.publishing.index(organisationId));
+    revalidatePath(routes.organisations.publishing.job(organisationId, jobId));
+    const messages = {
+      published: "Provider confirmed this post was published.",
+      confirmed_failed: "Provider confirmed this post failed.",
+      still_processing: "Provider status is still pending. You can check again later.",
+    };
+    return successState(messages[result.outcome], result.job.id);
   } catch (error) {
     return errorState(error);
   }

@@ -66,7 +66,7 @@ type PendingApplication = { variant: EngagementVariant; caption: string };
 export function EngagementIntelligencePanel({ organisationId, draftId, currentDraftVersion, initialPlatform, initialRecommendation, initialLearningOverview, initialDraftBody, initialDraftHashtags, draftLocked, canWrite }: { organisationId: string; draftId: string; currentDraftVersion: number; initialPlatform: CampaignPlatform; initialRecommendation: EngagementRecommendation | null; initialLearningOverview: EngagementLearningOverview; initialDraftBody: string; initialDraftHashtags: string[]; draftLocked: boolean; canWrite: boolean }) {
   const router = useRouter();
   const [platform, setPlatform] = useState<CampaignPlatform>(initialRecommendation?.platform ?? initialPlatform);
-  const [objective, setObjective] = useState("");
+  const [objective, setObjective] = useState(initialRecommendation?.objective ?? "");
   const [objectiveType, setObjectiveType] = useState<EngagementObjectiveType>(initialRecommendation?.objectiveType ?? "engagement");
   const [commercialIntent, setCommercialIntent] = useState<CommercialIntent>(initialRecommendation?.strategyMetadata?.commercialIntent ?? "engage");
   const [culturalVoiceLevel, setCulturalVoiceLevel] = useState<CulturalVoiceLevel>(initialRecommendation?.strategyMetadata?.culturalVoiceLevel ?? "conversational");
@@ -103,6 +103,10 @@ export function EngagementIntelligencePanel({ organisationId, draftId, currentDr
       setEffectiveDraftVersion(result.recommendation.draftVersion);
       setEditedCaption("");
       setPendingApplication(null);
+      // The Review panel is server-rendered and independently evaluates the
+      // current-version recommendation. Refresh it immediately so approval
+      // cannot remain blocked on the pre-generation 0/100 state.
+      router.refresh();
       toast.success("Engagement recommendation generated and recorded.");
     });
   }
@@ -225,7 +229,16 @@ export function EngagementIntelligencePanel({ organisationId, draftId, currentDr
     || distributionBlockers.length > 0;
   const distributionReadinessScore = visibilityPlan?.distributionReadinessScore ?? 0;
   const appliedToCurrentVersion = Boolean(recommendation && learningOverview.latestFeedback?.recommendationId === recommendation.id && learningOverview.latestFeedback.appliedDraftVersion === effectiveDraftVersion);
-  const isStale = recommendation ? recommendation.draftVersion !== effectiveDraftVersion && !appliedToCurrentVersion : false;
+  const recommendationSettingsChanged = Boolean(recommendation && (
+    platform !== recommendation.platform
+    || objectiveType !== recommendation.objectiveType
+    || objective.trim() !== (recommendation.objective ?? "").trim()
+    || commercialIntent !== (recommendation.strategyMetadata?.commercialIntent ?? "engage")
+    || culturalVoiceLevel !== (recommendation.strategyMetadata?.culturalVoiceLevel ?? "conversational")
+  ));
+  const isStale = recommendation
+    ? recommendationSettingsChanged || (recommendation.draftVersion !== effectiveDraftVersion && !appliedToCurrentVersion)
+    : false;
 
   return (
     <Card>
@@ -360,7 +373,9 @@ export function EngagementIntelligencePanel({ organisationId, draftId, currentDr
           <div className="grid gap-3 border-t border-border pt-4" aria-live="polite">
             {isStale ? (
               <div className="rounded-md border border-danger/30 bg-danger-soft p-3 text-[12px] text-danger">
-                This recommendation used draft v{recommendation.draftVersion}; the current draft is v{effectiveDraftVersion}. Generate a new recommendation before applying it.
+                {recommendationSettingsChanged
+                  ? "The platform or objective settings changed after this recommendation was generated. Generate a new recommendation before applying it."
+                  : `This recommendation used draft v${recommendation.draftVersion}; the current draft is v${effectiveDraftVersion}. Generate a new recommendation before applying it.`}
               </div>
             ) : null}
             {draftLocked ? <div className="rounded-md border border-warning/30 bg-warning-soft p-3 text-[12px] text-warning">This draft is locked. Reopen it before applying a recommendation.</div> : null}

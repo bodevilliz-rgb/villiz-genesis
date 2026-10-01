@@ -225,6 +225,8 @@ export type ContentDraftRow = {
   priority: string;
   review_deadline: string | null;
   hashtags: string[];
+  deleted_at: string | null;
+  deleted_by: string | null;
 };
 
 export type ContentGenerationRequestRow = {
@@ -741,6 +743,7 @@ export type PublishingJobRow = {
   cancelled_at: string | null;
   claimed_by: string | null;
   claimed_at: string | null;
+  pre_submission_recovery: boolean;
   dev_simulation_mode: PublishingSimulationModeDb | null;
   resolved_account_id: string | null;
   is_ai_generated: boolean | null;
@@ -1019,6 +1022,7 @@ export type Database = {
           Fk<"content_drafts_campaign_id_fkey", "campaign_id", "campaigns">,
           Fk<"content_drafts_category_id_fkey", "category_id", "membrain_categories">,
           Fk<"content_drafts_created_by_fkey", "created_by", "profiles">,
+          Fk<"content_drafts_deleted_by_fkey", "deleted_by", "profiles">,
           Fk<"content_drafts_organisation_id_fkey", "organisation_id", "organisations">,
           Fk<"content_drafts_updated_by_fkey", "updated_by", "profiles">,
         ]
@@ -1254,6 +1258,44 @@ export type Database = {
       organisation_usage_snapshot: View<UsageSnapshotRow>;
     };
     Functions: {
+      enqueue_immediate_publishing_job: {
+        Args: {
+          p_organisation_id: string;
+          p_draft_id: string;
+          p_expected_draft_version: number;
+          p_platform: PublishingPlatformDb;
+          p_idempotency_key: string;
+          p_requested_by: string;
+          p_max_retries: number;
+          p_dev_simulation_mode: PublishingSimulationModeDb | null;
+          p_resolved_account_id: string | null;
+          p_execution_mode: PublishingExecutionModeDb;
+          p_is_ai_generated: boolean | null;
+          p_is_your_brand: boolean | null;
+          p_is_branded_content: boolean | null;
+        };
+        Returns: unknown;
+      };
+      rotate_publishing_worker_generation: {
+        Args: {
+          p_expected_generation_id: string;
+          p_new_generation_id: string;
+          p_capability_proof_sha256: string;
+          p_valid_until: string;
+        };
+        Returns: unknown;
+      };
+      rollback_publishing_worker_generation: {
+        Args: {
+          p_failed_generation_id: string;
+          p_previous_generation_id: string;
+        };
+        Returns: unknown;
+      };
+      get_media_library_stats: {
+        Args: { p_organisation_id: string };
+        Returns: { total_assets: number; image_count: number; video_count: number; total_storage_bytes: number }[];
+      };
       admin_set_staff_profile: {
         Args: { p_actor_id: string; p_profile_id: string; p_full_name: string; p_role: PlatformRoleDb; p_is_active: boolean };
         Returns: ProfileRow;
@@ -1313,6 +1355,35 @@ export type Database = {
         Args: { p_consumer: string; p_limit?: number | null; p_lease_seconds?: number | null };
         Returns: ClaimAutomationEventRow[];
       };
+      claim_pre_submission_publishing_job: {
+        Args: { p_worker_id: string };
+        Returns: unknown;
+      };
+      settle_failed_publishing_claim: {
+        Args: { p_job_id: string; p_worker_id: string; p_error_code: string; p_error_message: string };
+        Returns: boolean;
+      };
+      begin_publishing_submission: {
+        Args: { p_job_id: string; p_attempt_id: string; p_worker_id: string };
+        Returns: unknown;
+      };
+      reconcile_failed_publishing_timeout: {
+        Args: {
+          p_outcome?: string;
+          p_error_message?: string;
+          p_organisation_id: string;
+          p_job_id: string;
+          p_attempt_id: string;
+          p_post_submission_id: string;
+          p_external_url: string;
+          p_actor_id: string;
+        };
+        Returns: unknown;
+      };
+      settle_publishing_receipt: {
+        Args: { p_attempt_id: string; p_outcome: string; p_metadata: Json; p_external_post_id: string | null; p_external_url: string | null };
+        Returns: unknown;
+      };
       claim_next_publishing_job: {
         Args: {
           p_worker_id: string;
@@ -1366,6 +1437,7 @@ export type Database = {
           p_new_status: ContentDraftStatusDb;
           p_assigned_reviewer_id: string;
           p_comment: string;
+          p_expected_version: number;
         };
         Returns: unknown;
       };

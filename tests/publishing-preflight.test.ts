@@ -148,7 +148,9 @@ function makePollDeps(overrides: Record<string, unknown> = {}) {
     deps: {
       publishing: {
         // Return the job once, then null so pollOnce's for(;;) exits cleanly.
+        recoverStaleJobs: vi.fn().mockResolvedValue([]),
         claimNextJob: vi.fn().mockResolvedValueOnce(job).mockResolvedValue(null),
+        findLatestAttemptForJob: vi.fn(async () => null),
         listAttemptsForJob: vi.fn(async () => []),
         createAttempt: vi.fn(async () => attempt),
         startAttempt: vi.fn(async () => ({ ...attempt })),
@@ -842,7 +844,9 @@ function makeTikTokJobPollDeps(isAiGenerated: boolean | null) {
   const { deps } = makePollDeps({
     blotatoLivePublishingEnabled: true,
     publishing: {
+      recoverStaleJobs: vi.fn().mockResolvedValue([]),
       claimNextJob: vi.fn().mockResolvedValueOnce(job).mockResolvedValue(null),
+      findLatestAttemptForJob: vi.fn(async () => null),
       listAttemptsForJob: vi.fn(async () => []),
       createAttempt: vi.fn(async () => attempt),
       startAttempt: vi.fn(async () => ({ ...attempt })),

@@ -16,6 +16,7 @@ import type { EngagementObjectiveType } from "@/core/domain/entities/engagement"
 export interface EngagementRepository {
   create(input: EngagementRecommendationWriteModel): Promise<EngagementRecommendation>;
   findLatest(organisationId: string, draftId: string): Promise<EngagementRecommendation | null>;
+  findLatestForDraftVersion(organisationId: string, draftId: string, draftVersion: number): Promise<EngagementRecommendation | null>;
   findById?(organisationId: string, recommendationId: string): Promise<EngagementRecommendation | null>;
   createFeedback?(input: EngagementFeedbackWriteModel): Promise<EngagementFeedbackEvent>;
   applyRecommendation?(input: Omit<EngagementFeedbackWriteModel, "action" | "reason" | "createdBy">): Promise<EngagementApplicationResult>;

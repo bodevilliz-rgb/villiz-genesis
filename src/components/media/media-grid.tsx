@@ -170,7 +170,8 @@ export function MediaGrid({ organisationId, initialItems, initialSignedUrls, ini
         <>
           <div className="grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
             {items.map((asset) => {
-              const signedUrl = signedUrls[asset.storagePath];
+              const previewPath = asset.thumbnailPath;
+              const signedUrl = previewPath ? signedUrls[previewPath] : undefined;
               const isImg = asset.mimeType.startsWith("image/");
 
               return (
@@ -184,7 +185,7 @@ export function MediaGrid({ organisationId, initialItems, initialSignedUrls, ini
                       /* eslint-disable-next-line @next/next/no-img-element */
                       <img
                         src={signedUrl}
-                        alt={asset.altText || asset.title || asset.fileName || "Media asset preview"}
+                        alt={asset.altText || asset.title || asset.fileName || "Media asset thumbnail"}
                         className="size-full object-cover transition-transform group-hover:scale-105"
                         loading="lazy"
                       />

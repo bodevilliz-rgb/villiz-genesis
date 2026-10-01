@@ -40,11 +40,31 @@ const READY_CONFIDENCE_THRESHOLD = 80;
  * never a compound message. Exported so the status gate can be tested
  * independently of the full orchestrator.
  */
-export function computePromptReadyReasons(hasBrandDescription: boolean, hasDraftBody: boolean): string[] {
+export function computePromptReadyReasons(
+  hasBrandDescription: boolean,
+  hasDraftBody: boolean,
+  missingSourceMessage = "Save some draft body text before generation readiness can be completed.",
+): string[] {
   const reasons: string[] = [];
   if (!hasBrandDescription) reasons.push("An active Brand Description entry is required in MemBrain.");
-  if (!hasDraftBody) reasons.push("Save some draft body text before generation readiness can be completed.");
+  if (!hasDraftBody) reasons.push(missingSourceMessage);
   return reasons;
+}
+
+/** Shared fail-closed minimum used by every Awo generation surface. */
+export function assessGenerationMinimumContext(input: {
+  hasBrandDescription: boolean;
+  sourceText: string;
+}): { status: "ready_for_awo" | "needs_attention"; missingContext: string[] } {
+  const missingContext = computePromptReadyReasons(
+    input.hasBrandDescription,
+    input.sourceText.trim().length > 0,
+    "Source content is required before Awo can generate.",
+  );
+  return {
+    status: missingContext.length === 0 ? "ready_for_awo" : "needs_attention",
+    missingContext,
+  };
 }
 
 /**

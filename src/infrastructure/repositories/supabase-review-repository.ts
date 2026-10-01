@@ -57,6 +57,7 @@ export class SupabaseReviewRepository implements ReviewRepository {
     newStatus: ContentDraftStatus | null;
     assignedReviewerId: string | null;
     comment: string | null;
+    expectedDraftVersion: number | null;
   }) {
     const { error: rpcError } = await this.client.rpc("perform_content_draft_review", {
       p_draft_id: input.draftId,
@@ -69,6 +70,7 @@ export class SupabaseReviewRepository implements ReviewRepository {
       p_new_status: input.newStatus as ContentDraftStatusDb,
       p_assigned_reviewer_id: input.assignedReviewerId as string,
       p_comment: input.comment as string,
+      p_expected_version: input.expectedDraftVersion as number,
     });
 
     if (rpcError) translateError(rpcError, "Review decision");

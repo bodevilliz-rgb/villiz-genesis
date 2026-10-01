@@ -2,6 +2,7 @@ import { ForbiddenError, NotFoundError, ValidationError } from "@/core/domain/er
 import type { Actor, OrganisationRole } from "@/core/domain/entities/identity";
 import { canWriteContent } from "@/core/domain/entities/identity";
 import {
+  isContentDraftPermanentlyDeletable,
   isContentDraftLocked,
   type ContentDraft,
   type ContentDraftVersion,
@@ -237,6 +238,38 @@ export async function archiveDraft(
   const existing = await deps.content.findDraft(organisationId, draftId);
   if (!existing) throw new NotFoundError("Draft");
   return deps.content.updateStatus(organisationId, draftId, "archived", deps.actor.id);
+}
+
+export async function restoreArchivedDraft(
+  deps: ContentDeps,
+  organisationId: string,
+  draftId: string,
+  restoreStatus: "draft" | "published",
+): Promise<ContentDraft> {
+  await requireRole(deps, organisationId, canWriteContent);
+  const existing = await deps.content.findDraft(organisationId, draftId);
+  if (!existing) throw new NotFoundError("Draft");
+  if (existing.status !== "archived") {
+    throw new ValidationError("Only archived posts can be restored.");
+  }
+
+  // The server derives this from immutable publishing jobs. A post that
+  // reached a provider is restored as published, never as publishable work.
+  return deps.content.updateStatus(organisationId, draftId, restoreStatus, deps.actor.id);
+}
+
+export async function deleteDraft(
+  deps: ContentDeps,
+  organisationId: string,
+  draftId: string
+): Promise<void> {
+  await requireRole(deps, organisationId, canWriteContent);
+  const existing = await deps.content.findDraft(organisationId, draftId);
+  if (!existing) throw new NotFoundError("Draft");
+  if (!isContentDraftPermanentlyDeletable(existing.status)) {
+    throw new ValidationError("Scheduled, publishing, and published posts cannot be permanently deleted. Cancel scheduled work or archive published posts instead.");
+  }
+  await deps.content.deleteDraft(organisationId, draftId, deps.actor.id);
 }
 
 export async function duplicateDraft(

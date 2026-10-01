@@ -4,8 +4,8 @@ import { History } from "lucide-react";
 import { requireContext } from "@/server/container";
 import { getDraft, getLatestGenerationRequest } from "@/core/application/use-cases/content";
 import { getGenerationReadiness } from "@/core/application/use-cases/generation";
-import { assessCriticalApprovalBlockers, getEngagementLearningOverview, getLatestEngagementRecommendation } from "@/core/application/use-cases/engagement";
-import { getReviewHistory, listEligibleReviewers } from "@/core/application/use-cases/review";
+import { assessRecommendationDistributionEligibility, getCurrentEngagementRecommendation, getEngagementLearningOverview, getLatestEngagementRecommendation } from "@/core/application/use-cases/engagement";
+import { canUseSoloOperatorApproval, getReviewHistory, listEligibleReviewers } from "@/core/application/use-cases/review";
 import { PageHeader } from "@/components/common/page-header";
 import { DraftForm } from "@/components/content/draft-form";
 import { ReviewPanel } from "@/components/content/review-panel";
@@ -17,7 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { canEditOrganisation, canWriteContent } from "@/core/domain/entities/identity";
 import { isContentDraftLocked } from "@/core/domain/entities/content";
-import { blotatoConfigAsync } from "@/infrastructure/blotato/blotato-config";
+import { blotatoConfig } from "@/infrastructure/blotato/blotato-config";
 import { routes } from "@/lib/routes";
 import type { CampaignPlatform } from "@/core/domain/entities/campaign";
 
@@ -45,7 +45,7 @@ export default async function DraftDetailPage({
 
   if (!draft) notFound();
 
-  const [categories, campaigns, latestRequest, readiness, latestEngagementRecommendation, reviewHistory, eligibleReviewers, allAssets, attachedAssets, channels] =
+  const [categories, campaigns, latestRequest, readiness, latestEngagementRecommendation, currentEngagementRecommendation, reviewHistory, eligibleReviewers, allAssets, attachedAssets, soloOperatorApproval, channels] =
     await Promise.all([
       context.membrain.listCategories(orgId),
       context.campaigns.listCampaigns({ organisationId: orgId, limit: 100, offset: 0 }),
@@ -56,14 +56,25 @@ export default async function DraftDetailPage({
         orgId,
         draftId,
       ),
+      getCurrentEngagementRecommendation(
+        { actor: context.actor, organisations: context.organisations, engagement: context.engagement },
+        orgId,
+        draftId,
+        draft.version,
+      ),
       getReviewHistory(deps, orgId, draftId),
       listEligibleReviewers(deps, orgId),
       context.media.listAssets(orgId),
       context.media.listAssetsForDraft(draftId),
+      canUseSoloOperatorApproval({ actor: context.actor, organisations: context.organisations }, orgId),
       context.blotatoAccounts.listActiveForOrganisation(orgId).catch(() => []),
     ]);
+  // The exact-version record drives score, selection and approval. The latest
+  // historical record is retained only so an invalidated recommendation can be
+  // shown as outdated and direct the operator to regenerate it.
+  const recommendationForCurrentState = currentEngagementRecommendation ?? latestEngagementRecommendation;
 
-  const isLivePublishing = (await blotatoConfigAsync()).livePublishingEnabled;
+  const isLivePublishing = blotatoConfig().livePublishingEnabled;
 
   const signedUrls: Record<string, string> = {};
   for (const asset of allAssets) {
@@ -102,8 +113,8 @@ export default async function DraftDetailPage({
   }, {
     organisationId: orgId,
     draftId,
-    platform: latestEngagementRecommendation?.platform ?? initialEngagementPlatform,
-    objectiveType: latestEngagementRecommendation?.objectiveType ?? "engagement",
+    platform: recommendationForCurrentState?.platform ?? initialEngagementPlatform,
+    objectiveType: recommendationForCurrentState?.objectiveType ?? "engagement",
   });
 
   return (
@@ -152,8 +163,9 @@ export default async function DraftDetailPage({
                 actorId={context.actor.id}
                 canWrite={canWrite}
                 canLead={canLead}
-                distributionApproval={assessCriticalApprovalBlockers(
-                  latestEngagementRecommendation,
+                soloOperatorApproval={soloOperatorApproval}
+                distributionApproval={assessRecommendationDistributionEligibility(
+                  recommendationForCurrentState,
                   draft.version,
                   initialLearningOverview.latestFeedback,
                 )}
@@ -166,7 +178,7 @@ export default async function DraftDetailPage({
             draftId={draftId}
             currentDraftVersion={draft.version}
             initialPlatform={initialEngagementPlatform}
-            initialRecommendation={latestEngagementRecommendation}
+            initialRecommendation={recommendationForCurrentState}
             initialLearningOverview={initialLearningOverview}
             initialDraftBody={draft.body}
             initialDraftHashtags={draft.hashtags}

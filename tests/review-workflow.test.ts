@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   approveDraft,
   assignReviewer,
@@ -201,6 +201,29 @@ describe("submitForReview", () => {
 });
 
 describe("approveDraft — self-approval prevention", () => {
+  it("carries the recommendation-assessed draft version into the atomic review write", async () => {
+    const draft = baseDraft({ status: "needs_review", version: 7, createdBy: profileRef(OTHER_AUTHOR_ID, "Other Author") });
+    const recordDecision = vi.fn(async (decision: { expectedDraftVersion?: number | null }) => {
+      if (decision.expectedDraftVersion !== draft.version) {
+        throw new ValidationError("Draft changed while approval was being recorded.");
+      }
+      return { ...draft, status: "approved" as const };
+    });
+    const deps = {
+      actor: actor(),
+      content: { findDraft: vi.fn(async () => draft) },
+      reviews: { recordDecision },
+      organisations: {
+        viewerRole: vi.fn(async () => "lead"),
+        listMembers: vi.fn(async () => [member(ACTOR_ID, "lead"), member(REVIEWER_ID, "reviewer")]),
+      },
+    };
+
+    await expect(approveDraft(deps as never, { ...request, expectedDraftVersion: 6 }))
+      .rejects.toThrow(/changed while approval/i);
+    expect(recordDecision).toHaveBeenCalledWith(expect.objectContaining({ expectedDraftVersion: 6 }));
+  });
+
   it("forbids the draft's own author, who happens to be a Lead, from approving it", async () => {
     const { deps } = createHarness({
       draft: baseDraft({ status: "needs_review", createdBy: profileRef(ACTOR_ID, "Actor One") }),

@@ -18,6 +18,7 @@ export const approveDraftSchema = z.object({
   organisationId: z.string().uuid(),
   draftId: z.string().uuid(),
   comment: commentSchema.optional().or(z.literal("")),
+  expectedDraftVersion: z.number().int().positive().optional(),
 });
 
 export const requestDraftChangesSchema = z.object({

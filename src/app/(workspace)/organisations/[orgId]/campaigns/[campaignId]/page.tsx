@@ -1,3 +1,4 @@
+import { signCampaignPreviews } from "@/core/application/use-cases/media/sign-campaign-previews";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CalendarClock, CheckCircle2, ChevronRight, Pencil, Sparkles, TrendingUp } from "lucide-react";
@@ -36,10 +37,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
   const libraryPage = await context.media.listAssetsPage(orgId, { limit: 100, offset: 0, isArchived: false }).catch(() => null);
   const allAssets = libraryPage?.items ?? attachedAssets;
   const previewAssets = new Map([...allAssets, ...attachedAssets].map(a => [a.id, a]));
-  const signedUrls: Record<string, string> = {};
-  await Promise.all(Array.from(previewAssets.values()).filter(a => a.mimeType.startsWith("image/")).map(async a => {
-    try { signedUrls[a.storagePath] = await context.storage.getSignedUrl(a.storagePath); } catch {}
-  }));
+  const signedUrls = await signCampaignPreviews(context.storage, Array.from(previewAssets.values()));
 
   const { campaign, draftCounts } = overview;
   const canWrite = canWriteContent(context.actor, viewerRole);
@@ -79,7 +77,7 @@ export default async function CampaignDetailPage({ params }: { params: Promise<{
     return {
       weekNumber: group.weekNumber,
       assetLabel: asset?.title || asset?.fileName || "No asset",
-      imageUrl: asset ? signedUrls[asset.storagePath] : undefined,
+      imageUrl: asset ? signedUrls[asset.id] : undefined,
       optimised: slots.length === group.slots.length && slots.every(slot => slot.body.trim() && slot.hashtags.length),
       slots,
     };

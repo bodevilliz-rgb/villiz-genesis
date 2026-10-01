@@ -343,6 +343,7 @@ function createPublishingHarness(initialJob: PublishingJob | null = baseJob()) {
       attempts.set(attemptId, updated);
       return updated;
     },
+    async findLatestAttemptForJob(organisationId: string, jobId: string) { return (await this.listAttemptsForJob!(organisationId, jobId)).at(-1) ?? null; },
     async listAttemptsForJob(_orgId, jobId) {
       return [...attempts.values()].filter((a) => a.jobId === jobId);
     },

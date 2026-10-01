@@ -12,7 +12,7 @@ import {
 import { errorState, successState, text, textOrEmpty, type ActionState } from "../action-result";
 import { routes } from "@/lib/routes";
 import { SOLO_OPERATOR_APPROVAL_MARKER } from "@/core/domain/entities/review";
-import { assessCriticalApprovalBlockers } from "@/core/application/use-cases/engagement";
+import { assessRecommendationDistributionEligibility } from "@/core/application/use-cases/engagement";
 import { ValidationError } from "@/core/domain/errors";
 
 function reviewDeps(context: RequestContext) {
@@ -151,25 +151,27 @@ export async function recordReviewDecisionAction(_prev: ActionState, formData: F
     let soloOperatorApproval = false;
 
     if (decision === "approve") {
-      const [currentDraft, latestRecommendation, latestFeedback] = await Promise.all([
-        context.content.findDraft(organisationId, draftId),
+      const currentDraft = await context.content.findDraft(organisationId, draftId);
+      if (!currentDraft) throw new ValidationError("Draft not found.");
+      const [latestRecommendation, currentRecommendation, latestFeedback] = await Promise.all([
         context.engagement.findLatest(organisationId, draftId),
+        context.engagement.findLatestForDraftVersion(organisationId, draftId, currentDraft.version),
         context.engagement.findLatestFeedback
           ? context.engagement.findLatestFeedback(organisationId, draftId)
           : Promise.resolve(null),
       ]);
-      if (!currentDraft) throw new ValidationError("Draft not found.");
-      const { blocked, blockers, warnings } = assessCriticalApprovalBlockers(
-        latestRecommendation,
+      const recommendationForCurrentState = currentRecommendation ?? latestRecommendation;
+      const distribution = assessRecommendationDistributionEligibility(
+        recommendationForCurrentState,
         currentDraft.version,
         latestFeedback,
       );
-      if (blocked) {
+      if (!distribution.eligible) {
         throw new ValidationError(
-          `Approval blocked by a critical safety issue. ${blockers.join(" ")}`,
+          `Approval blocked by the Audience Distribution Gate (${distribution.score}/100). ${distribution.blockers.join(" ")}`,
         );
       }
-      draft = await approveDraft(deps, input);
+      draft = await approveDraft(deps, { ...input, expectedDraftVersion: currentDraft.version });
       const [decisionEntry] = await context.reviews.listHistory(organisationId, draftId);
       soloOperatorApproval = Boolean(
         decisionEntry?.action === "approved"
@@ -181,12 +183,9 @@ export async function recordReviewDecisionAction(_prev: ActionState, formData: F
       description = soloOperatorApproval
         ? `Solo Operator Approval recorded for draft "${draft.title}"; creator and approver were the same Account Lead.`
         : `Approved draft "${draft.title}".`;
-      // Notify creator — include warnings if present
+      // Notify creator
       if (draft.createdBy) {
-        const notificationMsg = warnings.length > 0
-          ? `Your draft "${draft.title}" has been approved with warnings: ${warnings.join(" ")}`
-          : `Your draft "${draft.title}" has been approved!`;
-        await notifyUser(context, organisationId, draft.createdBy.id, "approval_granted", notificationMsg);
+        await notifyUser(context, organisationId, draft.createdBy.id, "approval_granted", `Your draft "${draft.title}" has been approved!`);
       }
     } else if (decision === "reject") {
       draft = await rejectDraft(deps, input);

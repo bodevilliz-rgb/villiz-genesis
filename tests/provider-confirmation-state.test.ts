@@ -168,6 +168,8 @@ function makeConfirmationDeps(input: {
   status?: ReturnType<typeof providerStatus>;
 }) {
   const getPostStatus = vi.fn(async () => input.status ?? providerStatus("in-progress"));
+  const recordEvent = vi.fn(async () => {});
+  const createNotification = vi.fn(async () => {});
   const completeAttempt = vi.fn(async () => attempt({ status: "completed" }));
   const failAttempt = vi.fn(async () => attempt({ status: "failed" }));
   const markJobPublished = vi.fn(async () => job({ status: "published" }));
@@ -181,6 +183,7 @@ function makeConfirmationDeps(input: {
     deps: {
       publishing: {
         claimJobForConfirmation,
+        async findLatestAttemptForJob(organisationId: string, jobId: string) { return (await listAttemptsForJob(organisationId, jobId)).at(-1) ?? null; },
         listAttemptsForJob,
         completeAttempt,
         failAttempt,
@@ -189,11 +192,13 @@ function makeConfirmationDeps(input: {
         recordConfirmationCheck,
       } as never,
       content: { updateStatus } as never,
-      audits: { recordEvent: vi.fn(async () => {}) } as never,
-      notifications: { createNotification: vi.fn(async () => {}) } as never,
+      audits: { recordEvent } as never,
+      notifications: { createNotification } as never,
       blotatoClient: { getPostStatus } as never,
     },
     getPostStatus,
+    recordEvent,
+    createNotification,
     completeAttempt,
     failAttempt,
     markJobPublished,
@@ -219,6 +224,7 @@ function makeWorkerDeps(input: { claimed: PublishingJob | null; publishFn: Retur
       claimNextJob: vi.fn().mockResolvedValueOnce(input.claimed).mockResolvedValue(null),
       claimJobForConfirmation: vi.fn(async () => null),
       recoverStaleJobs: vi.fn(async () => []),
+      findLatestAttemptForJob: vi.fn(async () => null),
       listAttemptsForJob: vi.fn(async () => []),
       createAttempt: vi.fn(async () => attempt({ status: "started" })),
       startAttempt: vi.fn(async () => attempt({ status: "started" })),
@@ -309,7 +315,7 @@ describe("3/4/5/7 — provider still processing past the window → Awaiting Con
       "attempt-1",
       expect.objectContaining({ postSubmissionId: SUBMISSION_ID }),
     );
-    expect(markJobAwaitingConfirmation).toHaveBeenCalledTimes(1);
+    expect(markJobAwaitingConfirmation).not.toHaveBeenCalled(); // Receipt RPC owns scheduling.
   });
 });
 
@@ -374,11 +380,33 @@ describe("13/14 — a provider-confirmed failure resolves job and draft to Faile
     const outcome = await runProviderConfirmationPass(h.deps, { workerId: "worker-1" });
 
     expect(h.failAttempt).toHaveBeenCalledWith("attempt-1", expect.objectContaining({ errorCode: "blotato_publish_failed" }));
-    expect(h.markJobFailed).toHaveBeenCalledWith("job-1");
-    expect(h.updateStatus).toHaveBeenCalledWith(ORG_ALPHA, DRAFT_ID, "failed", "user-1");
+    expect(h.markJobFailed).not.toHaveBeenCalled();
+    expect(h.updateStatus).not.toHaveBeenCalled();
     expect(outcome.status).toBe("resolved");
     if (outcome.status === "resolved") expect(outcome.result).toBe("failed");
   });
+});
+
+
+it("failed confirmation response loss leaves side effects pending and replay uses the same atomic settlement", async () => {
+  const h = makeConfirmationDeps({ claimed: job({ status: "awaiting_confirmation" }), status: providerStatus("failed") });
+  h.failAttempt.mockRejectedValueOnce(new Error("response lost"));
+  await expect(runProviderConfirmationPass(h.deps)).rejects.toThrow("response lost");
+  expect(h.recordEvent).not.toHaveBeenCalled();
+  expect(h.createNotification).not.toHaveBeenCalled();
+  await expect(runProviderConfirmationPass(h.deps)).resolves.toMatchObject({ result: "failed" });
+  expect(h.failAttempt).toHaveBeenCalledTimes(2);
+  expect(h.markJobFailed).not.toHaveBeenCalled();
+  expect(h.updateStatus).not.toHaveBeenCalled();
+  expect(h.recordEvent).toHaveBeenCalledOnce();
+  expect(h.createNotification).toHaveBeenCalledOnce();
+});
+
+it.each(["published", "failed", "in-progress", "scheduled"] as const)("rejects %s for a different receipt without settlement", async (status) => {
+  const h = makeConfirmationDeps({ claimed: job({ status: "awaiting_confirmation" }),
+    status: providerStatus(status, { postSubmissionId: "wrong" }) });
+  await expect(runProviderConfirmationPass(h.deps)).rejects.toThrow("does not match");
+  for (const mutate of [h.failAttempt, h.completeAttempt, h.markJobPublished, h.markJobFailed, h.updateStatus, h.recordConfirmationCheck, h.recordEvent, h.createNotification]) expect(mutate).not.toHaveBeenCalled();
 });
 
 // ── 15/16/17: trigger attribution and retry semantics ─────────────────────────
@@ -421,6 +449,7 @@ describe("18/19 — retry is blocked while unresolved, permitted after a confirm
       actor: { id: "user-1", isPlatformAdmin: true } as never,
       publishing: {
         findJobById: vi.fn(async () => input.job),
+        findLatestAttemptForJob: vi.fn(async () => input.attempts.at(-1) ?? null),
         listAttemptsForJob: vi.fn(async () => input.attempts),
         requeueJobForRetry: vi.fn(async () => job({ status: "queued", retryCount: 1 })),
       } as never,
@@ -684,7 +713,7 @@ describe("27/28/29/30 — disclosures, execution mode, media and hashtag policy 
       metadata: { postSubmissionId: SUBMISSION_ID },
     }));
     const claimed = job({ status: "queued", isAiGenerated: true, isYourBrand: true, isBrandedContent: false, executionMode: "live" });
-    const { deps, markJobAwaitingConfirmation } = makeWorkerDeps({ claimed, publishFn });
+    const { deps, awaitAttemptConfirmation, markJobAwaitingConfirmation } = makeWorkerDeps({ claimed, publishFn });
 
     await runPublishingWorkerIteration(deps);
 
@@ -692,8 +721,9 @@ describe("27/28/29/30 — disclosures, execution mode, media and hashtag policy 
     expect(publishFn).toHaveBeenCalledWith(
       expect.objectContaining({ isAiGenerated: true, isYourBrand: true, isBrandedContent: false }),
     );
-    // ...and the awaiting transition writes only status + scheduling fields.
-    expect(markJobAwaitingConfirmation).toHaveBeenCalledWith("job-1", expect.any(String));
+    // ...and the atomic receipt operation owns scheduling without rewriting disclosures.
+    expect(awaitAttemptConfirmation).toHaveBeenCalledWith("attempt-1", expect.objectContaining({ postSubmissionId: SUBMISSION_ID }));
+    expect(markJobAwaitingConfirmation).not.toHaveBeenCalled();
   });
 
   it("the confirmation pass has no media or hashtag dependency at all — it cannot alter either", () => {

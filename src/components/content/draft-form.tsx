@@ -222,7 +222,12 @@ export function DraftForm({
         return;
       }
 
-      const { hashtags: suggestions } = await generateHashtags(organisationId, draftBody, remaining, knownPlatform ?? "instagram");
+      const hashtagResult = await generateHashtags(organisationId, draftBody, remaining, knownPlatform ?? "instagram");
+      if ("status" in hashtagResult) {
+        toast.error(hashtagResult.missingContext.join(" "));
+        return;
+      }
+      const { hashtags: suggestions } = hashtagResult;
       const normalized = normalizeHashtags(suggestions).slice(0, remaining);
       setHashtagSuggestions(normalized.filter((s) => !hashtags.map((h) => h.toLowerCase()).includes(s.toLowerCase())));
     } catch {
@@ -278,15 +283,27 @@ export function DraftForm({
           localAttachedAssets.map((asset) => asset.id),
           destination?.id,
         );
+        if ("status" in res) {
+          toast.error(res.missingContext.join(" "));
+          return;
+        }
         suggestion = res.text;
         setVisibilityPlan(res.visibilityPlan);
         setResolvedGrowthVoice(res.culturalVoiceLevel);
         const hashtagResult = await generateHashtags(organisationId, res.text, 5, isPublishingPlatform(selectedPlatform) ? selectedPlatform : "instagram", res.commercialIntent);
+        if ("status" in hashtagResult) {
+          toast.error(hashtagResult.missingContext.join(" "));
+          return;
+        }
         setHashtagSuggestions(normalizeHashtags(hashtagResult.hashtags));
         setPendingAwoAttribution({ ...res.attribution, suggestedHashtags: normalizeHashtags(hashtagResult.hashtags) });
       } else {
         const instruction = rewriteInstructionForAction(effectiveAiAction);
         const res = await rewriteContent(organisationId, draftBody, instruction);
+        if ("status" in res) {
+          toast.error(res.missingContext.join(" "));
+          return;
+        }
         suggestion = res.text;
       }
 

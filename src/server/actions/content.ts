@@ -9,6 +9,8 @@ import {
   scheduleDraft,
   publishDraft,
   archiveDraft,
+  restoreArchivedDraft,
+  deleteDraft,
   duplicateDraft,
 } from "@/core/application/use-cases/content";
 import { errorState, successState, textOrEmpty, type ActionState } from "../action-result";
@@ -359,6 +361,43 @@ export async function archiveDraftAction(_prev: ActionState, formData: FormData)
 
     revalidateContent(draft.organisationId, draft.id);
     return successState("Content archived.", draft.id);
+  } catch (error) {
+    return errorState(error);
+  }
+}
+
+export async function restoreArchivedDraftAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  try {
+    const context = await requireContext();
+    const organisationId = textOrEmpty(formData, "organisationId");
+    const draftId = textOrEmpty(formData, "id");
+
+    const jobs = await context.publishing.listJobsForDraft(organisationId, draftId);
+    const hasProviderPublication = jobs.some(
+      (job) => job.status === "published" || job.status === "awaiting_confirmation",
+    );
+    const draft = await restoreArchivedDraft(
+      contentDeps(context),
+      organisationId,
+      draftId,
+      hasProviderPublication ? "published" : "draft",
+    );
+    revalidateContent(draft.organisationId, draft.id);
+    return successState("Post restored to the published workspace.", draft.id);
+  } catch (error) {
+    return errorState(error);
+  }
+}
+
+export async function deleteDraftAction(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  try {
+    const context = await requireContext();
+    const organisationId = textOrEmpty(formData, "organisationId");
+    const draftId = textOrEmpty(formData, "id");
+
+    await deleteDraft(contentDeps(context), organisationId, draftId);
+    revalidateContent(organisationId);
+    return successState("Draft removed from the workspace. Its publishing audit record was preserved.");
   } catch (error) {
     return errorState(error);
   }

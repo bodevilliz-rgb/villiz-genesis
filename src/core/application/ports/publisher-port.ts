@@ -1,6 +1,8 @@
 import type { PublisherResult, PublishingPlatform } from "@/core/domain/entities/publishing";
 
 export interface PublishInput {
+  /** Persist a non-retryable submission barrier before any provider POST. */
+  onBeforeSubmission?: () => Promise<void>;
   organisationId: string;
   draftId: string;
   jobId: string;

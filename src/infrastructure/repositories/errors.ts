@@ -1,7 +1,10 @@
+import { classifyPollError } from "@/core/domain/entities/infrastructure-error";
 import { ConflictError, ForbiddenError, InfrastructureError, LimitExceededError, NotFoundError } from "@/core/domain/errors";
 
 interface PostgrestLike {
   code?: string;
+  status?: number;
+  statusCode?: number | string;
   message?: string;
   details?: string;
   hint?: string;
@@ -32,12 +35,14 @@ export function translateError(error: PostgrestLike | null, context: string): ne
     case "P0001":
       throw new LimitExceededError(message);
     default:
-      throw new InfrastructureError(`${context} failed. ${message}`);
+      throw Object.assign(new InfrastructureError(`${context} failed. ${message}`), {
+        infrastructureCategory: classifyPollError(error),
+      });
   }
 }
 
-export function unwrap<T>(result: { data: T | null; error: PostgrestLike | null }, context: string): T {
-  if (result.error) translateError(result.error, context);
+export function unwrap<T>(result: { data: T | null; error: PostgrestLike | null; status?: number }, context: string): T {
+  if (result.error) translateError({ ...result.error, status: result.status ?? result.error.status }, context);
   if (result.data === null) throw new NotFoundError(context);
   return result.data;
 }

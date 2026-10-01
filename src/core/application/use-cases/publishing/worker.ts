@@ -78,6 +78,9 @@ const DEFAULT_STALE_AFTER_SECONDS = 300;
  * result. Only errors during stale-recovery or claim — before a job is
  * in-flight — can propagate to the caller.
  */
+/** Legacy utility retained for regression tests only; no runtime caller.
+ * The active publishing worker is scripts/publishing-worker.ts.
+ */
 export async function runPublishingWorkerIteration(
   deps: WorkerDeps,
   options: { workerId?: string; staleAfterSeconds?: number } = {},
@@ -179,7 +182,7 @@ async function executeJob(deps: WorkerDeps, job: PublishingJob): Promise<WorkerI
     // execution time — identical to the background worker's processJob
     // (scripts/publishing-worker-core.ts). This path previously hardcoded
     // assetUrls: [] which caused live Instagram posts triggered through
-    // POST /api/internal/publishing/run to reach Blotato with zero media.
+    // the retired manual endpoint to reach Blotato with zero media.
     const media = await resolvePublishMediaUrls(
       { media: deps.media, storage: deps.storage },
       { organisationId: job.organisationId, draftId: job.draftId },

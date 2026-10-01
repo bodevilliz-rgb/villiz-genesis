@@ -20,10 +20,18 @@
  * P7 — rapid double-click on confirm submits only once
  * P8 — an invalid timezone/time is rejected before the dialog ever opens
  * P9 — destination selector and scheduling fields are disabled while the review dialog is open
+ * P10 — successful draft deletion returns the operator to Content Studio
  */
+
+const routerReplace = vi.fn();
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: routerReplace }),
+}));
 
 vi.mock("@/server/actions/content", () => ({
   archiveDraftAction: vi.fn(),
+  deleteDraftAction: vi.fn(),
   duplicateDraftAction: vi.fn(),
 }));
 
@@ -52,6 +60,7 @@ vi.mock("@/server/actions/publish", () => ({
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { PublishingPanel } from "@/components/content/publishing-panel";
+import { deleteDraftAction } from "@/server/actions/content";
 import { createImmediatePublishingJobAction, createScheduledPublishingJobAction } from "@/server/actions/publishing";
 import { runPrePublishReviewAction, getPlatformPreflightAction } from "@/server/actions/publish";
 import type { ContentDraft } from "@/core/domain/entities/content";
@@ -112,6 +121,53 @@ function futureDateTimeLocal(): string {
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+describe("successful workspace removal", () => {
+  it.each(["draft", "in_review", "approved", "failed", "archived"] as const)(
+    "shows deletion for unpublished %s content and returns to Content Studio",
+    async (status) => {
+      vi.mocked(deleteDraftAction).mockResolvedValueOnce({
+        status: "success",
+        message: "Draft removed from the workspace. Its publishing audit record was preserved.",
+      });
+      vi.spyOn(window, "confirm").mockReturnValueOnce(true);
+
+      const draft = approvedDraft();
+      draft.status = status;
+      render(
+        <PublishingPanel
+          organisationId={ORG_ID}
+          draft={draft}
+          canWrite={true}
+          channels={[instagramChannel()]}
+          isLivePublishing={true}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Remove Draft" }));
+
+      await waitFor(() => {
+        expect(routerReplace).toHaveBeenCalledWith(`/organisations/${ORG_ID}/content`);
+      });
+    },
+  );
+
+  it.each(["scheduled", "publishing", "published"] as const)("hides removal for %s content", (status) => {
+    const draft = approvedDraft();
+    draft.status = status;
+    render(
+      <PublishingPanel
+        organisationId={ORG_ID}
+        draft={draft}
+        canWrite={true}
+        channels={[instagramChannel()]}
+        isLivePublishing={true}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Delete Draft Permanently" })).toBeNull();
+  });
 });
 
 async function scheduleUpToDialog() {

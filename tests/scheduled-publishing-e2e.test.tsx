@@ -60,7 +60,12 @@ vi.mock("@/lib/routes", () => ({
 
 vi.mock("@/server/actions/content", () => ({
   archiveDraftAction: vi.fn(),
+  deleteDraftAction: vi.fn(),
   duplicateDraftAction: vi.fn(),
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: vi.fn() }),
 }));
 
 vi.mock("@/server/actions/publish", () => ({

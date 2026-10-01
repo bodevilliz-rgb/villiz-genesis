@@ -46,8 +46,10 @@ export interface MediaAsset {
 /**
  * Everything the Media Library grid actually renders — deliberately excludes
  * description, usageRights, copyrightOwner, duration, expiresAt,
- * thumbnailPath, uploadedBy, updatedAt, brand, width, height, and version
- * history, none of which the grid displays. Returned by
+ * uploadedBy, updatedAt, brand, width, height, and version history, none of
+ * which the grid displays. An optional thumbnailPath is retained so the grid
+ * can preview a deliberately small derivative without downloading the original.
+ * Returned by
  * MediaRepository.listAssetsPage instead of the full MediaAsset so a bounded
  * page of results stays bounded in payload size too.
  */
@@ -59,6 +61,7 @@ export interface MediaAssetListItem {
   mimeType: string;
   sizeBytes: number;
   storagePath: string;
+  thumbnailPath?: string | null;
   tags: string[];
   altText: string | null;
   isArchived: boolean;

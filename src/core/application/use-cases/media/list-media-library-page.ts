@@ -12,9 +12,10 @@ export interface MediaLibraryPageResult {
 /**
  * The one place that turns "one page of an organisation's media library"
  * into grid-ready data — a bounded repository query plus signed URLs
- * generated for exactly those items, never the whole library. Shared by the
- * Media Library page's initial server render and the client-triggered
- * search/load-more server actions so both paths stay bounded the same way.
+ * generated only for explicit thumbnail paths. Full-resolution originals are
+ * intentionally never previewed by the grid. Shared by the Media Library
+ * page's initial server render and the client-triggered search/load-more
+ * server actions so both paths stay bounded the same way.
  */
 export async function loadMediaLibraryPage(
   deps: { media: Pick<MediaRepository, "listAssetsPage">; storage: Pick<StoragePort, "getSignedUrl"> },
@@ -25,12 +26,12 @@ export async function loadMediaLibraryPage(
 
   const signedUrls: Record<string, string> = {};
   for (const asset of page.items) {
-    if (asset.mimeType.startsWith("image/")) {
+    const previewPath = asset.thumbnailPath;
+    if (asset.mimeType.startsWith("image/") && previewPath) {
       try {
-        signedUrls[asset.storagePath] = await deps.storage.getSignedUrl(asset.storagePath);
+        signedUrls[previewPath] = await deps.storage.getSignedUrl(previewPath);
       } catch {
-        // Matches the previous page.tsx behaviour: a signing failure for one
-        // asset must not fail the whole page — it just renders without a preview.
+        // A signing failure for one thumbnail must not fail the whole page.
       }
     }
   }

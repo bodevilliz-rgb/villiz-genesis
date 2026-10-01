@@ -156,7 +156,8 @@ export function CollectionsPanel({ organisationId, collections, allAssets, signe
           ) : (
             <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
               {activeCollection.assets.map((asset) => {
-                const signedUrl = signedUrls[asset.storagePath];
+                const previewPath = asset.thumbnailPath;
+                const signedUrl = previewPath ? signedUrls[previewPath] : undefined;
                 const isImg = asset.mimeType.startsWith("image/");
                 return (
                   <div key={asset.id} className="group relative rounded-lg border border-border bg-card overflow-hidden">
