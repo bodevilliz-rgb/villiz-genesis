@@ -13,7 +13,16 @@ const compat = new FlatCompat({ baseDirectory: dirname(fileURLToPath(import.meta
  */
 const config = [
   {
-    ignores: [".next/**", "node_modules/**", "next-env.d.ts", "supabase/**", "scripts/**"],
+    ignores: [
+    ".next/**",
+    "node_modules/**",
+    "next-env.d.ts",
+    "supabase/**",
+    "scripts/**",
+    // Nested task worktrees are separate checkouts of this repo with their own
+    // lint debt; CI never runs ESLint from inside them, so lint must not either.
+    ".worktrees/**",
+  ],
   },
 
   ...compat.extends("next/core-web-vitals", "next/typescript"),
