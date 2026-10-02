@@ -25,6 +25,7 @@ import {
   extractKeptSetOverride,
   extractPlatformTokens,
   extractScheduleDate,
+  extractUnknownPlatformTokens,
   isSchedulable,
   parseOwnerDirective,
 } from "@/core/application/use-cases/intake/owner-directive";
@@ -59,6 +60,12 @@ describe("platform token extraction", () => {
       "tiktok",
     ]);
   });
+
+  it("surfaces explicitly stated unknown platform names instead of silently dropping them", () => {
+    expect(extractUnknownPlatformTokens("platforms: bebo, instagram")).toEqual(["bebo"]);
+    expect(extractUnknownPlatformTokens("platforms: instagram")).toEqual([]);
+    expect(extractUnknownPlatformTokens("post the flier 14 Oct")).toEqual([]);
+  });
 });
 
 describe("client + asset extraction", () => {
@@ -74,6 +81,16 @@ describe("client + asset extraction", () => {
     expect(extractContentRef('post content "Grand Opening Flier — October" 2026-10-14')).toBe("Grand Opening Flier — October");
     expect(extractDriveFolderRef("schedule fliers from Drive folder Y 2026-10-21 09:15")).toBe("Y");
     expect(extractDriveFolderRef("schedule the set from folder Alpha-Homes Oct")).toBe("Alpha-Homes Oct");
+  });
+
+  it("never swallows a trailing platforms clause or preposition-platform tail into the folder name", () => {
+    // QA round-1 blocking finding #1: the capture was "Y platforms", the explicit
+    // instagram clause was lost to the silent default, and a mapped folder
+    // surfaced a spurious unknown_client stop.
+    expect(extractDriveFolderRef("schedule fliers from folder Y platforms: instagram 2026-10-21 09:15")).toBe("Y");
+    expect(extractDriveFolderRef("schedule fliers from folder Y on instagram 2026-10-21")).toBe("Y");
+    expect(extractDriveFolderRef("schedule fliers from folder Y to tiktok")).toBe("Y");
+    expect(extractDriveFolderRef("schedule the set from folder launch-on-ig-raw")).toBe("launch-on-ig-raw");
   });
 
   it("extracts the asset noun for both owner phrasings", () => {
@@ -290,5 +307,25 @@ describe("fail-closed stops", () => {
     const past = parseOwnerDirective(baseInput("post client Alpha Homes flier 1 Sep"));
     expect(past.stops.map((s) => s.code)).toContain("past_date");
     expect(job.stops.map((s) => s.code)).not.toContain("past_date");
+  });
+});
+
+describe("fail-closed regressions — QA round 1 (t_1b518c6f)", () => {
+  it("folder + 'platforms:' clause: the clause survives and the mapped folder still maps", () => {
+    const job = parseOwnerDirective(
+      baseInput("schedule fliers from folder Y platforms: instagram 2026-10-21 09:15", {
+        clientIndex: { "Alpha Homes": "Y" },
+      }),
+    );
+    expect(job.asset.ref).toBe("Y");
+    expect(job.platforms).toEqual(["instagram"]); // the stated clause, not the silent default
+    expect(job.stops.map((s) => s.code)).not.toContain("unknown_client"); // folder→client index resolves it
+  });
+
+  it("unknown operator-clause platform stops instead of silently defaulting to instagram", () => {
+    const job = parseOwnerDirective(baseInput("post client Alpha Homes flier platforms: bebo 14 Oct"));
+    expect(job.stops.map((s) => s.code)).toContain("unknown_platform");
+    expect(job.stops.find((s) => s.code === "unknown_platform")?.pendingOwnerDecisions[0]).toContain("bebo");
+    expect(isSchedulable(job)).toBe(false);
   });
 });

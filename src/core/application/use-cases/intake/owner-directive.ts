@@ -164,7 +164,6 @@ function platformScanRegex(): RegExp {
 
 /** Operator shorthand: "platforms: instagram, tiktok". */
 const PLATFORMS_CLAUSE_RE = /\bplatforms?\s*[:=]\s*([A-Za-z,\s]+)/i;
-
 const PLATFORM_TOKEN_MAP: Record<string, string> = {
   instagram: "instagram", insta: "instagram", ig: "instagram",
   facebook: "facebook", face: "facebook", fb: "facebook", meta: "facebook",
@@ -177,6 +176,18 @@ const CONTENT_RE = /content\s+["'“”]([^"'“”]+)["'“”]/i;
 const DRIVE_FOLDER_RE = /(?:from|in)\s+(?:the\s+)?(?:drive\s+)?folder\s+["'“”]?([A-Za-z0-9][A-Za-z0-9 _/-]*)/i;
 /** Bare "folder Y" — anchor used for cutting the asset-noun tail (no "from" required). */
 const FOLDER_ANCHOR_RE = /\bfolder\b/i;
+/** Trailing platform context must never become folder data: three shapes exist.
+ *  (1) an operator clause starting inside the capture: `platforms: …`,
+ *  `platforms =` (fire when whitespace/colon/equals trails the word);
+ *  (2) the bare word itself at the END of the capture — the colon sits just
+ *  outside the capture class, so "folder Y platforms: instagram …" is folder "Y";
+ *  (3) a preposition + platform word ("folder Y on Instagram", "folder Y to
+ *  TikTok"). Anchored with \s+ on the left so hyphenated names
+ *  ("launch-on-ig-raw") survive intact. Known trade-off: a folder name that
+ *  genuinely ENDS with the word "platforms" or reads as a preposition+platform
+ *  ("Tik Tok") cuts short — the kept index then surfaces the mismatch as an
+ *  unknown_client stop instead of silently losing owner intent. */
+const FOLDER_PLATFORM_CLAUSE_CUT_RE = new RegExp(`\\s+(?:platforms?[\\s:=]+|platforms?\\s*$|(?:on|and|or|to|via)\\s+(${PLATFORM_ALTS})\\b)`, "i");
 const FROM_CLAUSE_RE = /\b(?:from|in)\b/i;
 const DATE_PHRASE_RE = /\b(?:(\d{4}-\d{1,2}-\d{1,2})|(tomorrow|tonight|today)|(\d{1,2})(?:st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)(?:\s+(\d{4}))?|(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s*,?\s*(\d{4}))?)\b/i;
 const CLOCK_RE = /\b(\d{1,2})[:.](\d{2})(?:\s*([ap])\.?m?\b)?/i;
@@ -220,6 +231,28 @@ export function extractPlatformTokens(message: string): string[] {
   return found;
 }
 
+/**
+ * Unknown platform names the owner explicitly stated — through the operator
+ * clause only ("platforms: bebo"), because bare words elsewhere are ambiguous
+ * (a client may be named "X"; brand/product words may contain platform
+ * substrings) and the preposition-bound scan already maps every known word.
+ * The parser MUST surface these as a real `unknown_platform` stop instead of
+ * silently defaulting to Instagram (QA round-1 blocking finding #2 — the
+ * documented runbook stop had no live trigger path).
+ */
+export function extractUnknownPlatformTokens(message: string): string[] {
+  const unknown: string[] = [];
+  const clause = PLATFORMS_CLAUSE_RE.exec(message);
+  if (clause && clause[1] !== undefined) {
+    for (const rawToken of clause[1].split(/[,\s]+/)) {
+      if (rawToken.length === 0) continue;
+      if (Object.prototype.hasOwnProperty.call(PLATFORM_TOKEN_MAP, rawToken.toLowerCase())) continue;
+      if (!unknown.includes(rawToken.toLowerCase())) unknown.push(rawToken.toLowerCase());
+    }
+  }
+  return unknown;
+}
+
 export function extractContentRef(message: string): string | null {
   const match = CONTENT_RE.exec(message);
   const value = match?.[1];
@@ -234,7 +267,15 @@ export function extractDriveFolderRef(message: string): string | null {
   // name at the first full date, clock time or orphan hour —
   // "folder Y 2026-10-21 09:15" is folder "Y"; "alpha-homes oct" stays whole.
   const cutMatch = /\s+(?:\d{4}-\d{1,2}-\d{1,2}(?:\s|$)|\d{1,2}[:.]\d{2}|\d{1,2}$)/.exec(value);
-  const head = cutMatch && cutMatch.index !== undefined ? value.slice(0, cutMatch.index) : value;
+  let head = cutMatch !== null && cutMatch.index !== undefined ? value.slice(0, cutMatch.index) : value;
+  // Trailing platform context must never become folder data either (QA round-1
+  // blocking finding): "folder Y platforms: instagram 2026-10-21" is folder
+  // "Y", not "Y platforms" — the explicit clause carries the platform choice,
+  // and swallowing it would silently rewrite owner intent.
+  const cutMatchPlatform = FOLDER_PLATFORM_CLAUSE_CUT_RE.exec(head);
+  if (cutMatchPlatform !== null && cutMatchPlatform.index !== undefined) {
+    head = head.slice(0, cutMatchPlatform.index);
+  }
   const trimmed = head.trim();
   return trimmed.length === 0 ? null : trimmed;
 }
@@ -500,10 +541,8 @@ export function deriveAiBrandDeclaration(
     isBrandedContent: false,
     source: "gen_live_1_precedent",
   };
-  if (platform === "linkedin" || platform === "facebook" || platform === "x") {
-    // No verified declaration requirement on these platforms (platform-policy.ts);
-    // values carried for the record, source still the precedent.
-  }
+  // No verified declaration requirement on linkedin/facebook/x (platform-policy.ts):
+  // the precedent values are carried for the record, source still the precedent.
   if (overrides.isAiGenerated !== undefined) { declaration.isAiGenerated = overrides.isAiGenerated; declaration.source = "owner_statement"; }
   if (overrides.isYourBrand !== undefined) { declaration.isYourBrand = overrides.isYourBrand; declaration.source = "owner_statement"; }
   if (overrides.isBrandedContent !== undefined) { declaration.isBrandedContent = overrides.isBrandedContent; declaration.source = "owner_statement"; }
@@ -591,17 +630,31 @@ export function parseOwnerDirective(
     });
   }
 
-  // Platforms: none detected → default Instagram (the certified lane).
+  // Platforms: none detected → default Instagram (the certified lane). Owner
+  // explicitly stated unknown names (operator clause) → real `unknown_platform`
+  // stop — never a silent default (QA round-1 blocking finding #2).
   let platforms = extractPlatformTokens(input.message);
-  if (platforms.length === 0) platforms = ["instagram"];
-  for (const platform of platforms) {
-    if (!isPublishingPlatform(platform)) {
-      stops.push({
-        code: "unknown_platform",
-        gate: "publishing_go",
-        message: `Platform '${platform}' is outside the five supported publishing platforms.`,
-        pendingOwnerDecisions: [],
-      });
+  if (platforms.length === 0 && extractUnknownPlatformTokens(input.message).length === 0) {
+    platforms = ["instagram"];
+  }
+  for (const unknownToken of extractUnknownPlatformTokens(input.message)) {
+    stops.push({
+      code: "unknown_platform",
+      gate: "publishing_go",
+      message: `Platform '${unknownToken}' is outside the five supported publishing platforms (Instagram, Facebook, LinkedIn, X, TikTok).`,
+      pendingOwnerDecisions: [`Use one of Instagram / Facebook / LinkedIn / X / TikTok instead of '${unknownToken}'.`],
+    });
+  }
+  if (platforms.length > 0) {
+    for (const platform of platforms) {
+      if (!isPublishingPlatform(platform)) {
+        stops.push({
+          code: "unknown_platform",
+          gate: "publishing_go",
+          message: `Platform '${platform}' is outside the five supported publishing platforms.`,
+          pendingOwnerDecisions: [],
+        });
+      }
     }
   }
 

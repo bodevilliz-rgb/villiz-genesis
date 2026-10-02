@@ -16,7 +16,7 @@ half of the contract; the machine half is the deterministic parser at
 | Field | Grammar | Default when absent |
 | --- | --- | --- |
 | Client | `client <name>` — matched against the kept index (multi-word OK) | required for attribution; folder→client index can infer it |
-| Asset | `content "<name>"` (verbatim owner text) or `from [Drive] folder <name>` | none — **stop** (`no_resolved_asset`); the bare noun ("flier") resolves via the client-asset index lane |
+| Asset | `content "<name>"` (verbatim owner text) or `from [Drive] folder <name>` | none — **stop** (`no_resolved_asset`); the bare noun ("flier") resolves via the client-asset index lane; a trailing `platforms:` clause or preposition-platform tail never becomes folder data — the platform choice survives |
 | Platforms | `on IG`, `and TikTok`, `to Facebook`, `via LinkedIn`, or `platforms: instagram, tiktok` | Instagram (the GEN-LIVE-1 certified lane) |
 | Date/time | `14 Oct`, `Oct 14`, `14 Oct 2027`, `2026-10-14`, `tomorrow`, `today`, `tonight`; optional `HH:MM` or `H.MM[am/pm]` | date missing → **stop**; time missing → **09:00 GMT** |
 | Caption | inside `content "…"` = provided verbatim; otherwise drafted-for-approval | drafted (`requiresApproval`) |
@@ -88,7 +88,7 @@ Mapping notes (no schema rewrites):
 | `unknown_client` | Add the client (or folder→client mapping) to the kept index |
 | `no_resolved_asset` | Provide `content "…"` / a Drive folder, or extend the client-asset index so the noun alone resolves |
 | `ambiguous_asset` | Re-send with either quoted content or a Drive folder, not both |
-| `unknown_platform` | Use one of Instagram / Facebook / LinkedIn / X / TikTok |
+| `unknown_platform` | Use one of Instagram / Facebook / LinkedIn / X / TikTok. Fires when a name in a `platforms:` clause is unknown; a message with no platform words at all defaults to Instagram — bare words elsewhere are never treated as platforms (a client may be named "X") |
 | `unparseable_date` | Give a date phrase the grammar supports (or a valid calendar date) |
 | `past_date` | Future date/time — for year-less past dates, state the year explicitly |
 | `caption_requires_approval` | Owner approves the campaign content once, on the campaign card |
