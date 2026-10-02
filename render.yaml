@@ -28,12 +28,18 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
+      # AI_PROVIDER=gemini resolves through @ai-sdk/google, which reads this key
+      # at runtime. Declared here so the credential is never silently missing.
+      - key: GOOGLE_GENERATIVE_AI_API_KEY
+        sync: false
 
       # --- Non-secret configuration. ---
       - key: BLOTATO_ENABLED
         value: "true"
       - key: BLOTATO_LIVE_PUBLISHING_ENABLED
         value: "false"
+        # ⚠️ Only override via Render dashboard for live campaigns.
+        #    Reverting requires explicit confirmation from Olabode.
       - key: AI_PROVIDER
         value: "gemini"
       - key: AWO_WORKER_CONCURRENCY

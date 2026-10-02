@@ -64,7 +64,7 @@ src/
     container.ts            Composition root (request-scoped, React-cached)
     actions/                Server Actions — the only mutation entry points
   lib/                      Framework-agnostic helpers (routes, format, env)
-supabase/migrations/        8 migrations, ordered, idempotent-safe
+supabase/migrations/        76 migrations, ordered, idempotent-safe
 ```
 
 **The dependency rule:** `app` → `server` → `core` ← `infrastructure`.
@@ -79,8 +79,8 @@ in place of a repository, the boundary has been broken.
 npm install
 cp .env.example .env.local        # then fill in the values
 npx supabase link --project-ref <your-project-ref>
-npx supabase db push              # applies all 8 migrations
-npm run dev                       # http://localhost:3000
+npx supabase db push              # applies all migrations in filename order
+npm run dev                       # http://localhost:3001
 ```
 
 You will not be able to sign in until a user exists — see
@@ -154,9 +154,9 @@ exactly the same RLS as the interface. There is no service-role path.
 **Sprint 1 is verified.** Authentication, Dashboard, Organisation Management,
 MemBrain v1.
 
-| Gate | Result |
+| Gate (Sprint 1 report, 2026-09 snapshot) | Result |
 | --- | --- |
-| 10 migrations, replayed from zero | pass |
+| Sprint 1's 10 migrations, replayed from zero | pass |
 | 77 SQL assertions across 7 suites | pass |
 | 22 Vitest assertions | pass |
 | `typecheck` · `lint` · `build` | pass |
@@ -169,7 +169,17 @@ broken every MemBrain search in production. All are documented in
 exchange and middleware redirects need a manual pass on a real Supabase project.
 Everything else about auth is proven at the database layer.
 
-Sprint 2 — Content Studio, Campaign Manager, Publishing Queue, Media Library —
-is not started. Navigation entries for it are visible but disabled, so the shape
-of the product is legible from day one without pretending the features exist.
+**The sprint-1 gate table above is a 2026-09 snapshot of that report, not the
+current state.**
 
+**Sprint 2 shipped.** Content Studio (drafts, approval gates), Campaign Manager,
+the Publishing Queue, and the Media Library are live features behind real
+routes, server actions and RLS — not stubs with disabled navigation. September's
+publishing-settlement hardening (atomic canary operations), safe draft deletion
+with RLS/policy alignment, and archived-post restore are merged on main.
+
+The schema is larger than Sprint 1's ten now — 76 migrations current, including
+the AWO campaign/distribution work, the September publishing-settlement
+hardening, and the Render-API live-publish settlement migration.
+[`docs/DATABASE.md`](docs/DATABASE.md) is the live schema reference, and
+`supabase/migrations/` is the authority on the current count.

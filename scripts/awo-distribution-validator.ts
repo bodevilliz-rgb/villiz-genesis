@@ -204,7 +204,12 @@ export function validateDistributionOutput(input: DistributionValidationInput, c
   const groundingTarget = Math.max(3, Math.min(hashtags.length, 6));
   const groundingScore = evidenceTokens.length === 0 ? 100 : Math.min(100, Math.round((evidenceAligned / groundingTarget) * 100));
   const bucketScore = applicableCount === 0 ? 100 : Math.round((passedCount / applicableCount) * 100);
-  const portfolioScore = Math.round((bucketScore * 0.8) + (groundingScore * 0.2));
+
+  const allProfileTokens = [...brandTokens, ...briefTokens, ...audienceTokens, ...localityTokens, ...evidenceTokens];
+  const ungroundedCount = hashtags.filter((tag) => !tagMatchesAny(tag, allProfileTokens)).length;
+  const ungroundedPenalty = hashtags.length > 0 ? Math.round((ungroundedCount / hashtags.length) * 100) : 0;
+
+  const portfolioScore = Math.round(Math.max(0, (bucketScore * 0.8) + (groundingScore * 0.2) - ungroundedPenalty));
 
   if (portfolioScore < DISTRIBUTION_PRODUCTION_GATE) errors.push(`Discovery portfolio score ${portfolioScore}/100 is below the ${DISTRIBUTION_PRODUCTION_GATE}/100 production eligibility gate.`);
 

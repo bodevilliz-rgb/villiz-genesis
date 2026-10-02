@@ -1,6 +1,6 @@
 # Database
 
-Ten migrations in `supabase/migrations/`, applied in filename order.
+76 migrations in `supabase/migrations/`, applied in filename order.
 Roughly 1,350 lines of SQL, executed and tested from zero. Every table has RLS enabled.
 
 | Migration | Contains |
