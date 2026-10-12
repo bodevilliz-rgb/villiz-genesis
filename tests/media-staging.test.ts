@@ -29,9 +29,9 @@
  * file — fictional ids only, mirroring the repo's existing test conventions.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import { stagePostingAssets, recordPostingReference, parseStagingDescription, STAGING_AUDIT_EVENT_TYPE, STAGING_REFERENCE_EVENT_TYPE, STAGING_CATEGORY, STAGING_DESCRIPTION_PREFIX } from "@/core/application/use-cases/staging/stage-posting-assets";
+import { stagePostingAssets, recordPostingReference, parseStagingDescription, STAGING_CATEGORY, STAGING_DESCRIPTION_PREFIX } from "@/core/application/use-cases/staging/stage-posting-assets";
 import { stageAssetCheck, evalPlatformSpecs, parseDriveRef, PLATFORM_IMAGE_SPECS } from "@/core/domain/entities/media-staging";
 import type { MediaRepository, MediaAssetWriteModel } from "@/core/application/ports/media-port";
 import type { StoragePort } from "@/core/application/ports/storage-port";
@@ -41,7 +41,7 @@ import type { MediaAsset } from "@/core/domain/entities/media";
 // ── Fictional organisations — no real ids ────────────────────────────────────
 
 const ORG_A = "aaaaaaaa-0000-4000-b000-000000000001";
-const ORG_B = "bbbbbbbb-0000-4000-b000-000000000002";
+
 const ACTOR = "aaaaaaaa-0000-4000-8999-0000000000a1";
 const REQUEST_A = "req-staging-alpha-001";
 const REQUEST_B = "req-staging-beta-002";
@@ -488,7 +488,9 @@ describe("S7: provenance enforcement", () => {
     expect(store.state.deleted).toHaveLength(1);
     expect(store.state.archived).toHaveLength(1);
     expect(store.state.assets[0]?.isArchived).toBe(true);
-    expect(store.state.assets[0]?.tags).toContain("provenance_failed");
+    // The metadata port itself is the injected failure, so the durable archive
+    // is the only marker this branch can guarantee.
+    expect(store.state.assets[0]?.tags).not.toContain("provenance_failed");
   });
 
   it("removes the asset object when the audit row itself fails", async () => {

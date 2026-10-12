@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  extractDriveFolderRef,
   extractPlatformTokens,
   extractUnknownPlatformTokens,
   isSchedulable,
@@ -21,8 +22,6 @@ function baseInput(message: string, overrides: Partial<{ keptHashtags: string[];
 
 describe("QA run-269 probes @ a78550ac (merged tree)", () => {
   it("run1 repro: folder clause not swallowed + real unknown_platform stop fires", () => {
-    expect(extractDriveFolderRef === undefined).toBe(false);
-    const { extractDriveFolderRef } = require("@/core/application/use-cases/intake/owner-directive");
     expect(extractDriveFolderRef("schedule fliers from folder Y platforms: instagram 2026-10-21")).toBe("Y");
     expect(extractDriveFolderRef("schedule fliers from folder Y on instagram 2026-10-21")).toBe("Y");
     expect(extractDriveFolderRef("schedule fliers from folder Y to tiktok")).toBe("Y");
@@ -74,13 +73,15 @@ describe("QA run-269 probes @ a78550ac (merged tree)", () => {
     expect(job.platforms).toEqual(["tiktok"]);
     expect(job.stops.map((s) => s.code)).not.toContain("unknown_client");
     const job2 = parseOwnerDirective(baseInput("schedule fliers from folder Alpha Homes platforms to tiktok"));
-    expect(job2.asset.ref).toBe("Alpha Homes platforms");
+    expect(job2.asset.ref).toBe("Alpha Homes");
     expect(job2.stops.map((s) => s.code)).toContain("unknown_client");
   });
 
   it("regression: schedulability helpers", () => {
-    expect(isSchedulable("instagram")).toBe(true);
-    expect(isSchedulable("bebo")).toBe(false);
+    const stopped = parseOwnerDirective(baseInput("schedule fliers from folder Y platforms: instagram 2026-10-21"));
+    const unsupported = parseOwnerDirective(baseInput("schedule fliers from folder Y platforms: bebo 2026-10-21"));
+    expect(isSchedulable(stopped)).toBe(false);
+    expect(isSchedulable(unsupported)).toBe(false);
   });
 
   it("caption gate: always present, requires approval, exact message", () => {

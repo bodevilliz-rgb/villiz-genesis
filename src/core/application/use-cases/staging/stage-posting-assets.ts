@@ -1,4 +1,3 @@
-import "server-only";
 
 import { createHash } from "node:crypto";
 
@@ -352,6 +351,16 @@ export async function stagePostingAssets(
       auditEventId = event.id;
     } catch (error) {
       try { await deps.storage.deleteMedia(storagePath); } catch { /* best-effort */ }
+      try {
+        await deps.media.updateAssetMetadata(asset.id, {
+          title: file.fileName, thumbnailPath: null, category: STAGING_CATEGORY,
+          description: null, altText: null,
+          tags: [`stage:${input.requestId}`, "provenance_failed"],
+          brand: null, duration: null, copyrightOwner: null, usageRights: null,
+          expiresAt: null, isAiGenerated: false, isArchived: true,
+        });
+      } catch { /* archive still removes the row from normal inventory */ }
+      try { await deps.media.archiveAsset(input.organisationId, asset.id); } catch { /* best-effort */ }
       skips.push({
         fileName: file.fileName,
         code: "STAGING_SESSION_FAILED",
