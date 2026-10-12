@@ -165,7 +165,7 @@ export default async function PublishingQueuePage({
             key={tab}
             href={buildQueueUrl(orgId, search, { tab })}
             className={cn(
-              "-mb-px border-b-2 px-3 py-2 text-[13px] font-medium transition-colors",
+              "-mb-px flex min-h-11 items-center border-b-2 px-3 py-2 text-sm font-semibold transition-colors",
               activeTab === tab
                 ? "border-primary text-foreground"
                 : "border-transparent text-muted-foreground hover:text-foreground",
@@ -176,7 +176,7 @@ export default async function PublishingQueuePage({
         ))}
       </div>
 
-      <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-3">
+      <div className="flex flex-col gap-4 rounded-3xl border border-border bg-card p-4 sm:p-5">
         <form
           action={routes.organisations.publishing.index(orgId)}
           method="get"
@@ -186,44 +186,44 @@ export default async function PublishingQueuePage({
           {platformFilter ? <input type="hidden" name="platform" value={platformFilter} /> : null}
           {triggerTypeFilter ? <input type="hidden" name="triggerType" value={triggerTypeFilter} /> : null}
 
-          <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+          <label className="flex flex-col gap-2 text-sm text-muted-foreground">
             Search
             <input
               type="search"
               name="q"
               defaultValue={search.q ?? ""}
               placeholder="Title, campaign, or requester"
-              className="w-56 rounded-md border border-border bg-background px-2 py-1.5 text-[13px] text-foreground"
+              className="min-h-11 w-56 rounded-xl border border-border bg-background px-3 text-sm text-foreground"
             />
           </label>
-          <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+          <label className="flex flex-col gap-2 text-sm text-muted-foreground">
             Queued from
             <input
               type="date"
               name="dateFrom"
               defaultValue={search.dateFrom ?? ""}
-              className="rounded-md border border-border bg-background px-2 py-1.5 text-[13px] text-foreground"
+              className="min-h-11 rounded-xl border border-border bg-background px-3 text-sm text-foreground"
             />
           </label>
-          <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+          <label className="flex flex-col gap-2 text-sm text-muted-foreground">
             Queued to
             <input
               type="date"
               name="dateTo"
               defaultValue={search.dateTo ?? ""}
-              className="rounded-md border border-border bg-background px-2 py-1.5 text-[13px] text-foreground"
+              className="min-h-11 rounded-xl border border-border bg-background px-3 text-sm text-foreground"
             />
           </label>
           <button
             type="submit"
-            className="rounded-md border border-border bg-muted px-3 py-1.5 text-[13px] font-medium text-foreground hover:bg-muted/80"
+            className="min-h-11 rounded-xl border border-border bg-muted px-4 text-sm font-semibold text-foreground hover:bg-muted/80"
           >
             Apply filters
           </button>
           {hasActiveFilters ? (
             <Link
               href={buildQueueUrl(orgId, {}, { tab: activeTab })}
-              className="text-[13px] font-medium text-primary hover:underline"
+              className="inline-flex min-h-11 items-center px-2 text-sm font-semibold text-primary hover:underline"
             >
               Clear filters
             </Link>
@@ -234,7 +234,7 @@ export default async function PublishingQueuePage({
           <Link
             href={buildQueueUrl(orgId, search, { platform: undefined })}
             className={cn(
-              "rounded-full border px-2.5 py-1 text-[12px]",
+              "inline-flex min-h-11 items-center rounded-full border px-4 py-2 text-sm",
               !platformFilter ? "border-primary text-primary" : "border-border text-muted-foreground",
             )}
           >
@@ -245,7 +245,7 @@ export default async function PublishingQueuePage({
               key={platform}
               href={buildQueueUrl(orgId, search, { platform })}
               className={cn(
-                "rounded-full border px-2.5 py-1 text-[12px]",
+                "inline-flex min-h-11 items-center rounded-full border px-4 py-2 text-sm",
                 platformFilter === platform ? "border-primary text-primary" : "border-border text-muted-foreground",
               )}
             >
@@ -258,7 +258,7 @@ export default async function PublishingQueuePage({
           <Link
             href={buildQueueUrl(orgId, search, { triggerType: undefined })}
             className={cn(
-              "rounded-full border px-2.5 py-1 text-[12px]",
+              "inline-flex min-h-11 items-center rounded-full border px-4 py-2 text-sm",
               !triggerTypeFilter ? "border-primary text-primary" : "border-border text-muted-foreground",
             )}
           >
@@ -269,7 +269,7 @@ export default async function PublishingQueuePage({
               key={triggerType}
               href={buildQueueUrl(orgId, search, { triggerType })}
               className={cn(
-                "rounded-full border px-2.5 py-1 text-[12px]",
+                "inline-flex min-h-11 items-center rounded-full border px-4 py-2 text-sm",
                 triggerTypeFilter === triggerType ? "border-primary text-primary" : "border-border text-muted-foreground",
               )}
             >

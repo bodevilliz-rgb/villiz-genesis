@@ -33,7 +33,7 @@ const OPERATIONS_NAV: NavItem[] = [
 ];
 
 const BUSINESS_NAV: NavItem[] = [
-  { href: "#reports", label: "Reports", icon: "bar-chart", disabled: true, note: "Soon", showInPrimaryNavigation: false },
+  { href: routes.analytics, label: "Analytics", icon: "bar-chart" },
   { href: "#finance", label: "Finance", icon: "wallet", disabled: true, note: "Soon", showInPrimaryNavigation: false },
 ];
 
@@ -51,10 +51,10 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
 
   return (
     <div className="flex min-h-screen">
-      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col gap-1 border-r border-border bg-surface px-3 py-4 lg:flex">
-        <Link href={routes.dashboard} className="mb-3 flex items-center gap-2.5 px-2">
-          <span aria-hidden className="size-2.5 rounded-full bg-primary" />
-          <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col gap-1 border-r border-border bg-surface/90 px-4 py-5 backdrop-blur-xl lg:flex">
+        <Link href={routes.dashboard} className="mb-3 flex min-h-11 items-center gap-2.5 px-2">
+          <span aria-hidden className="size-3 rounded-full bg-[linear-gradient(135deg,var(--primary),var(--signal-violet))] shadow-[0_0_0_5px_var(--primary-soft)]" />
+          <span className="text-sm font-semibold tracking-tight text-foreground">
             Villiz Social
           </span>
         </Link>
@@ -78,7 +78,7 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-border bg-background/85 px-2 py-2 backdrop-blur lg:hidden">
+        <header className="sticky top-0 z-30 flex min-h-16 items-center justify-between gap-3 border-b border-border bg-background/85 px-2 py-2 backdrop-blur-xl lg:hidden">
           <div className="flex min-w-0 items-center gap-1">
             <MobileNav
               navGroups={[
@@ -94,9 +94,9 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
               organisations={organisations}
               canCreateOrganisation={context.actor.isPlatformAdmin}
             />
-            <Link href={routes.dashboard} className="flex min-w-0 items-center gap-2 px-1">
-              <span aria-hidden className="size-2 shrink-0 rounded-full bg-primary" />
-              <span className="truncate font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+            <Link href={routes.dashboard} className="flex min-h-11 min-w-0 items-center gap-2 px-1">
+              <span aria-hidden className="size-2.5 shrink-0 rounded-full bg-[linear-gradient(135deg,var(--primary),var(--signal-violet))]" />
+              <span className="truncate text-sm font-semibold text-foreground">
                 Villiz Social
               </span>
             </Link>
@@ -106,7 +106,7 @@ export default async function WorkspaceLayout({ children }: { children: React.Re
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</main>
+        <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-7 sm:px-6 lg:px-10 lg:py-10">{children}</main>
       </div>
     </div>
   );

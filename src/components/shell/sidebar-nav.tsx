@@ -105,7 +105,7 @@ export function SidebarNav({
   return (
     <nav aria-label={label ?? "Primary"} className={cn("flex gap-0.5", horizontal ? "flex-row items-center" : "flex-col")}>
       {label ? (
-        <p className="px-3 pb-1 pt-3 font-mono text-[10px] uppercase tracking-[0.16em] text-subtle-foreground">
+        <p className="px-3 pb-1 pt-3 text-xs font-semibold text-subtle-foreground">
           {label}
         </p>
       ) : null}
@@ -121,7 +121,7 @@ export function SidebarNav({
               title={item.note}
               aria-disabled
               className={cn(
-                "flex cursor-not-allowed items-center gap-2.5 rounded-md px-3 py-1.5 text-[13px] text-subtle-foreground/60",
+                "flex min-h-11 cursor-not-allowed items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-subtle-foreground/60",
                 horizontal && "shrink-0 whitespace-nowrap",
               )}
             >
@@ -140,10 +140,10 @@ export function SidebarNav({
             href={item.href}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "relative flex items-center gap-2.5 rounded-md px-3 py-1.5 text-[13px] transition-colors",
+              "relative flex min-h-11 items-center gap-2.5 rounded-xl px-3 py-2 text-sm transition-colors",
               horizontal && "shrink-0 whitespace-nowrap",
               active
-                ? "bg-muted font-medium text-foreground"
+                ? "bg-[linear-gradient(135deg,rgba(255,122,26,0.18),rgba(139,92,246,0.18))] font-semibold text-foreground"
                 : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
             )}
           >

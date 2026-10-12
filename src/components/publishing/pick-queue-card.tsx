@@ -56,8 +56,8 @@ export function PickQueueCard({ organisationId, pick }: { organisationId: string
   );
 
   return (
-    <article className="grid gap-4 rounded-xl border border-border bg-card p-4 sm:grid-cols-[112px_1fr]" data-pick-id={pick.id}>
-      <div className="aspect-square overflow-hidden rounded-lg border border-border bg-muted">
+    <article className="grid gap-5 rounded-3xl border border-border bg-card p-5 shadow-[0_18px_70px_rgba(0,0,0,0.18)] sm:grid-cols-[128px_1fr]" data-pick-id={pick.id}>
+      <div className="aspect-square overflow-hidden rounded-2xl border border-border bg-muted">
         {pick.thumbnailUrl ? (
           // eslint-disable-next-line @next/next/no-img-element -- signed/private and Drive-reference URLs are runtime data.
           <img src={pick.thumbnailUrl} alt="" className="h-full w-full object-cover" />
@@ -111,7 +111,7 @@ export function PickQueueCard({ organisationId, pick }: { organisationId: string
           <div className="grid gap-3 lg:grid-cols-3">
             <form action={goAction} className="space-y-2">
               {sharedFields}
-              <button type="submit" className="min-h-11 w-full rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground">GO now</button>
+              <button type="submit" className="min-h-12 w-full rounded-xl bg-[linear-gradient(135deg,var(--primary),var(--signal-violet))] px-4 text-sm font-semibold text-white">GO now</button>
               <FormMessage state={goState} />
             </form>
 

@@ -8,6 +8,7 @@ export const routes = {
   authAccept: "/auth/accept",
   dashboard: "/dashboard",
   awo: "/awo",
+  analytics: "/analytics",
   publishing: "/publishing",
   review: "/review",
   reviewWorkspace: (id: string) => `/review/${id}`,
