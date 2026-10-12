@@ -121,6 +121,13 @@ begin
   values (v_draft_id, v_pick.asset_id, p_actor_id)
   on conflict do nothing;
 
+  -- The asset-link context trigger deliberately returns previously approved
+  -- drafts to needs_review. In this atomic owner-approval RPC the link is part
+  -- of the reviewed pick, so approval must be restored after that trigger.
+  update public.content_drafts
+     set status = 'approved', updated_by = p_actor_id
+   where id = v_draft_id;
+
   update public.picks_queue_items
      set draft_id = v_draft_id, platform = p_platform, caption_options =
        case when jsonb_array_length(caption_options) = 0 then jsonb_build_array(p_caption) else caption_options end

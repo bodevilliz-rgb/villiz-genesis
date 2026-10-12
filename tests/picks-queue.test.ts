@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -43,6 +44,16 @@ describe("Picks Queue caption contract", () => {
     expect(options.every((option) => option.length > 0 && option.length <= 5000)).toBe(true);
     expect(options.join(" ")).toContain("Clear, warm and useful");
     expect(options.join(" ")).toContain("Help people choose with confidence");
+  });
+});
+
+describe("Picks Queue approval migration", () => {
+  it("restores approved status after the asset-link context trigger runs", () => {
+    const migration = readFileSync("supabase/migrations/20261012123000_picks_queue.sql", "utf8");
+    const link = migration.indexOf("insert into public.content_draft_assets");
+    const reapproval = migration.indexOf("set status = 'approved'", link);
+    expect(link).toBeGreaterThan(-1);
+    expect(reapproval).toBeGreaterThan(link);
   });
 });
 
