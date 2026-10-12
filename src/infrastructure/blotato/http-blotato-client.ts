@@ -88,6 +88,7 @@ export class HttpBlotatoClient implements BlotatoClient {
       method: "POST",
       headers: this.headers({ "Content-Type": "application/json" }),
       body: JSON.stringify({
+        ...(input.scheduledTime ? { scheduledTime: input.scheduledTime } : {}),
         post: {
           accountId: input.accountId,
           content: {

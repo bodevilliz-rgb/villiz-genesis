@@ -40,6 +40,7 @@ import { SupabaseMediaRepository } from "../src/infrastructure/repositories/supa
 import { SupabaseStoragePort } from "../src/infrastructure/ports/supabase-storage-port";
 import { HttpBlotatoClient } from "../src/infrastructure/blotato/http-blotato-client";
 import { blotatoConfig } from "../src/infrastructure/blotato/blotato-config";
+import { queueMervicPublishAlert } from "../src/infrastructure/alerts/twilio-mervic-alert";
 import { resolvePublisher } from "../src/infrastructure/publishers/publisher-factory";
 import { resolveEffectiveSimulationMode } from "../src/infrastructure/publishers/simulation-mode";
 import { resolvePublishMediaUrls } from "../src/core/application/use-cases/publishing/media";
@@ -278,6 +279,7 @@ async function processJob(job: PublishingJob, deps: ReturnType<typeof buildDeps>
       title: draft.title,
       body: composePublishedText(draft.body, draft.hashtags ?? []),
       assetUrls: media.mediaUrls,
+      scheduledTime: job.triggerType === "scheduled" ? job.scheduledFor : undefined,
       devSimulationMode: effectiveMode,
       resolvedAccountId: job.resolvedAccountId,
       isAiGenerated: job.isAiGenerated,
@@ -314,6 +316,27 @@ async function processJob(job: PublishingJob, deps: ReturnType<typeof buildDeps>
         externalUrl: result.externalUrl,
         providerMetadata: receipt!.result.providerMetadata,
       });
+      const organisation = await deps.client
+        .from("organisations")
+        .select("name")
+        .eq("id", job.organisationId)
+        .single();
+      if (organisation.data) {
+        const alertOutcome = await queueMervicPublishAlert({
+          organisationName: organisation.data.name,
+          simulated: job.executionMode !== "live",
+          publicUrl: result.externalUrl,
+          enqueue: async () => {
+            const queued = await deps.client.rpc("enqueue_mervic_publish_alert", {
+              p_organisation_id: job.organisationId,
+              p_job_id: job.id,
+              p_public_url: result.externalUrl,
+            });
+            if (queued.error) throw new Error(queued.error.message);
+          },
+        });
+        log("mervic_publish_alert", { jobId: job.id, outcome: alertOutcome });
+      }
       log("attempt_completed", {
         jobId: job.id,
         attemptId: attempt.id,
@@ -374,6 +397,7 @@ function buildDeps(client: ReturnType<typeof createAdminClient>) {
   const generationId = process.env.PUBLISHING_WORKER_GENERATION_ID?.trim() || null;
   const proof = process.env.PUBLISHING_LIVE_CAPABILITY_PROOF?.trim() || null;
   return {
+    client,
     publishing: new SupabasePublishingRepository(client),
     content: new SupabaseContentRepository(client),
     audits: new SupabaseAuditRepository(client),

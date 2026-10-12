@@ -756,6 +756,27 @@ export type PublishingJobRow = {
   awaiting_confirmation_since: string | null;
 };
 
+export type PicksQueueItemRow = {
+  id: string;
+  organisation_id: string;
+  source_key: string;
+  asset_id: string | null;
+  source_kind: "organisation_media" | "drive_reference";
+  source_ref: string;
+  item_label: string;
+  caption_options: Json;
+  platform: PublishingPlatformDb;
+  slot_time: string | null;
+  status: "staged" | "queued" | "scheduled" | "publishing" | "published" | "verified";
+  draft_id: string | null;
+  job_id: string | null;
+  receipt_id: string | null;
+  public_url: string | null;
+  metadata: Json;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ScheduledPostRow = {
   id: string;
   organisation_id: string;
@@ -1227,6 +1248,17 @@ export type Database = {
           Fk<"publishing_jobs_requested_by_fkey", "requested_by", "profiles">,
         ]
       >;
+      picks_queue_items: Table<
+        PicksQueueItemRow,
+        Partial<PicksQueueItemRow>,
+        Partial<PicksQueueItemRow>,
+        [
+          Fk<"picks_queue_items_organisation_id_fkey", "organisation_id", "organisations">,
+          Fk<"picks_queue_items_asset_id_fkey", "asset_id", "media_assets">,
+          Fk<"picks_queue_items_draft_id_fkey", "draft_id", "content_drafts">,
+          Fk<"picks_queue_items_job_id_fkey", "job_id", "publishing_jobs">,
+        ]
+      >;
       scheduled_posts: Table<
         ScheduledPostRow,
         Partial<ScheduledPostRow>,
@@ -1275,6 +1307,31 @@ export type Database = {
           p_is_branded_content: boolean | null;
         };
         Returns: unknown;
+      };
+      prepare_pick_for_publishing: {
+        Args: {
+          p_organisation_id: string;
+          p_pick_id: string;
+          p_caption: string;
+          p_platform: PublishingPlatformDb;
+          p_actor_id: string;
+        };
+        Returns: string;
+      };
+      enqueue_mervic_publish_alert: {
+        Args: { p_organisation_id: string; p_job_id: string; p_public_url: string };
+        Returns: string;
+      };
+      record_native_publishing_receipt: {
+        Args: {
+          p_organisation_id: string;
+          p_pick_id: string;
+          p_platform: PublishingPlatformDb;
+          p_public_url: string;
+          p_receipt_id: string;
+          p_actor_id: string;
+        };
+        Returns: PublishingJobRow;
       };
       rotate_publishing_worker_generation: {
         Args: {

@@ -208,6 +208,7 @@ export abstract class BlotatoPublisherBase implements PublisherPort {
       platform: blotatoPlatform,
       text: input.body,
       mediaUrls: blotatoMediaUrls,
+      scheduledTime: input.scheduledTime,
       targetOptions: this.buildTargetOptions(input),
     });
 
