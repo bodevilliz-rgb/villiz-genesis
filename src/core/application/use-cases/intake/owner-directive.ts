@@ -187,7 +187,7 @@ const FOLDER_ANCHOR_RE = /\bfolder\b/i;
  *  genuinely ENDS with the word "platforms" or reads as a preposition+platform
  *  ("Tik Tok") cuts short — the kept index then surfaces the mismatch as an
  *  unknown_client stop instead of silently losing owner intent. */
-const FOLDER_PLATFORM_CLAUSE_CUT_RE = new RegExp(`\\s+(?:platforms?[\\s:=]+|platforms?\\s*$|(?:on|and|or|to|via)\\s+(${PLATFORM_ALTS})\\b)`, "i");
+const PLATFORM_TAIL_CUT_RE = new RegExp(`\\s+(?:platforms?[\\s:=]+|platforms?\\s*$|(?:on|and|or|to|via)\\s+(${PLATFORM_ALTS})\\b)`, "i");
 const FROM_CLAUSE_RE = /\b(?:from|in)\b/i;
 const DATE_PHRASE_RE = /\b(?:(\d{4}-\d{1,2}-\d{1,2})|(tomorrow|tonight|today)|(\d{1,2})(?:st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)(?:\s+(\d{4}))?|(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s*,?\s*(\d{4}))?)\b/i;
 const CLOCK_RE = /\b(\d{1,2})[:.](\d{2})(?:\s*([ap])\.?m?\b)?/i;
@@ -269,12 +269,12 @@ export function extractDriveFolderRef(message: string): string | null {
   const cutMatch = /\s+(?:\d{4}-\d{1,2}-\d{1,2}(?:\s|$)|\d{1,2}[:.]\d{2}|\d{1,2}$)/.exec(value);
   let head = cutMatch !== null && cutMatch.index !== undefined ? value.slice(0, cutMatch.index) : value;
   // Trailing platform context must never become folder data either (QA round-1
-  // blocking finding): "folder Y platforms: instagram 2026-10-21" is folder
-  // "Y", not "Y platforms" — the explicit clause carries the platform choice,
-  // and swallowing it would silently rewrite owner intent.
-  const cutMatchPlatform = FOLDER_PLATFORM_CLAUSE_CUT_RE.exec(head);
-  if (cutMatchPlatform !== null && cutMatchPlatform.index !== undefined) {
-    head = head.slice(0, cutMatchPlatform.index);
+  // blocking finding #1): probe head PLUS one lookahead char — the capture
+  // class stops at the colon ("Y platforms", bare "Y"), so the cut regex must
+  // see past the capture boundary to find the clause start.
+  const platformCut = PLATFORM_TAIL_CUT_RE.exec(`${head} `);
+  if (platformCut !== null && platformCut.index !== undefined && platformCut.index < head.length) {
+    head = head.slice(0, platformCut.index);
   }
   const trimmed = head.trim();
   return trimmed.length === 0 ? null : trimmed;
@@ -333,7 +333,7 @@ export function extractAssetNoun(
   if (!verbMatch || verbMatch[0] === undefined || verbMatch.index === undefined) return null;
   let tail = message.slice(verbMatch.index + verbMatch[0].length);
 
-  const cutReSources = [CONTENT_RE, DRIVE_FOLDER_RE, FOLDER_ANCHOR_RE, FROM_CLAUSE_RE, DATE_PHRASE_RE, /\b\d{1,2}[:.]\d{2}\b/];
+  const cutReSources = [CONTENT_RE, DRIVE_FOLDER_RE, FOLDER_ANCHOR_RE, FROM_CLAUSE_RE, DATE_PHRASE_RE, /\b\d{1,2}[:.]\d{2}\b/, PLATFORM_TAIL_CUT_RE];
   let cutIndex = tail.length;
   for (const source of cutReSources) {
     const match = new RegExp(source.source, "i").exec(tail);
