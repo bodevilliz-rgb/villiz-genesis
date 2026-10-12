@@ -19,6 +19,12 @@ const PLATFORM_NAMES: Record<PublishingPlatform, string> = {
   x: "X",
 };
 
+function hasPlatformPostPath(platform: PublishingPlatform, url: URL): boolean {
+  if (platform === "instagram") return /^\/p\/[^/]+\/?$/.test(url.pathname);
+  if (platform === "tiktok") return /^\/@[^/]+\/(?:photo|video)\/[^/]+\/?$/.test(url.pathname);
+  return true;
+}
+
 function cleanSentence(value: string): string {
   const compact = value.replace(/\s+/g, " ").trim();
   if (!compact) return "";
@@ -66,7 +72,11 @@ export async function verifyNativePostUrl(
     throw new Error("Enter a valid public post URL.");
   }
   const assertPlatformUrl = (candidate: URL) => {
-    if (candidate.protocol !== "https:" || !PLATFORM_HOSTS[platform].includes(candidate.hostname.toLowerCase())) {
+    if (
+      candidate.protocol !== "https:" ||
+      !PLATFORM_HOSTS[platform].includes(candidate.hostname.toLowerCase()) ||
+      !hasPlatformPostPath(platform, candidate)
+    ) {
       throw new Error(`Enter a public ${PLATFORM_NAMES[platform]} post URL.`);
     }
   };

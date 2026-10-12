@@ -74,6 +74,25 @@ describe("native-post verification", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
+  it("rejects an Instagram same-host URL that is not a native post, even when it returns HTTP 200", async () => {
+    const fetcher = vi.fn(async () => new Response("ok", { status: 200 }));
+    await expect(
+      verifyNativePostUrl("instagram", "https://www.instagram.com/accounts/login/", fetcher),
+    ).rejects.toThrow(/Instagram/i);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "https://www.tiktok.com/@villiz",
+    "https://www.tiktok.com/discover/video",
+    "https://tiktok.com.example.test/@villiz/video/123",
+    "https://localhost/@villiz/video/123",
+  ])("rejects a non-native or lookalike TikTok URL: %s", async (url) => {
+    const fetcher = vi.fn(async () => new Response("ok", { status: 200 }));
+    await expect(verifyNativePostUrl("tiktok", url, fetcher)).rejects.toThrow(/TikTok/i);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it("rejects a URL that cannot be read successfully", async () => {
     await expect(
       verifyNativePostUrl("x", "https://x.com/villiz/status/1", async () => new Response("missing", { status: 404 })),

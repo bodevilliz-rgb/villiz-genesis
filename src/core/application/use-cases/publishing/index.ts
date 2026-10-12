@@ -578,10 +578,10 @@ export async function reconcileBlotatoStatusTimeout(
     throw new ValidationError("Provider response does not match the recorded submission receipt.");
   }
 
-  if (status.status === "published") {
+  if (status.status === "published" && status.publicUrl?.trim()) {
     const publishedJob = await deps.publishing.reconcileFailedTimeout({
       organisationId, jobId, attemptId: lastAttempt.id, postSubmissionId,
-      externalUrl: status.publicUrl ?? "https://my.blotato.com", actorId: deps.actor.id,
+      externalUrl: status.publicUrl, actorId: deps.actor.id,
     });
     return { outcome: "published", job: publishedJob };
   }
@@ -595,7 +595,7 @@ export async function reconcileBlotatoStatusTimeout(
     return { outcome: "confirmed_failed", job: failedJob };
   }
 
-  // Still "in-progress" or "scheduled" at the provider — genuinely unresolved.
+  // Still non-terminal, or "published" without a public receipt — genuinely unresolved.
   // No DB write: the job stays exactly as it is (failed/blotato_status_timeout)
   // until a later reconciliation call observes a terminal status.
   return { outcome: "still_processing", job };

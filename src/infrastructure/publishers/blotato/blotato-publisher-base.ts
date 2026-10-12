@@ -256,12 +256,19 @@ export abstract class BlotatoPublisherBase implements PublisherPort {
       };
     }
 
+    const publicUrl = finalStatus.publicUrl?.trim();
+    if (!publicUrl) {
+      return {
+        success: "pending",
+        providerSubmissionId: submission.postSubmissionId,
+        metadata: baseMetadata,
+      };
+    }
+
     return {
       success: true,
       externalPostId: submission.postSubmissionId,
-      // Blotato returns the real permalink once the post is confirmed
-      // published; fall back to the dashboard only if it omitted one.
-      externalUrl: finalStatus.publicUrl ?? "https://my.blotato.com",
+      externalUrl: publicUrl,
       publishedAt: new Date().toISOString(),
       metadata: baseMetadata,
     };
@@ -274,7 +281,7 @@ export abstract class BlotatoPublisherBase implements PublisherPort {
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       const status = await this.deps.blotatoClient.getPostStatus(postSubmissionId);
-      if (status.status === "published" || status.status === "failed") {
+      if (status.status === "failed" || (status.status === "published" && Boolean(status.publicUrl?.trim()))) {
         return status;
       }
       if (attempt < maxAttempts) {

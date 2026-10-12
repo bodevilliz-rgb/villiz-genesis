@@ -163,12 +163,16 @@ describe("4 — a malformed shape fails clearly, naming the RPC", () => {
 
 // ── 6-11: the confirmation pass over the normalized contract ──────────────────
 
-function makeDeps(claimed: unknown, statusValue: "published" | "in-progress" = "in-progress") {
+function makeDeps(
+  claimed: unknown,
+  statusValue: "published" | "in-progress" = "in-progress",
+  publicUrl: string | null = statusValue === "published" ? "https://tiktok.com/@a/video/1" : null,
+) {
   const getPostStatus = vi.fn(async () => ({
     postSubmissionId: SUBMISSION_ID,
     status: statusValue,
     scheduledTime: null,
-    publicUrl: statusValue === "published" ? "https://tiktok.com/@a/video/1" : null,
+    publicUrl,
     errorMessage: null,
   }));
   const claimJobForConfirmation = vi.fn(async () => toClaimedPublishingJob(claimed, "claim_publishing_job_for_confirmation"));
@@ -198,6 +202,8 @@ function makeDeps(claimed: unknown, statusValue: "published" | "in-progress" = "
     getPostStatus,
     claimJobForConfirmation,
     markJobPublished,
+    completeAttempt,
+    recordConfirmationCheck,
   };
 }
 
@@ -228,6 +234,20 @@ describe("7/9/10/11 — an eligible job is claimed once and only its status is c
     // 10 + 11 — structurally unreachable: the only provider method in scope.
     expect(Object.keys(h.deps.blotatoClient as object)).toEqual(["getPostStatus"]);
     expect(h.markJobPublished).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps published-without-publicUrl pending and never fabricates a successful receipt", async () => {
+    const h = makeDeps([row()], "published", null);
+    const outcome = await runProviderConfirmationPass(h.deps, {
+      workerId: "w",
+      now: new Date("2026-08-10T03:06:00Z"),
+    });
+
+    expect(outcome.status).toBe("pending");
+    expect(h.completeAttempt).not.toHaveBeenCalled();
+    expect(h.markJobPublished).not.toHaveBeenCalled();
+    expect(h.recordConfirmationCheck).toHaveBeenCalledWith("job-1", expect.any(String));
+    expect(JSON.stringify(outcome)).not.toContain("my.blotato.com");
   });
 });
 

@@ -238,6 +238,29 @@ describe("BlotatoPublisherBase — final-status polling", () => {
     }
   });
 
+  it("keeps a published provider status pending when no public permalink was returned", async () => {
+    const publisher = new BlotatoLinkedInPublisher(
+      deps({
+        livePublishingEnabled: true,
+        blotatoAccounts: fakeRepository({ findActiveForOrganisationAndPlatform: async () => [storedAccount()] }),
+        blotatoClient: fakeClient({
+          publishPost: async () => ({ postSubmissionId: "submission-needs-url" }),
+          getPostStatus: async (id) => publishedStatus({ postSubmissionId: id, status: "published", publicUrl: null }),
+        }),
+        statusPollIntervalMs: 0,
+      }),
+    );
+
+    const result = await publisher.publish(input());
+
+    expect(result.success).toBe("pending");
+    expect(result).not.toHaveProperty("externalUrl");
+    if (result.success === "pending") {
+      expect(result.providerSubmissionId).toBe("submission-needs-url");
+    }
+    expect(JSON.stringify(result)).not.toContain("my.blotato.com");
+  });
+
   it("marks Failed with Blotato's own errorMessage when the polled status is 'failed' — this is the exact production bug: media-less posts get accepted then fail asynchronously", async () => {
     const getPostStatus = vi.fn(async (id: string) =>
       publishedStatus({ postSubmissionId: id, status: "failed", publicUrl: null, errorMessage: "Publishing on instagram requires an image or a video" }),
