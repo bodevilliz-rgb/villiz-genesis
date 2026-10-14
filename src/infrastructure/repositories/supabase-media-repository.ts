@@ -208,13 +208,10 @@ export class SupabaseMediaRepository implements MediaRepository {
     return this.mapToDomain(updated.data);
   }
 
-  async archiveAsset(organisationId: string, assetId: string, tags?: string[]): Promise<void> {
+  async archiveAsset(organisationId: string, assetId: string): Promise<void> {
     const result = await this.client
       .from("media_assets")
-      .update({
-        is_archived: true,
-        ...(tags !== undefined && tags.length > 0 ? { tags } : {}),
-      } as any)
+      .update({ is_archived: true } as any)
       .eq("id", assetId)
       .eq("organisation_id", organisationId);
 

@@ -8,7 +8,7 @@ describe("production sidebar configuration", () => {
   it("keeps the approved production destinations visible", async () => {
     const layout = await readFile(resolve(root, "src/app/(workspace)/layout.tsx"), "utf8");
 
-    for (const label of ["Mission Control", "Clients", "Reviews", "Publishing", "Awo", "Settings"]) {
+    for (const label of ["Mission Control", "Clients", "Reviews", "Publishing", "Analytics", "Awo", "Settings"]) {
       expect(layout).toContain(`label: "${label}"`);
     }
     expect(layout).toContain('{ href: routes.awo, label: "Awo", icon: "sparkles" }');
@@ -17,7 +17,7 @@ describe("production sidebar configuration", () => {
   it("preserves roadmap entries as configuration while hiding them from desktop and mobile production navigation", async () => {
     const layout = await readFile(resolve(root, "src/app/(workspace)/layout.tsx"), "utf8");
 
-    for (const label of ["Inbox", "Notifications", "Projects", "Creative", "Reports", "Finance"]) {
+    for (const label of ["Inbox", "Notifications", "Projects", "Creative", "Finance"]) {
       expect(layout).toMatch(new RegExp(`label: "${label}"[^\\n]+showInPrimaryNavigation: false`));
     }
   });

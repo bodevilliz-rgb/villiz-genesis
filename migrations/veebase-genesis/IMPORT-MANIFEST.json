@@ -1,0 +1,203 @@
+{
+  "generated_at": "2026-10-12T12:23:20.777Z",
+  "source": {
+    "project_ref": "zmmnvghzfoxnjqqxntwf",
+    "status_at_capture": "ACTIVE_HEALTHY",
+    "public_table_counts": {
+      "ai_usage_events": "0",
+      "campaigns": "0",
+      "content_draft_comments": "0",
+      "content_draft_reviews": "0",
+      "content_draft_versions": "1",
+      "content_drafts": "1",
+      "content_generation_requests": "0",
+      "conversation_summaries": "0",
+      "daily_briefs": "0",
+      "decision_reviews": "0",
+      "decisions": "0",
+      "executive_users": "0",
+      "google_accounts": "2",
+      "google_oauth_tokens": "2",
+      "knowledge": "0",
+      "media_assets": "0",
+      "meetings": "0",
+      "membrain_categories": "18",
+      "membrain_entries": "0",
+      "membrain_entry_tags": "0",
+      "membrain_entry_versions": "0",
+      "membrain_tags": "0",
+      "organisation_limits": "2",
+      "organisation_members": "2",
+      "organisations": "2",
+      "platform_settings": "1",
+      "playbooks": "0",
+      "profiles": "2",
+      "projects": "3",
+      "scheduled_posts": "0",
+      "social_accounts": "0",
+      "tasks": "0"
+    },
+    "auth_users": "2",
+    "storage_buckets": [
+      {
+        "id": "organisation-media",
+        "name": "organisation-media",
+        "public": false,
+        "file_size_limit": 524288000,
+        "allowed_mime_types": [
+          "image/jpeg",
+          "image/png",
+          "image/webp",
+          "image/gif",
+          "image/avif",
+          "video/mp4",
+          "video/quicktime",
+          "video/webm",
+          "application/pdf"
+        ],
+        "object_count": 0,
+        "total_bytes": 0
+      }
+    ],
+    "public_rls": {
+      "enabled_tables": 32,
+      "disabled_tables": 0
+    }
+  },
+  "target": {
+    "stack": "supabase-genesis",
+    "api_url": "http://100.94.229.2:8001",
+    "public_table_counts": {
+      "ai_generation_runs": "0",
+      "ai_prompt_templates": "0",
+      "ai_usage_events": "0",
+      "audit_events": "0",
+      "automation_events": "0",
+      "awo_campaign_jobs": "0",
+      "blotato_accounts": "0",
+      "brand_kit_assets": "0",
+      "brand_kits": "0",
+      "campaign_assets": "0",
+      "campaign_schedule_slots": "0",
+      "campaigns": "0",
+      "client_reports": "0",
+      "content_draft_assets": "0",
+      "content_draft_comments": "0",
+      "content_draft_reviews": "0",
+      "content_draft_versions": "1",
+      "content_drafts": "1",
+      "content_generation_requests": "0",
+      "conversation_summaries": "0",
+      "daily_briefs": "0",
+      "decision_reviews": "0",
+      "decisions": "0",
+      "engagement_commercial_outcomes": "0",
+      "engagement_feedback_events": "0",
+      "engagement_metric_snapshots": "0",
+      "engagement_recommendations": "0",
+      "executive_users": "0",
+      "google_accounts": "2",
+      "google_oauth_tokens": "2",
+      "knowledge": "0",
+      "market_intelligence_patterns": "0",
+      "market_intelligence_profiles": "0",
+      "market_intelligence_references": "0",
+      "media_asset_versions": "0",
+      "media_assets": "0",
+      "media_collection_assets": "0",
+      "media_collections": "0",
+      "media_deletion_requests": "0",
+      "meetings": "0",
+      "membrain_categories": "18",
+      "membrain_entries": "0",
+      "membrain_entry_tags": "0",
+      "membrain_entry_versions": "0",
+      "membrain_tags": "0",
+      "notifications": "0",
+      "organisation_limits": "2",
+      "organisation_members": "2",
+      "organisations": "2",
+      "picks_queue_items": "0",
+      "platform_settings": "1",
+      "playbooks": "0",
+      "profiles": "2",
+      "projects": "3",
+      "publishing_attempts": "0",
+      "publishing_duplicate_reconciliations": "0",
+      "publishing_jobs": "0",
+      "publishing_worker_generations": "0",
+      "scheduled_posts": "0",
+      "social_accounts": "0",
+      "staff_invitations": "0",
+      "tasks": "0"
+    },
+    "auth_users": "2",
+    "storage_buckets": [
+      {
+        "id": "organisation-media",
+        "name": "organisation-media",
+        "public": false,
+        "file_size_limit": 524288000,
+        "allowed_mime_types": [
+          "image/jpeg",
+          "image/png",
+          "image/webp",
+          "image/gif",
+          "image/avif",
+          "video/mp4",
+          "video/quicktime",
+          "video/webm",
+          "application/pdf"
+        ],
+        "object_count": 0,
+        "total_bytes": 0
+      }
+    ],
+    "public_rls": {
+      "enabled_tables": "62",
+      "disabled_tables": "0"
+    }
+  },
+  "dumps": {
+    "genesis-schema.sql": {
+      "sha256": "6ba5d01672e53c873c2eadb0676588afd6f30ba4582c01a9b847ae20a9293b21",
+      "lines": 3181,
+      "insert_statements": 0
+    },
+    "genesis-data.sql": {
+      "sha256": "d44ddb1a202ddf82a3098bd6307be9567179b57c787a3d1080156917ab7a6bb2",
+      "lines": 521,
+      "insert_statements": 19
+    },
+    "genesis-auth-users.sql": {
+      "sha256": "8a2a7e7aa3410ce3b79c1eb22442e33f3d9c2e3a67914f2eadaa0843a40b0685",
+      "lines": 231,
+      "insert_statements": 7
+    }
+  },
+  "repo_migrations_applied_after_cloud_snapshot": {
+    "first": "20260731120000_media_library.sql",
+    "last": "20261012123000_picks_queue.sql",
+    "count": 53
+  },
+  "compatibility_adjustment": {
+    "relation": "auth.one_time_tokens",
+    "added_nullable_column": "expires_at timestamptz",
+    "reason": "cloud data dump column is newer than the self-hosted auth bootstrap schema"
+  },
+  "checks": {
+    "source_public_table_counts_match": true,
+    "source_auth_users_match": true,
+    "critical_field_fingerprints_match": true,
+    "storage_bucket_metadata_and_counts_match": true,
+    "source_storage_object_policies_present": true,
+    "target_public_rls_disabled_tables": 0,
+    "repo_migration_object_parity": true
+  },
+  "mismatches": {
+    "table_counts": [],
+    "critical_fingerprints": [],
+    "missing_storage_policies": []
+  },
+  "result": "PASS"
+}

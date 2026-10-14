@@ -8,6 +8,7 @@ export const routes = {
   authAccept: "/auth/accept",
   dashboard: "/dashboard",
   awo: "/awo",
+  analytics: "/analytics",
   publishing: "/publishing",
   review: "/review",
   reviewWorkspace: (id: string) => `/review/${id}`,
@@ -23,6 +24,7 @@ export const routes = {
     team: (id: string) => `/organisations/${id}/team`,
     marketIntelligence: (id: string) => `/organisations/${id}/market-intelligence`,
     growth: (id: string) => `/organisations/${id}/growth`,
+    picks: (id: string) => `/organisations/${id}/picks`,
     membrain: {
       index: (id: string) => `/organisations/${id}/membrain`,
       new: (id: string) => `/organisations/${id}/membrain/new`,

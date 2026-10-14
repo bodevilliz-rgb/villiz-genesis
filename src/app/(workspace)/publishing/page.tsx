@@ -27,7 +27,7 @@ export default async function PublishingCommandCenterPage() {
 
       {/* Platform health dashboard */}
       <section className="flex flex-col gap-3">
-        <h2 className="font-mono text-[11px] uppercase tracking-[0.16em] text-subtle-foreground">
+        <h2 className="text-base font-semibold text-muted-foreground">
           Platform health
         </h2>
         <PublishingHealthDashboard analytics={analytics} />
@@ -35,7 +35,7 @@ export default async function PublishingCommandCenterPage() {
 
       {/* Metrics summary */}
       <section className="flex flex-col gap-3">
-        <h2 className="font-mono text-[11px] uppercase tracking-[0.16em] text-subtle-foreground">
+        <h2 className="text-base font-semibold text-muted-foreground">
           Metrics — all time
         </h2>
         <PublishingAnalyticsSummary analytics={analytics} />
@@ -55,7 +55,7 @@ async function ClientQueueLinks({ context }: { context: Awaited<ReturnType<typeo
 
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="font-mono text-[11px] uppercase tracking-[0.16em] text-subtle-foreground">
+      <h2 className="text-base font-semibold text-muted-foreground">
         Client queues
       </h2>
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
@@ -63,7 +63,7 @@ async function ClientQueueLinks({ context }: { context: Awaited<ReturnType<typeo
           <Link
             key={org.id}
             href={routes.organisations.publishing.index(org.id)}
-            className="flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-4 py-3 text-[13px] font-medium hover:bg-surface transition-colors"
+            className="flex min-h-14 items-center justify-between gap-2 rounded-2xl border border-border bg-card px-4 py-3 text-sm font-semibold transition-colors hover:bg-card-hover"
           >
             <span className="truncate">{org.name}</span>
             <ExternalLink aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
