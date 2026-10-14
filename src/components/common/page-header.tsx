@@ -16,12 +16,12 @@ export function PageHeader({
 }) {
   return (
     <header className={cn("flex flex-wrap items-start justify-between gap-4", className)}>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-2">
         {eyebrow ? (
-          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-subtle-foreground">{eyebrow}</p>
+          <p className="text-sm font-semibold text-primary">{eyebrow}</p>
         ) : null}
-        <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
-        {description ? <p className="max-w-2xl text-[13px] text-muted-foreground">{description}</p> : null}
+        <h1 className="text-3xl font-semibold tracking-[-0.035em] sm:text-4xl">{title}</h1>
+        {description ? <p className="max-w-2xl text-base leading-7 text-muted-foreground">{description}</p> : null}
       </div>
       {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
     </header>

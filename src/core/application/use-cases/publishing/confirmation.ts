@@ -106,7 +106,7 @@ export async function runProviderConfirmationPass(
   }
 
 
-  if (status.status === "published") {
+  if (status.status === "published" && status.publicUrl?.trim()) {
     // The awaiting attempt is NOT terminal (the DB's
     // prevent_terminal_attempt_mutation trigger only guards
     // completed/failed), so it resolves in place. One real submission stays
@@ -114,7 +114,7 @@ export async function runProviderConfirmationPass(
     // attempt history never claimed an outcome it did not have.
     await deps.publishing.completeAttempt(lastAttempt.id, {
       externalPostId: status.postSubmissionId,
-      externalUrl: status.publicUrl ?? "https://my.blotato.com",
+      externalUrl: status.publicUrl,
       providerMetadata: { ...lastAttempt.providerMetadata, confirmedAfterAwaiting: true },
     });
     await deps.publishing.markJobPublished(job.id);
@@ -148,7 +148,7 @@ export async function runProviderConfirmationPass(
       }
     }
 
-    return { status: "resolved", jobId: job.id, result: "published", externalUrl: status.publicUrl ?? "https://my.blotato.com" };
+    return { status: "resolved", jobId: job.id, result: "published", externalUrl: status.publicUrl };
   }
 
   if (status.status === "failed") {
@@ -187,7 +187,7 @@ export async function runProviderConfirmationPass(
     return { status: "resolved", jobId: job.id, result: "failed", errorMessage };
   }
 
-  // Provider still non-terminal ("in-progress" / "scheduled").
+  // Provider is non-terminal, or says "published" without a public receipt.
   const anchor = job.awaitingConfirmationSince ?? job.updatedAt;
   if (hasExceededConfirmationHorizon(anchor, now)) {
     // Stop checking automatically. Deliberately NOT a failure and

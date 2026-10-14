@@ -7,6 +7,8 @@ export interface BlotatoPublishInput {
   text: string;
   /** Must contain Blotato-domain URLs only (from uploadMedia). Sending Supabase or other external URLs directly causes an async "requires an image or a video" failure from Blotato. */
   mediaUrls: string[];
+  /** Blotato requires this at the request top level. Nesting it under `post` is silently ignored. */
+  scheduledTime?: string;
   /**
    * Merged into the outbound `target` object alongside `targetType`. Every
    * platform except TikTok has no mandatory target-level fields today, so

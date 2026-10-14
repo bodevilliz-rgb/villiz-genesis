@@ -146,7 +146,7 @@ export default async function DashboardPage() {
   return (
     <div className="flex flex-col gap-6">
       {/* Top Header layout */}
-      <div className="flex flex-col gap-5 border-b border-border pb-6 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex flex-col gap-5 rounded-3xl border border-border bg-[linear-gradient(135deg,rgba(255,122,26,0.12),rgba(139,92,246,0.12))] p-6 sm:flex-row sm:items-end sm:justify-between lg:p-8">
         <CommandCentreHeader
           fullName={context.actor.fullName}
           initialGreetingHour={new Date().getHours()}
@@ -159,7 +159,7 @@ export default async function DashboardPage() {
       <ExecutiveAttention items={attentionItems} />
 
       <div className="flex items-center gap-3 pt-1">
-        <h2 className="font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-subtle-foreground">Operational health</h2>
+        <h2 className="text-base font-semibold text-muted-foreground">Operational health</h2>
         <div className="h-px flex-1 bg-border" />
       </div>
 
@@ -195,7 +195,7 @@ export default async function DashboardPage() {
       </div>
 
       <div className="flex items-center gap-3 pt-1">
-        <h2 className="font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-subtle-foreground">Live activity</h2>
+        <h2 className="text-base font-semibold text-muted-foreground">Live activity</h2>
         <div className="h-px flex-1 bg-border" />
       </div>
       <LiveActivityFeed items={activityItems} />

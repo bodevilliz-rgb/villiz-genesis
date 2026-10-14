@@ -12,6 +12,8 @@ export interface PublishInput {
   title: string;
   body: string;
   assetUrls: string[];
+  /** UTC ISO instant for a scheduled job. Provider adapters must not nest this field. */
+  scheduledTime?: string;
   /**
    * Already resolved to "always_succeed" by the caller whenever
    * NODE_ENV=production (see infrastructure/publishers/simulation-mode.ts) —

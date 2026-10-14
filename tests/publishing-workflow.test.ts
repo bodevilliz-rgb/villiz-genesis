@@ -1069,6 +1069,22 @@ describe("reconcileBlotatoStatusTimeout", () => {
     expect(getJobs().find((j) => j.id === job.id)?.status).toBe("published");
   });
 
+  it("1a: provider says published without a publicUrl → remains unresolved with no fabricated receipt", async () => {
+    const { deps, getJobs, getAttempts } = createHarness({ draft: baseDraft({ status: "failed" }), viewerRole: "contributor" });
+    const job = await seedTimedOutJob(deps);
+
+    const result = await reconcileBlotatoStatusTimeout(
+      { ...deps, blotatoClient: fakeGetPostStatus({ postSubmissionId: "sub-timeout-1", status: "published", scheduledTime: null, publicUrl: null, errorMessage: null }) },
+      ORG_ID,
+      job.id,
+    );
+
+    expect(result.outcome).toBe("still_processing");
+    expect(getJobs().find((candidate) => candidate.id === job.id)?.status).toBe("failed");
+    expect(getAttempts().filter((attempt) => attempt.jobId === job.id)).toHaveLength(1);
+    expect(JSON.stringify(getAttempts())).not.toContain("my.blotato.com");
+  });
+
   it("1b (fix/scheduled-publishing-integrity): reconciling a SCHEDULED job preserves triggerType='scheduled' — reconciliation never touches trigger_type", async () => {
     const { deps, getJobs } = createHarness({ draft: baseDraft({ status: "failed" }), viewerRole: "contributor" });
     const scheduledJob = await seedTimedOutJob(deps, { triggerType: "scheduled" });
@@ -1248,7 +1264,7 @@ describe("reconcileBlotatoStatusTimeout", () => {
     for (const key of ["createAttempt", "startAttempt", "completeAttempt", "markJobPublished"] as const) {
       deps.publishing[key] = async () => { throw new Error("non-atomic reconciliation"); };
     }
-    const client = fakeGetPostStatus({ postSubmissionId: "sub-timeout-1", status: "published", scheduledTime: null, publicUrl: null, errorMessage: null });
+    const client = fakeGetPostStatus({ postSubmissionId: "sub-timeout-1", status: "published", scheduledTime: null, publicUrl: "https://instagram.com/p/real123", errorMessage: null });
     const results = await Promise.all([1, 2].map(() => reconcileBlotatoStatusTimeout({ ...deps, blotatoClient: client }, ORG_ID, job.id)));
     expect(results.map(r => r.outcome)).toEqual(["published", "published"]);
     expect(getAttempts()).toHaveLength(2);
@@ -1268,7 +1284,7 @@ describe("reconcileBlotatoStatusTimeout", () => {
   it("handles a concurrent commit between the job and latest-attempt reads", async () => {
     const { deps } = createHarness({ draft: baseDraft({ status: "failed" }), viewerRole: "contributor" });
     const job = await seedTimedOutJob(deps);
-    const client = fakeGetPostStatus({ postSubmissionId: "sub-timeout-1", status: "published", scheduledTime: null, publicUrl: null, errorMessage: null });
+    const client = fakeGetPostStatus({ postSubmissionId: "sub-timeout-1", status: "published", scheduledTime: null, publicUrl: "https://instagram.com/p/real123", errorMessage: null });
     await reconcileBlotatoStatusTimeout({ ...deps, blotatoClient: client }, ORG_ID, job.id);
     const read = deps.publishing.findJobById.bind(deps.publishing);
     let first = true;
@@ -1286,7 +1302,13 @@ describe("reconcileBlotatoStatusTimeout", () => {
     const job = await seedTimedOutJob(deps);
     const atomic = deps.publishing.reconcileFailedTimeout.bind(deps.publishing);
     deps.publishing.reconcileFailedTimeout = async input => { await atomic(input); throw new Error("response lost"); };
-    const client = fakeGetPostStatus({ postSubmissionId: "sub-timeout-1", status, scheduledTime: null, publicUrl: null, errorMessage: null });
+    const client = fakeGetPostStatus({
+      postSubmissionId: "sub-timeout-1",
+      status,
+      scheduledTime: null,
+      publicUrl: status === "published" ? "https://instagram.com/p/real123" : null,
+      errorMessage: null,
+    });
     await expect(reconcileBlotatoStatusTimeout({ ...deps, blotatoClient: client }, ORG_ID, job.id)).rejects.toThrow("response lost");
     await expect(reconcileBlotatoStatusTimeout({ ...deps, blotatoClient: {
       getPostStatus: async () => { throw new Error("must not call provider after restart"); },
