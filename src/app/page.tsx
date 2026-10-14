@@ -14,8 +14,8 @@ import {
 } from "@/components/landing/landing-v2";
 
 export const metadata: Metadata = {
-  title: "Villiz Pixels · Creative Production & Marketing Studio",
-  description: "A premium creative production and marketing studio combining media, strategy, AI integration, and workflow automation.",
+  title: "Genesis · Villiz Social Media Manager",
+  description: "Genesis is the staff-only Villiz Social Media Manager for controlled client content intake, approval, publishing, and release proof.",
 };
 
 export default function LandingPage() {
