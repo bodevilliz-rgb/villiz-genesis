@@ -296,11 +296,12 @@ export async function stagePostingAssets(
       // MediaRepository port has no hard-delete; permanent deletion is the
       // governed two-phase safe-delete path, deliberately out of scope here.)
       try { await deps.storage.deleteMedia(storagePath); } catch { /* best-effort */ }
+      const provenanceFailedTags = [`stage:${input.requestId}`, "provenance_failed"];
       let archived = false;
       try {
-        await deps.media.archiveAsset(input.organisationId, asset.id);
+        await deps.media.archiveAsset(input.organisationId, asset.id, provenanceFailedTags);
         archived = true;
-      } catch { /* best-effort archive; tags below still mark the row */ }
+      } catch { /* best-effort archive; the fallback metadata update below remains best-effort */ }
       if (archived) {
         try {
           await deps.media.updateAssetMetadata(asset.id, {
@@ -352,6 +353,29 @@ export async function stagePostingAssets(
       auditEventId = event.id;
     } catch (error) {
       try { await deps.storage.deleteMedia(storagePath); } catch { /* best-effort */ }
+      // The provenance row is a hard requirement: the half-staged asset must
+      // never survive as live library inventory. Mirror the enrichment-failure
+      // cleanup — archive the row in place carrying the `provenance_failed`
+      // marker (the durable half), even though the audit event itself failed.
+      let archived = false;
+      try {
+        await deps.media.archiveAsset(input.organisationId, asset.id, [
+          `stage:${input.requestId}`,
+          "provenance_failed",
+        ]);
+        archived = true;
+      } catch { /* best-effort archive; permanent deletion is the governed two-phase path */ }
+      if (archived) {
+        try {
+          await deps.media.updateAssetMetadata(asset.id, {
+            title: file.fileName, thumbnailPath: null, category: STAGING_CATEGORY,
+            description: null, altText: null,
+            tags: [`stage:${input.requestId}`, "provenance_failed"],
+            brand: null, duration: null, copyrightOwner: null, usageRights: null,
+            expiresAt: null, isAiGenerated: false, isArchived: true,
+          });
+        } catch { /* the archive marker above is the durable half */ }
+      }
       skips.push({
         fileName: file.fileName,
         code: "STAGING_SESSION_FAILED",

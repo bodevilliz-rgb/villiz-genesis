@@ -176,18 +176,20 @@ const CONTENT_RE = /content\s+["'“”]([^"'“”]+)["'“”]/i;
 const DRIVE_FOLDER_RE = /(?:from|in)\s+(?:the\s+)?(?:drive\s+)?folder\s+["'“”]?([A-Za-z0-9][A-Za-z0-9 _/-]*)/i;
 /** Bare "folder Y" — anchor used for cutting the asset-noun tail (no "from" required). */
 const FOLDER_ANCHOR_RE = /\bfolder\b/i;
-/** Trailing platform context must never become folder data: three shapes exist.
- *  (1) an operator clause starting inside the capture: `platforms: …`,
- *  `platforms =` (fire when whitespace/colon/equals trails the word);
- *  (2) the bare word itself at the END of the capture — the colon sits just
- *  outside the capture class, so "folder Y platforms: instagram …" is folder "Y";
- *  (3) a preposition + platform word ("folder Y on Instagram", "folder Y to
+/** Trailing platform context must never become folder data: two shapes exist.
+ *  (1) an operator clause — `platforms: …` / `platforms = …`. The `:`/`=`
+ *  sits OUTSIDE the DRIVE_FOLDER_RE capture class, so such a clause always
+ *  leaves the bare word "platforms" as the LAST thing in the captured name;
+ *  the cut therefore fires only on that trailing word (\s*$), never on a
+ *  mid-capture "platforms <word>";
+ *  (2) a preposition + platform word ("folder Y on Instagram", "folder Y to
  *  TikTok"). Anchored with \s+ on the left so hyphenated names
- *  ("launch-on-ig-raw") survive intact. Known trade-off: a folder name that
- *  genuinely ENDS with the word "platforms" or reads as a preposition+platform
- *  ("Tik Tok") cuts short — the kept index then surfaces the mismatch as an
- *  unknown_client stop instead of silently losing owner intent. */
-const PLATFORM_TAIL_CUT_RE = new RegExp(`\\s+(?:platforms?[\\s:=]+|platforms?\\s*$|(?:on|and|or|to|via)\\s+(${PLATFORM_ALTS})\\b)`, "i");
+ *  ("launch-on-ig-raw") survive intact. A folder name that carries on past
+ *  "platforms" ("folder Alpha Homes platforms to tiktok") is KEPT whole — the
+ *  preposition tail ("to tiktok") is still cut — and an unindexed result fails
+ *  closed through the unknown_client stop. Silently trimming owner-named
+ *  folders is the worse failure mode (QA run-269). */
+const PLATFORM_TAIL_CUT_RE = new RegExp(`\\s+(?:platforms?\\s*$|(?:on|and|or|to|via)\\s+(${PLATFORM_ALTS})\\b)`, "i");
 const FROM_CLAUSE_RE = /\b(?:from|in)\b/i;
 const DATE_PHRASE_RE = /\b(?:(\d{4}-\d{1,2}-\d{1,2})|(tomorrow|tonight|today)|(\d{1,2})(?:st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)(?:\s+(\d{4}))?|(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+(\d{1,2})(?:st|nd|rd|th)?(?:\s*,?\s*(\d{4}))?)\b/i;
 const CLOCK_RE = /\b(\d{1,2})[:.](\d{2})(?:\s*([ap])\.?m?\b)?/i;
@@ -740,11 +742,14 @@ export function parseOwnerDirective(
   };
 }
 
-/** True when the parsed contract is ready to enter the governed publishing path: no stops, a future schedule, and assets RESOLVED by the asset-resolution lane (a parsed message alone never reaches publishing). */
+/** True when the parsed contract is ready to enter the governed publishing path: no stops, a future schedule, and assets RESOLVED by the asset-resolution lane (a parsed message alone never reaches publishing). Defensive against partially-built contracts: every leg fails closed. */
 export function isSchedulable(job: ParsedIntakeJob): boolean {
-  if (job.stops.length !== 0) return false;
-  if (job.schedule.scheduledFor === "") return false;
-  if (job.asset.kind === "client_asset_index") return false;
-  if (job.asset.resolvedAssetIds === null || job.asset.resolvedAssetIds.length === 0) return false;
+  if (!job || (job.stops?.length ?? 0) !== 0) return false;
+  const scheduledFor = job.schedule?.scheduledFor ?? "";
+  if (scheduledFor === "") return false;
+  const asset = job.asset;
+  if (asset == null) return false;
+  if (asset.kind === "client_asset_index") return false;
+  if (asset.resolvedAssetIds === null || (asset.resolvedAssetIds?.length ?? 0) === 0) return false;
   return true;
 }

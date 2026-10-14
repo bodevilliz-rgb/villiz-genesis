@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  extractDriveFolderRef,
   extractPlatformTokens,
   extractUnknownPlatformTokens,
-  isSchedulable,
   parseOwnerDirective,
 } from "@/core/application/use-cases/intake/owner-directive";
+import { isPublishingPlatform } from "@/core/domain/entities/publishing";
 
 const NOW = "2026-10-02T12:00:00.000Z";
 const CLIENT_INDEX: Record<string, string> = { "Alpha Homes": "Alpha Homes Oct", Genesis: "Y" };
@@ -22,7 +23,6 @@ function baseInput(message: string, overrides: Partial<{ keptHashtags: string[];
 describe("QA run-269 probes @ a78550ac (merged tree)", () => {
   it("run1 repro: folder clause not swallowed + real unknown_platform stop fires", () => {
     expect(extractDriveFolderRef === undefined).toBe(false);
-    const { extractDriveFolderRef } = require("@/core/application/use-cases/intake/owner-directive");
     expect(extractDriveFolderRef("schedule fliers from folder Y platforms: instagram 2026-10-21")).toBe("Y");
     expect(extractDriveFolderRef("schedule fliers from folder Y on instagram 2026-10-21")).toBe("Y");
     expect(extractDriveFolderRef("schedule fliers from folder Y to tiktok")).toBe("Y");
@@ -79,8 +79,8 @@ describe("QA run-269 probes @ a78550ac (merged tree)", () => {
   });
 
   it("regression: schedulability helpers", () => {
-    expect(isSchedulable("instagram")).toBe(true);
-    expect(isSchedulable("bebo")).toBe(false);
+    expect(isPublishingPlatform("instagram")).toBe(true);
+    expect(isPublishingPlatform("bebo")).toBe(false);
   });
 
   it("caption gate: always present, requires approval, exact message", () => {

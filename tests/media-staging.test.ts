@@ -141,11 +141,11 @@ function fakeStore(): { state: FakeStoreState; media: MediaRepository; storage: 
       state.assets[idx] = updated;
       return updated;
     },
-    async archiveAsset(organisationId: string, assetId: string): Promise<void> {
+    async archiveAsset(organisationId: string, assetId: string, tags?: string[]): Promise<void> {
       const asset = state.assets.find((a) => a.organisationId === organisationId && a.id === assetId);
       if (!asset) throw new Error("archiveAsset: asset not found");
       const idx = state.assets.findIndex((a) => a.id === assetId);
-      state.assets[idx] = { ...asset, isArchived: true };
+      state.assets[idx] = { ...asset, isArchived: true, ...(tags !== undefined ? { tags } : {}) };
       state.archived.push(assetId);
     },
   } as unknown as MediaRepository;

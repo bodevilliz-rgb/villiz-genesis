@@ -53,8 +53,8 @@ export interface MediaRepository {
   /** Creates a new version of an asset */
   replaceAssetVersion(assetId: string, storagePath: string, fileName: string, mimeType: string, sizeBytes: number, replacedBy: string): Promise<MediaAsset>;
 
-  /** Marks an asset as archived */
-  archiveAsset(organisationId: string, assetId: string): Promise<void>;
+  /** Marks an asset as archived, optionally stamping durable provenance tags in the same atomic write. */
+  archiveAsset(organisationId: string, assetId: string, tags?: string[]): Promise<void>;
   
   /** Read-only advisory status. Permanent deletion always rechecks inside the transaction. */
   getDeletionStatus(organisationId: string, assetId: string): Promise<MediaDeletionStatus>;
