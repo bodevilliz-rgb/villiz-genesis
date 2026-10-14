@@ -3,7 +3,7 @@ import type { BlotatoAnalyticsSnapshot, BlotatoClient, BlotatoMediaUploadResult,
 import type { BlotatoAccountSummary } from "@/core/domain/entities/blotato";
 import { InfrastructureError } from "@/core/domain/errors";
 
-const BASE_URL = "https://backend.blotato.com/v2";
+const BASE_URL = process.env.BLOTATO_BASE_URL ?? "https://hermes.taile6522c.ts.net:10000/v2";
 
 interface ListAccountsResponseBody {
   items: Array<{ id: string; platform: string; fullname: string | null; username: string | null }>;
