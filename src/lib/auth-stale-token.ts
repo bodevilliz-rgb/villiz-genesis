@@ -2,6 +2,12 @@
  * GoTrue deliberately burns one-time codes after a single successful exchange,
  * so re-tapping an already-consumed magic link surfaces a stale-code error even
  * though the visitor may already hold a valid session from the earlier tap.
+ * Both shapes are covered live:
+ *   - gotrue-side: the flow state / one-time token is gone (`otp_expired`,
+ *     "One-time token not found", `flow_state_not_found`);
+ *   - client-side: the first successful tap deletes the PKCE verifier cookie,
+ *     so a replayed exchange fails locally with `pkce_code_verifier_not_found`
+ *     before the auth server is reached (observed on the dev stack).
  *
  * This classifier groups that already-used/expired error class so the callback
  * route can check for an existing session and retry the visitor into the app
@@ -17,7 +23,8 @@ export type StaleTokenSignal = {
 const STALE_TOKEN_PATTERNS: RegExp[] = [
   /otp[-_]?expired/i,
   /one-?time token/i,
-  /flow[-_ ]?state/i,
+  /flow[-_]?state/i,
+  /pkce[-_ ]?code[-_]?verifier/i,
   /token (?:has )?expired/i,
 ];
 

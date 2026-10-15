@@ -85,10 +85,17 @@ describe("auth callback stale-token handling", () => {
 });
 
 describe("isStaleTokenError (consumed one-time code classifier)", () => {
-  it("matches the gotrue one-time-token expired class", () => {
+  it("matches the consumed one-time-code classes observed in production and on the dev stack", () => {
     expect(isStaleTokenError({ code: "otp_expired", message: "The OTP code has been used" })).toBe(true);
     expect(isStaleTokenError({ message: "One-time token not found" })).toBe(true);
-    expect(isStaleTokenError({ message: "Flow state not found. Please request a new auth link." })).toBe(true);
+    expect(isStaleTokenError({
+      code: "flow_state_not_found",
+      message: "invalid flow state, no valid flow state found",
+    })).toBe(true);
+    expect(isStaleTokenError({
+      code: "pkce_code_verifier_not_found",
+      message: "PKCE code verifier not found in storage.",
+    })).toBe(true);
     expect(isStaleTokenError({ message: "invalid request: token has expired" })).toBe(true);
   });
 
