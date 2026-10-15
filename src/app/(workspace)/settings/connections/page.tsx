@@ -90,13 +90,18 @@ export default async function PublisherConnectionsPage({ searchParams }: PagePro
       ) : null}
 
       <Card>
-        <CardHeader>
-          <CardTitle>Connect account</CardTitle>
-          <CardDescription>
-            One tap: LinkedIn asks for the permission set (read profile + post as you), then returns
-            you here with the account already connected.
-          </CardDescription>
-        </CardHeader>
+        {/* Hub unconfigured → the body is the not-configured EmptyState, so the
+            "Connect account / One tap" header would contradict it: render the
+            header only when connecting is actually possible. */}
+        {config ? (
+          <CardHeader>
+            <CardTitle>Connect account</CardTitle>
+            <CardDescription>
+              One tap: LinkedIn asks for the permission set (read profile + post as you), then returns
+              you here with the account already connected.
+            </CardDescription>
+          </CardHeader>
+        ) : null}
         <CardContent>
           {!config ? (
             <EmptyState
