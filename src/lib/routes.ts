@@ -16,6 +16,7 @@ export const routes = {
   settings: "/settings",
   team: "/team",
   settingsPublishing: "/settings/publishing",
+  settingsConnections: "/settings/connections",
   organisations: {
     index: "/organisations",
     new: "/organisations/new",
