@@ -102,7 +102,7 @@ export default async function PublisherConnectionsPage({ searchParams }: PagePro
             <EmptyState
               icon={<KeyRound aria-hidden />}
               title="Publishing hub not configured"
-              description="This page needs HUB_BASE_URL (the hub's public TLS origin). Ask an administrator to set it in the Vercel project environment."
+              description="This page needs HUB_BASE_URL and HUB_API_KEY (the hub's public TLS origin and its API key). Ask an administrator to set both in the Vercel project environment."
             />
           ) : canManage ? (
             <div className="flex flex-col items-start gap-3">
@@ -124,36 +124,40 @@ export default async function PublisherConnectionsPage({ searchParams }: PagePro
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Accounts</CardTitle>
-          <CardDescription>
-            Tombstoned (disconnected) accounts stay listed for history; they can never publish again
-            until they are re-connected.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {fetchError ? (
-            <EmptyState
-              icon={<Plug aria-hidden />}
-              title="Hub unreachable"
-              description={fetchError}
-            />
-          ) : connections.length === 0 ? (
-            <EmptyState
-              icon={<Plug aria-hidden />}
-              title="No publisher accounts connected yet"
-              description="Click Connect account above — after consent the account appears here with a green Healthy row."
-            />
-          ) : (
-            <ConnectedPublisherAccounts
-              connections={connections}
-              canManage={canManage}
-              initialExpiryLabels={initialExpiryLabels}
-            />
-          )}
-        </CardContent>
-      </Card>
+      {/* When the hub isn't configured there are no accounts to list — render
+          only the not-configured state above, not an empty accounts card. */}
+      {config ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Accounts</CardTitle>
+            <CardDescription>
+              Tombstoned (disconnected) accounts stay listed for history; they can never publish again
+              until they are re-connected.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {fetchError ? (
+              <EmptyState
+                icon={<Plug aria-hidden />}
+                title="Hub unreachable"
+                description={fetchError}
+              />
+            ) : connections.length === 0 ? (
+              <EmptyState
+                icon={<Plug aria-hidden />}
+                title="No publisher accounts connected yet"
+                description="Click Connect account above — after consent the account appears here with a green Healthy row."
+              />
+            ) : (
+              <ConnectedPublisherAccounts
+                connections={connections}
+                canManage={canManage}
+                initialExpiryLabels={initialExpiryLabels}
+              />
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }

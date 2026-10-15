@@ -32,7 +32,7 @@ export async function disconnectPublisherConnectionAction(
       return {
         status: "error",
         message:
-          "The publishing hub is not configured. Ask an administrator to set HUB_BASE_URL.",
+          "The publishing hub is not configured. Ask an administrator to set HUB_BASE_URL and HUB_API_KEY.",
       };
     }
     await disconnectPublisherConnection({ client }, { accountId });
