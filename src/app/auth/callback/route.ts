@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createGenesisClient } from "@/infrastructure/supabase/server-client";
+import { isStaleTokenError } from "@/lib/auth-stale-token";
 import { resolveSafeNextPath } from "@/lib/routes";
 
 /**
@@ -28,6 +29,17 @@ export async function GET(request: NextRequest) {
   const { error } = await supabase.auth.exchangeCodeForSession(code);
 
   if (error) {
+    // One-time codes burn on first successful use by design, so re-tapping an
+    // already-consumed email is expected — not an auth failure. When the
+    // visitor already holds a valid session from the earlier tap, retry them
+    // into the app instead of a dead-end error page.
+    if (isStaleTokenError(error)) {
+      const { data } = await supabase.auth.getUser();
+      if (data.user) {
+        return NextResponse.redirect(`${origin}${next}`);
+      }
+    }
+
     return NextResponse.redirect(`${origin}/auth/error?reason=expired`);
   }
 
